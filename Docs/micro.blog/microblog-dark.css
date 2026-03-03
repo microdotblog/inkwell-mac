@@ -1,0 +1,971 @@
+@media (prefers-color-scheme: dark) {
+  .theme-auto {
+    --plain: #E5E7EB;
+    --green: #e4efdc;
+    --separator: #374151;
+    --lighter: #8d8d8d;
+    --box: #121826;
+  }
+
+  .theme-auto body {
+    background-color: #1F2937;
+    color: #E5E7EB;
+  }
+
+  .theme-auto .menu .social a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .menu .extras a {
+    color: #9CA3AF;
+  }
+
+  .theme-auto .menu .manage a {
+    color: #818CF8;
+  }
+
+  .theme-auto .sidebar_container {
+    border-color: #374151;
+  }
+
+  .theme-auto .post {
+    margin-bottom: 15px;
+  }
+
+  .theme-auto .post_username a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .post_text {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .post_text a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .sidebar .btn-default,
+  .theme-auto .btn-default {
+    background-color: #374151;
+    color: #E5E7EB;
+    border-color: black;
+  }
+
+  .theme-auto .sidebar .btn-default:hover,
+  .theme-auto .btn-default:hover {
+    background-color: #1F2937;
+  }
+
+  .table-striped>tbody>tr:nth-of-type(odd) .btn-default {
+    background-color: #1F2937;
+  }
+
+  .theme-auto .sidebar .newpost {
+    margin-top: 4px;
+  }
+
+  .theme-auto .control-label,
+  .theme-auto label {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .alert-info {
+    background-color: rgba(30, 64, 175, 0.20);
+    color: white;
+    border-color: rgba(29, 78, 216, 1);
+  }
+
+  .theme-auto .alert-warning {
+    background-color: #F59E0B;
+    border-color: #bc702c;
+    color: #78350F;
+  }
+
+  .theme-auto .alert-info a {
+    color: rgba(147, 197, 253, 1);
+    font-weight: 500;
+  }
+
+  .theme-auto .highlight {
+    background-color: #FDE68A;
+    color: black;
+  }
+
+  .theme-auto .timeline_options_alert,
+  .theme-auto .passkey_alert {
+    background-color: #10B981;
+    font-size: 16px;
+    padding: 10px 15px;
+    color: white;
+  }
+
+  .theme-auto .table-striped>tbody>tr:nth-of-type(odd) {
+    background-color: #111827;
+  }
+
+  .theme-auto .CodeMirror {
+    background-color: #1F2937;
+    color: white;
+  }
+
+  .theme-auto .CodeMirror-cursor {
+    border-color: white;
+  }
+
+  .theme-auto .form-control {
+    background-color: #1d2530;
+    border: 1px solid #394150;
+    color: white;
+  }
+
+  .theme-auto #ghost_code_group input {
+    background-color: #e3f6db;
+    color: #1c2c1c;
+  }
+
+  .theme-auto #menus_table .row {
+    border-color: #374151;
+  }
+
+  .theme-auto #menus_table .row {
+    background-color: #1F2937;
+  }
+
+  .theme-auto .dropdown-menu {
+    background-color: #111827;
+    color: white;
+  }
+
+  .theme-auto .dropdown-menu>li>a {
+    color: white;
+  }
+
+  .theme-auto .dropdown-menu>li>a:focus,
+  .theme-auto .dropdown-menu>li>a:hover {
+    color: white;
+    background-color: #262626;
+  }
+
+  .theme-auto .account_posts_header {
+    background-color: #111827;
+    color: white;
+    border: 1px solid #1a2338;
+  }
+
+  .theme-auto .account_bar_hostname {
+    color: white;
+  }
+
+  .theme-auto .register_options_container {
+    background-color: #111827;
+    color: white;
+  }
+
+  .theme-auto .register_options_subtitle {
+    color: #9CA3AF;
+  }
+
+  .theme-auto .alert-success {
+    color: #ECFDF5;
+    background-color: #059669;
+    border-color: #036345;
+  }
+
+  .theme-auto .site_link a,
+  .theme-auto .markdown_link {
+    color: white;
+  }
+
+  .theme-auto .post_selected {
+    background-color: #111827;
+  }
+
+  .theme-auto .mentions_bar {
+    background-color: #111827;
+    border: 1px solid #1a2338;
+  }
+
+  .theme-auto .post_options a {
+    color: #bdbdbd;
+  }
+
+  .theme-auto .post_options .post_time a {
+    color: #bdbdbd;
+  }
+
+  .theme-auto .discover_fullname a {
+    color: white;
+  }
+
+  .theme-auto .discover_username a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .post_editor {
+    background-color: #1d2530;
+    border: 1px solid #394150;
+    color: white;
+    border-radius: 4px;
+  }
+
+  .theme-auto .cm-content {
+    caret-color: #E5E7EB !important;
+  }
+
+  .theme-auto .cmt-meta {
+    color: #bcbcbc;
+  }
+
+  .theme-auto .cmt-strong.cmt-meta {
+    font-weight: bold;
+    color: #E5E7EB;
+  }
+
+  .theme-auto .cmt-link {
+    color: #9DBDDF;
+  }
+
+  .theme-auto .cmt-link.cmt-url {
+    color: #bcbcbc;
+  }
+
+  .theme-auto .cmt-punctuation {
+    color: #bcbcbc;
+  }
+
+  .theme-auto .cmt-typeName {
+    color: #bcbcbc;
+  }
+
+  .theme-auto .cmt-operator {
+    color: #bcbcbc;
+  }
+
+  .theme-auto .subscriptions_card_form {
+    background-color: #111827;
+  }
+
+  .theme-auto .btn-group .btn {
+    background-color: #212936;
+  }
+
+  .theme-auto .btn-group .btn.selected_segment {
+    background-color: #3e4655;
+    /* #394150; */
+  }
+
+  .theme-auto .menu_publish_alert,
+  .theme-auto .css_publish_alert {
+    background-color: #10B981;
+    color: black;
+  }
+
+  .theme-auto .other_apps,
+  .theme-auto .plans_current_summary,
+  .theme-auto .form_divider,
+  .theme-auto .table>tbody>tr>td,
+  .theme-auto .table>tbody>tr>th,
+  .theme-auto .table>tfoot>tr>td,
+  .theme-auto .table>tfoot>tr>th,
+  .theme-auto .table>thead>tr>td,
+  .theme-auto .table>thead>tr>th {
+    border-color: #394150;
+  }
+
+  .theme-auto .posting_chars_normal {
+    color: grey;
+  }
+
+  .theme-auto .plugins_view_table {
+    border-bottom: 1px solid #777;
+  }
+
+  .theme-auto .plugins_installed .title {
+    color: white;
+  }
+
+  .theme-auto .plugins_readme {
+    border-top: 1px solid #777777;
+    border-bottom: 1px solid #777777;
+    background-color: #121826;
+  }
+
+  .theme-auto .plugins_installed .disabled_version span {
+    background-color: black;
+    color: #c3c6cb;
+  }
+
+  .theme-auto .books_description {
+    border-top: 1px solid #394150;
+  }
+
+  .theme-auto .instapaper_divider {
+    color: #444444;
+  }
+
+  .theme-auto .indie_book_formats {
+    background-color: #121826;
+  }
+
+  .theme-auto .header_container--inner {
+    background-color: #1F2937;
+  }
+
+  .theme-auto .books_back_header {
+    border-bottom: 1px solid #394150;
+  }
+
+  .theme-auto .header_container .header_main_dropdown .social a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .header_container .header_main_dropdown .manage a {
+    color: #818CF8;
+  }
+
+  .theme-auto .header_container .header_main_dropdown .extras a {
+    color: #9CA3AF;
+  }
+
+  .theme-auto .header_container .header_new_post {
+    color: #3B82F6;
+  }
+
+  .theme-auto .generic_dropdown a {
+    color: #e5e7eb;
+  }
+
+  .theme-auto .header_container nav a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .splash_startbutton {
+    background-color: #FEE199;
+    border-color: #FDB52B;
+    color: black;
+  }
+
+  .theme-auto .splash_startbutton:hover {
+    background-color: #FDC75C;
+    border-color: #FDB52B;
+    color: black;
+  }
+
+  .theme-auto .header_main_dropdown,
+  .theme-auto .generic_dropdown,
+  .theme-auto .timeline_profile,
+  .theme-auto .timeline_profile_popup .loading {
+    border: 1px solid #000;
+  }
+
+  .theme-auto .header_main_dropdown li:hover,
+  .theme-auto .generic_dropdown li:hover {
+    background-color: #1e252f;
+  }
+
+  .theme-auto .highlights_bubble a {
+    background-color: #b46324;
+    border: 1px solid #9f571f;
+    color: white;
+  }
+
+  .theme-auto .highlights_bubble a:hover {
+    background-color: #9f571f;
+    color: white;
+  }
+
+  .theme-auto .search_bubble a {
+    background-color: #374151;
+    color: #E5E7EB;
+    border-color: black;
+  }
+
+  .theme-auto .search_bubble a:hover {
+    background-color: #1F2937;
+  }
+
+  .theme-auto .dots_image {
+    content: url("/images/dots_dark.png");
+  }
+
+  .theme-auto .dots_svg_image {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .dots_svg_image .dots_svg_outline {
+    fill: #374151;
+    stroke: #000000;
+  }
+
+  .theme-auto .bookmarks_row .link a {
+    color: white;
+  }
+
+  .theme-auto .gray_highlight {
+    background-color: #b46324;
+  }
+
+  .theme-auto .input-group-addon {
+    background-color: #121826;
+    border-color: #3a414f;
+    color: #FFFFFF;
+  }
+
+  .theme-auto .btn:active {
+    background-color: #1b212c;
+    border-color: #000000;
+    color: #FFFFFF;
+  }
+
+  .theme-auto .btn-primary:active {
+    background-color: #2b4c6f;
+  }
+
+  .theme-auto .menu_publish_alert {
+    border-color: #42916a;
+  }
+
+  .theme-auto .subscriptions_card_form {
+    border-color: #394150;
+  }
+
+  .theme-auto .table>tbody+tbody {
+    border-color: #394150;
+  }
+
+  .theme-auto .quick_upgrade {
+    background-color: #12161d;
+    color: #FFFFFF;
+    border-color: #394150;
+  }
+
+  .theme-auto .register_options_container {
+    border-color: #394150;
+  }
+
+  .theme-auto .register_internal .register_internal_info {
+    background-color: rgba(237, 242, 247, .1);
+  }
+
+  .theme-auto .register_internal .register_internal_info .text_gradient {
+    color: black;
+  }
+
+  .theme-auto .register_internal .btn-default {
+    background-color: #FEE199;
+    border-color: #FDB52B;
+    color: black;
+  }
+
+  .theme-auto .register_internal .btn-default:hover {
+    background-color: #FDC75C;
+    border-color: #FDB52B;
+    color: black;
+  }
+
+  .theme-auto .mapping_theme_plugin,
+  .theme-auto .mapping_customtheme {
+    border-top: 1px solid #394150;
+  }
+
+  .theme-auto .mapping_group {
+    border-top: 1px solid #394150;
+    border-bottom: 1px solid #394150;
+  }
+
+  .theme-auto #status_bubble {
+    color: #222222;
+    border: 1px solid #e7e7e7;
+    background-color: lightgray;
+  }
+
+  .theme-auto #status_bubble a {
+    color: #222222;
+  }
+
+  .theme-auto #status_bubble .progress-status {
+    color: #7f7f7f;
+  }
+
+  .theme-auto .timeline_profile,
+  .theme-auto .timeline_profile_popup .loading {
+    box-shadow: rgba(0, 0, 0, 0.3) 0px 8px 24px;
+  }
+
+  .theme-auto .blur_container {
+    background-color: rgba(0, 0, 0, .95);
+  }
+
+  .theme-auto .feed_crossposting_start {
+    border-top: 1px solid #3a414f;
+  }
+
+  .theme-auto .extra_feeds {
+    border-top: 1px solid #3a414f;
+  }
+
+  .theme-auto #posting_media_alert a {
+    background-color: #374151;
+    color: #FFFFFF;
+  }
+
+  .theme-auto #federation_pause {
+    background-color: #374151;
+  }
+
+  @supports (-webkit-backdrop-filter: saturate(180%) blur(20px)) or (backdrop-filter: saturate(180%) blur(20px)) {
+    .theme-auto .blur_container {
+      background-color: rgba(0, 0, 0, .7);
+    }
+  }
+
+  .theme-auto .editor_frame {
+    background-color: white;
+  }
+
+  .theme-auto .posting_autocomplete_username a {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .import_bottom_divider {
+    border-bottom: 1px solid #374151;
+  }
+
+  .theme-auto .account_uploads_video {
+    background-color: rgba(19, 24, 37, 0.7);
+  }
+
+  .theme-auto .account_uploads_audio {
+    background-color: #121826;
+  }
+
+  .theme-auto .account_uploads_other {
+    background-color: #121826;
+  }
+
+  .theme-auto .account_uploads_block a {
+    color: #FFFFFF;
+  }
+
+  .theme-auto .uploads_search_details a {
+    color: #FFFFFF;
+  }
+
+  .theme-auto .highlight {
+    color: #FFFFFF;
+    background-color: #b46324;
+  }
+
+  .tags_autocomplete_items {
+    border: 1px solid #1e252f;
+    color: #FFFFFF;
+  }
+
+  .tags_autocomplete_items div {
+    background-color: #1e252f;
+    border-bottom: 1px solid #121826;
+  }
+
+  .tags_autocomplete_items div:hover {
+    background-color: #15191f;
+  }
+
+  .tags_autocomplete_active {
+    background-color: #15191f !important;
+  }
+
+  .generic_dropdown li.popup_section:hover {
+    background-color: #080d13;
+  }
+
+  .bookmarklet_info .bookmarklet_button a {
+    background-color: #1e252f;
+  }
+
+  .bookmarks_form {
+    border-bottom: 1px solid #374151;
+  }
+
+  .theme-auto #bookshelf_appstore {
+    background-color: #1d2530;
+  }
+
+  .theme-auto #emailforward_form {
+    background-color: #121826;
+  }
+
+  .theme-auto #newrecord_form {
+    background-color: #121826;
+  }
+
+  .theme-auto .domains_auth {
+    background-color: #121826;
+  }
+
+  .theme-auto .post_note_text {
+    background-color: #1e252f;
+  }
+
+  .theme-auto .account_notes_welcome {
+    background-color: #121826;
+  }
+
+  .theme-auto .rename_notebook_row {
+    background-color: #121826;
+  }
+
+  .theme-auto .new_notebook_row {
+    background-color: #121826;
+  }
+
+  .theme-auto .content_container.is_note {
+    background-color: #1e252f;
+  }
+
+  .theme-auto .sidebar_container {
+    background-color: #080d13;
+  }
+
+  .theme-auto a.replies_bubble {
+    color: #FFFFFF;
+    background-color: #394150;
+  }
+
+  .theme-auto a.replies_bubble:hover {
+    background-color: #2e3441;
+  }
+
+  .theme-auto .post_archived_links {
+    border: 1px solid #3a414f;
+    background-color: #1e252f;
+  }
+
+  .theme-auto .post_archived_summary svg {
+    color: #d9d9d9;
+  }
+
+  .theme-auto .post_archived_summary span {
+    color: #d9d9d9;
+  }
+
+  .theme-auto .note_text_truncated pre {
+    color: #FFFFFF;
+    background-color: #000000;
+    border: 1px solid #1e252f;
+  }
+
+  .theme-auto #payment_success a {
+    color: #FFFFFF;
+  }
+
+  .theme-auto .muting_keyword_intro {
+    border-top: 1px solid #3a414f;
+  }
+
+  .theme-auto .discover_avatar img {
+    background-color: #000000;
+  }
+
+  .theme-auto .blogroll_table .row {
+    background-color: #1F2937;
+  }
+
+  .theme-auto .blogroll_move {
+    border-top: 1px solid #3a414f;
+  }
+
+  .theme-auto a.blogroll_header_link {
+    color: #3B82F6;
+  }
+
+  .theme-auto a.blogroll_download_opml {
+    color: #FFFFFF;
+    background-color: #394150;
+  }
+
+  .theme-auto a.blogroll_download_opml:hover {
+    background-color: #191f29;
+  }
+
+  .theme-auto .blogroll_footer {
+    background-color: #121826;
+  }
+
+  .theme-auto select.form-control {
+    background-image: url("/images/popup_arrows_dark.png");
+  }
+
+  .theme-auto .alert.alert-secondary {
+    background-color: #1f252f;
+  }
+
+  .theme-auto .alert.alert-secondary a {
+    color: #FFFFFF;
+  }
+
+  .theme-auto .ai_options_alert {
+    border: 1px solid #111111;
+    background-color: #000000;
+  }
+
+  .theme-auto .upload_info_description svg {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .upload_info_description span {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .upload_info_keywords svg {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .upload_info_keywords span {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .linkedin_distribution_group {
+    background-color: #000000;
+  }
+
+  .theme-auto .bluesky_options_group {
+    background-color: #000000;
+  }
+
+  .theme-auto .bluesky_cards_group {
+    background-color: #000000;
+  }
+
+  .theme-auto .editor_divider {
+    border-bottom: 1px solid #777;
+  }
+
+  .theme-auto .relays_button {
+    color: #FFF;
+    background-color: #374151;
+  }
+
+  .theme-auto .relays_button:hover {
+    color: #FFF;
+    background-color: #1F2937;
+  }
+
+  .theme-auto td.feed_cell {
+    background-color: #121826;
+  }
+
+  .theme-auto #posting_summary {
+    background-color: #121826;
+  }
+
+  .theme-auto #posting_categories {
+    background-color: #121826;
+  }
+
+  .theme-auto #posting_services {
+    background-color: #121826;
+  }
+
+  .theme-auto .discover_bio {
+    color: lightgray;
+  }
+
+  .theme-auto .starterpack_open {
+    color: #FFF;
+    background-color: #394150;
+  }
+
+  .theme-auto .mentions_services a {
+    color: #FFF;
+  }
+
+  .theme-auto .mentions_services a.selected svg {
+    background-color: #394150;
+  }
+
+  .theme-auto .plugins_installed .donate_button span {
+    background-color: #394150;
+    color: #FFF;
+  }
+
+  .theme-auto .bookshelf_newbook_goodreads {
+    border-top: 1px solid #3a414f;
+  }
+
+  .theme-auto .intro_highlighted {
+    background-color: #090d12;
+  }
+
+  .theme-auto .upload_size_button {
+    background-color: #121826;
+    color: #FFF;
+  }
+
+  .theme-auto .upload_size_button:hover {
+    background-color: #000;
+    color: #FFF;
+  }
+
+  .theme-auto #categories_batch_header {
+    background-color: #121826;
+  }
+
+  .theme-auto #select_all_checkbox {
+    background-color: #121826;
+  }
+
+  .theme-auto .member_owner {
+    background-color: #1f252f;
+  }
+
+  .theme-auto .sidebar .sidebar_avatar {
+    background-color: #374151;
+  }
+
+  .theme-auto .sidebar .user_info .username {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .sidebar .user_info .username:hover {
+    color: #3B82F6;
+  }
+
+  .theme-auto .sidebar .user_menu_toggle {
+    color: #9CA3AF;
+  }
+
+  .theme-auto .sidebar .user_menu_toggle:hover {
+    background-color: #374151;
+  }
+
+  .theme-auto .sidebar .user_dropdown_menu {
+    border-color: rgba(55, 65, 81, 0.8);
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2);
+  }
+
+  .theme-auto .sidebar .dropdown_item {
+    color: #E5E7EB;
+    background-color: transparent;
+  }
+
+  .theme-auto .sidebar .dropdown_item:hover {
+    background-color: rgba(55, 65, 81, 0.8);
+    color: #E5E7EB;
+  }
+
+  .theme-auto .sidebar .dropdown_item.logout_item {
+    color: #f8a0a6;
+    border-top-color: rgba(55, 65, 81, 0.8);
+    background-color: rgba(45, 26, 28, 0.8);
+    border-radius: 0 0 8px 8px;
+  }
+
+  .theme-auto .sidebar .dropdown_item.logout_item:hover {
+    background-color: rgba(90, 45, 50, 0.8);
+    color: #f5c6cb;
+  }
+
+  .theme-auto .sidebar .account_item {
+    background-color: transparent;
+  }
+
+  .theme-auto .sidebar .account_item:hover {
+    background-color: rgba(55, 65, 81, 0.8);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .theme-auto .sidebar .account_item.active {
+    background-color: rgba(30, 64, 175, 0.8);
+    cursor: default;
+  }
+
+  .theme-auto .sidebar .dropdown_divider {
+    background-color: rgba(55, 65, 81, 0.8);
+  }
+
+  .theme-auto .sidebar .account_name {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .header_main_dropdown span[role="status"] {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .header_main_dropdown span[role="status"] a {
+    color: #3B82F6;
+  }
+
+  .theme-auto .header_main_dropdown .account_name {
+    color: #E5E7EB;
+  }
+
+  .theme-auto .header_main_dropdown .account_item {
+    background-color: transparent;
+  }
+
+  .theme-auto .header_main_dropdown .account_item:hover {
+    background-color: rgba(55, 65, 81, 0.8);
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .theme-auto .header_main_dropdown .account_item.active {
+    background-color: rgba(30, 64, 175, 0.8);
+    cursor: default;
+  }
+
+  .theme-auto .header_main_dropdown .dropdown_divider {
+    background-color: rgba(55, 65, 81, 0.8);
+  }
+
+  .theme-auto .header_main_dropdown .dropdown_item {
+    color: #E5E7EB;
+    background-color: transparent;
+  }
+
+  .theme-auto .header_main_dropdown .dropdown_item:hover {
+    background-color: rgba(55, 65, 81, 0.8);
+    color: #E5E7EB;
+  }
+
+  .theme-auto .header_main_dropdown .dropdown_item.logout_item {
+    color: #f8a0a6;
+    border-top-color: rgba(55, 65, 81, 0.8);
+    background-color: rgba(45, 26, 28, 0.8);
+  }
+
+  .theme-auto .header_main_dropdown .dropdown_item.logout_item:hover {
+    background-color: rgba(90, 45, 50, 0.8);
+    color: #f5c6cb;
+  }
+
+  .theme-auto .timeline_hide_hashtags {
+    border-top: 1px solid #3b414f;
+  }
+
+  .theme-auto .about_questions {
+    border-top: 1px solid #3b414f;
+  }
+
+  .theme-auto code {
+    background-color: #000;
+  }
+
+  .theme-auto .attached_media_container.movie_processing {
+    background-color: #0d1016
+  }
+
+  .theme-auto .platform_icon_ghost {
+    background-image: url(/images/platforms/ghost-dark.png);
+  }
+
+}
+  .theme-auto .posting_drop_placeholder {
+    background-color: #0d1016;
+    border-color: #374151;
+  }
+
+
+}

@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title><%= @title %></title>
+	<base href="<%= @link.archived_url %>" />
+	<style>
+		body {
+			<% if @is_mobile %>
+			width: 90%;
+			<% else %>
+			width: 85%;
+			<% end %>
+			max-width: 700px;
+			margin-left: auto;
+			margin-right: auto;
+			margin-top: 20px;
+			font-size: 20px;
+			line-height: 30px;
+		}
+		
+		h1 {
+			font-size: 30px;
+			line-height: 40px;
+		}
+		
+		h2, h3, h4, h5, h6 {
+			font-size: 20px;
+			line-height: 26px;
+			font-weight: bold;
+			margin-block-start: 1.1em;
+			margin-block-end: 1.1em;
+		}
+		
+		img {
+			max-width: 100%;
+			height: auto;
+		}
+		
+		.header {
+			font-size: 16px;
+			font-family: "system-ui", "Segoe UI", "sans-serif";
+			padding-bottom: 10px;
+			border-bottom: 1px solid lightgray;
+			<% if @is_mobile %>
+			display: none;
+			<% end %>
+		}
+		
+		.header a {
+			color: black;
+			text-decoration: none;
+		}
+		
+		#highlights {
+			color: black;
+			background-color: #FFF9D6;
+			border: 1px solid #F2E7A9;
+			padding-top: 5px;
+			padding-bottom: 5px;
+			padding-left: 10px;
+			padding-right: 10px;
+			border-radius: 5px;
+		}
+		
+		
+		#highlights:hover {
+			color: black;
+			background-color: #FEF5BB;
+			text-decoration: none;
+		}
+		
+		#highlight_button {
+			display: none;
+			position: absolute;
+			cursor: pointer;
+			font-size: 16px;
+			font-family: "system-ui", "Segoe UI", "sans-serif";
+			background-color: black;
+			color: white;
+			padding: 5px 10px;
+			border-radius: 5px;
+			border: 0;			
+		    box-shadow: 0 0 0 2px rgba(255,255,255,0.7);
+
+			/* hint to WebKit to use its compositor, fixing drawing artifacts */
+			transform: translateZ(0);
+			will-change: box-shadow, opacity;
+			backface-visibility: hidden;
+
+			/* include box-shadow in transition so hover is smooth */
+			transition: opacity 0.3s ease-in-out, box-shadow 0.2s ease-in-out;
+		}
+		
+		#highlight_button:hover {
+			background-color: #474747;
+		}
+		
+		.highlight {
+			background-color: #FFF9D6;
+		}
+		
+		.archived {
+			color: gray;
+		}
+		
+		.archived a {
+			color: gray;
+			display: inline-block;
+			vertical-align: top;
+			max-width: 100%;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		
+		
+		#content {
+			margin-top: 20px;
+		}
+		
+		#content a {
+			color: black;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			body {
+				color: white;
+				background: #212936;
+			}
+			
+			.header a {
+				color: white;
+			}
+			
+			a {
+				color: white;
+			}
+
+			#content a {
+				color: white;
+			}
+
+			#highlights {
+				background-color: #b46324;
+				border: 1px solid #9f571f;
+				color: white;
+			}
+
+			#highlights:hover {
+				background-color: #9f571f;
+				color: white;
+			}
+			
+			.highlight {
+				background-color: #b46324;
+			}
+	</style>
+	<script>
+		var s = window.getSelection()
+		var pos = 0;
+		var start, end, range;
+		
+		function calculateContentOffset(findNode, offset) {
+			var e = document.getElementById("content");
+			var results = Array();
+			gatherNodes(e, results);
+			var current_pos = 0;
+			for (var i = 0; i < results.length; i++) {
+				var node = results[i];
+				if (node.isSameNode(findNode)) {
+					return current_pos + offset;
+				}
+
+				if (node.length != undefined) {
+					current_pos = current_pos + node.length;
+				}
+			}
+		}
+
+		function normalizeRangeStart(range) {
+			const root = document.getElementById('content');
+		
+			// (a) Cursor is in the pretty-printed newline/indent node that sits
+			//     *directly* under #content, before the first <p>.
+			if (range.startContainer.nodeType === Node.TEXT_NODE &&
+				range.startContainer.parentNode === root &&
+				/^\s*$/.test(range.startContainer.nodeValue)) {
+		
+				let probe = range.startContainer.nextSibling;
+				while (probe) {
+					if (probe.nodeType === Node.TEXT_NODE &&
+						probe.nodeValue.trim() !== '') {
+						range.setStart(probe, 0);
+						break;
+					}
+					else if (probe.nodeType === Node.ELEMENT_NODE) {
+						const tw = document.createTreeWalker(
+							probe, NodeFilter.SHOW_TEXT, null
+						);
+						const first = tw.nextNode();
+						if (first) {
+							range.setStart(first, 0);
+							break;
+						}
+					}
+					probe = probe.nextSibling;
+				}
+			}
+		
+			// (b) Cursor is *exactly* at the 0-offset of a <p>.
+			if (range.startContainer.nodeType === Node.ELEMENT_NODE &&
+				range.startOffset === 0 &&
+				range.startContainer.tagName === 'P') {
+		
+				const walker = document.createTreeWalker(
+					range.startContainer, NodeFilter.SHOW_TEXT, null
+				);
+				const firstText = walker.nextNode();
+				if (firstText) range.setStart(firstText, 0);
+			}
+		}
+				
+		function normalizeRestoreRangeStart(range, root) {
+			// (a) Selection starts inside a stray root-level whitespace node.
+			if (range.startContainer.nodeType === Node.TEXT_NODE &&
+				range.startContainer.parentNode === root &&
+				  /^\s*$/.test(range.startContainer.nodeValue)) {		
+				let probe = range.startContainer.nextSibling;
+				while (probe) {
+					if (probe.nodeType === Node.TEXT_NODE && probe.nodeValue.trim() !== '') {
+						range.setStart(probe, 0);
+						break;
+					} else if (probe.nodeType === Node.ELEMENT_NODE) {
+						const tw = document.createTreeWalker(probe, NodeFilter.SHOW_TEXT, null);
+						const first = tw.nextNode();
+						if (first) { range.setStart(first, 0); break; }
+					}
+					probe = probe.nextSibling;
+				}
+			}
+		
+			// (b) Selection starts exactly at a <p> element boundary.
+			if (range.startContainer.nodeType === Node.ELEMENT_NODE &&
+				range.startOffset === 0 &&
+				range.startContainer.tagName === 'P') {
+		
+				const walker = document.createTreeWalker(
+					range.startContainer,
+					NodeFilter.SHOW_TEXT,
+					null
+				);
+				const firstText = walker.nextNode();
+				if (firstText) range.setStart(firstText, 0);
+			}
+		}
+		
+		// function applyHighlight() {
+		// 	const sel = window.getSelection();
+		// 	if (sel.rangeCount === 0 || sel.isCollapsed) return;
+		// 
+		// 	const range = sel.getRangeAt(0).cloneRange();
+		// 
+		// 	// now also handles stray root-whitespace ➜ never wraps the <p>
+		// 	normalizeRangeStart(range);
+		// 
+		// 	const span = document.createElement('span');
+		// 	span.className = 'highlight';
+		// 
+		// 	try {
+		// 		range.surroundContents(span);
+		// 	}
+		// 	catch (err) {
+		// 		const frag = range.extractContents();
+		// 		span.appendChild(frag);
+		// 		range.insertNode(span);
+		// 	}
+		// 
+		// 	sel.removeAllRanges();
+		// }
+					
+		function gatherNodes(startElement, results) {
+			results.push(startElement);
+			$(startElement).contents().each(function(i, e) {
+				gatherNodes(e, results);
+			});
+		}
+		
+		function findSelectedNode(sel) {
+			var e = document.getElementById("content");
+			var results = Array();
+			gatherNodes(e, results);
+			for (var i = 0; i < results.length; i++) {
+				if (results[i].isSameNode(sel.anchorNode)) {
+					return i;
+				}
+			}
+			
+			return 0;
+		}
+		
+		// function restoreHighlight(selectionStart, selectionEnd) {
+		// 	const root = document.getElementById('content');
+		// 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+		// 	let node, charCount = 0;
+		// 	let startNode, startOffset, endNode, endOffset;
+		// 	
+		// 	// find the start and end text-node + offsets
+		// 	while ((node = walker.nextNode())) {
+		// 		const len = node.textContent.length;
+		// 		
+		// 		// if (startNode == null && charCount + len >= selectionStart) {
+		// 		if (startNode == null && charCount + len >  selectionStart) {
+		// 			startNode   = node;
+		// 			startOffset = selectionStart - charCount;
+		// 		}
+		// 		if (endNode == null && charCount + len >= selectionEnd) {
+		// 			endNode   = node;
+		// 			endOffset = selectionEnd - charCount;
+		// 			break;
+		// 		}
+		// 		
+		// 		charCount += len;
+		// 	}
+		// 	
+		// 	// if we located both, build & surround
+		// 	if (startNode && endNode) {
+		// 		const range = document.createRange();
+		// 		range.setStart(startNode, startOffset);
+		// 		range.setEnd(endNode,   endOffset);
+		// 		
+		// 		// keep <p> outside the span
+		// 		normalizeRestoreRangeStart(range, root);
+		// 		
+		// 		const span = document.createElement('span');
+		// 		span.className = 'highlight';
+		// 		
+		// 		try {
+		// 			range.surroundContents(span);
+		// 		}
+		// 		catch (err) {
+		// 			const frag = range.extractContents();
+		// 			span.appendChild(frag);
+		// 			range.insertNode(span);
+		// 		}
+		// 	}
+		// }
+
+		  // ——————————————— Helpers ———————————————
+		
+		  // Walks a block (<p>) and returns its first text node
+		  function getFirstTextNode(el) {
+			const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+			return walker.nextNode();
+		  }
+		
+		  // Walks a block (<p>) and returns its last text node
+		  function getLastTextNode(el) {
+			const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+			let node, last = null;
+			while ((node = walker.nextNode())) last = node;
+			return last;
+		  }
+		
+		  // Wraps a single Range in a <span class="highlight">, using your existing try/catch
+		  function surroundRange(range) {
+			const span = document.createElement('span');
+			span.className = 'highlight';
+			try {
+			  range.surroundContents(span);
+			}
+			catch (err) {
+			  const frag = range.extractContents();
+			  span.appendChild(frag);
+			  range.insertNode(span);
+			}
+		  }
+		
+		  // Given a Range, calls `callback(subRange)` for each paragraph‐scoped sub-range
+		  function forEachParagraphInRange(range, callback) {
+			const startP = range.startContainer.nodeType === Node.ELEMENT_NODE && range.startContainer.tagName === 'P'
+			  ? range.startContainer
+			  : range.startContainer.parentNode.closest('p');
+			const endP   = range.endContainer.nodeType   === Node.ELEMENT_NODE && range.endContainer.tagName   === 'P'
+			  ? range.endContainer
+			  : range.endContainer.parentNode.closest('p');
+		
+			// If no block or same block, just one callback
+			if (!startP || !endP || startP === endP) {
+			  callback(range);
+			  return;
+			}
+		
+			// Collect all paragraphs from startP → endP
+			const paras = [];
+			let p = startP;
+			while (p) {
+			  if (p.tagName === 'P') paras.push(p);
+			  if (p === endP) break;
+			  p = p.nextElementSibling;
+			}
+		
+			paras.forEach((para, idx) => {
+			  const sub = document.createRange();
+			  if (idx === 0) {
+				// from original start → end of first <p>
+				sub.setStart(range.startContainer, range.startOffset);
+				const lastNode = getLastTextNode(para);
+				sub.setEnd(lastNode, lastNode.textContent.length);
+			  }
+			  else if (idx === paras.length - 1) {
+				// from start of last <p> → original end
+				const firstNode = getFirstTextNode(para);
+				sub.setStart(firstNode, 0);
+				sub.setEnd(range.endContainer, range.endOffset);
+			  }
+			  else {
+				// an entire middle <p>
+				const firstNode = getFirstTextNode(para);
+				const lastNode  = getLastTextNode(para);
+				sub.setStart(firstNode, 0);
+				sub.setEnd(lastNode, lastNode.textContent.length);
+			  }
+			  callback(sub);
+			});
+		  }
+		
+		
+		  // ————————————— applyHighlight (refactored) —————————————
+		
+		  function applyHighlight() {
+			const sel = window.getSelection();
+			if (sel.rangeCount === 0 || sel.isCollapsed) return;
+		
+			// clone and normalize start
+			const orig = sel.getRangeAt(0).cloneRange();
+			normalizeRangeStart(orig);
+		
+			// split per-<p> and wrap each
+			forEachParagraphInRange(orig, (subRange) => {
+			  normalizeRangeStart(subRange);
+			  surroundRange(subRange);
+			});
+		
+			sel.removeAllRanges();
+		  }
+		
+		
+		  // ————————————— restoreHighlight (refactored) —————————————
+		
+		  function restoreHighlight(selectionStart, selectionEnd) {
+			const root = document.getElementById('content');
+			const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+			let node, charCount = 0;
+			let startNode, startOffset, endNode, endOffset;
+		
+			// locate absolute start/end nodes
+			while ((node = walker.nextNode())) {
+			  const len = node.textContent.length;
+			  if (!startNode && charCount + len >  selectionStart) {
+				startNode   = node;
+				startOffset = selectionStart - charCount;
+			  }
+			  if (!endNode   && charCount + len >= selectionEnd) {
+				endNode     = node;
+				endOffset   = selectionEnd - charCount;
+				break;
+			  }
+			  charCount += len;
+			}
+		
+			if (startNode && endNode) {
+			  const global = document.createRange();
+			  global.setStart(startNode, startOffset);
+			  global.setEnd(endNode,   endOffset);
+		
+			  // split per-<p> and wrap each
+			  forEachParagraphInRange(global, (subRange) => {
+				normalizeRestoreRangeStart(subRange, root);
+				surroundRange(subRange);
+			  });
+			}
+		  }
+
+		function showHighlightButton() {
+			const sel = window.getSelection();			
+			if (sel.isCollapsed) {
+				// nothing is selected
+				return hideHighlightButton();
+			}
+		  
+			const root = document.getElementById('content');
+			const range = sel.getRangeAt(0);
+		  
+			// only proceed if the entire selection lives inside #content
+			if (
+			  !root.contains(range.startContainer) ||
+			  !root.contains(range.endContainer)
+			) {
+				return hideHighlightButton();
+			}
+		  
+			// selection is good, show the button
+			const seconds_delay = 0.2;
+			setTimeout(() => {
+				const rect = range.getBoundingClientRect();
+				const btn = document.getElementById('highlight_button');
+				
+				// show invisible so we can measure
+				btn.style.opacity = '0';
+				btn.style.display = 'block';
+				
+				const topOffset = 15;
+				const buttonWidth = btn.clientWidth;
+				
+				btn.style.top = (rect.y + rect.height/2 - topOffset + window.pageYOffset) + 'px';
+				btn.style.left = (rect.x + rect.width/2 - buttonWidth/2) + 'px';
+				btn.style.opacity = '1';
+			}, seconds_delay * 1000);
+		}
+		
+		function hideHighlightButton() {
+			var e = document.getElementById("highlight_button");
+			e.style.display = "none";	
+		}
+		
+		function makeHighlight() {
+			var sel = document.getSelection();
+			if (!sel.isCollapsed) {
+				var selection_text = sel.toString();
+				var selection_start = calculateContentOffset(sel.anchorNode, sel.anchorOffset);
+				var selection_end = selection_start + selection_text.length;
+
+				var fields = {
+					text: selection_text,
+					start: selection_start,
+					end: selection_end
+				};
+				
+				$.post('<%= ENV["SITE_URL"] %>/bookmarks/<%= @link.id %>/highlights', fields, function(result) {
+					sel.removeAllRanges();
+
+					if (result.error) {
+						alert(result.error);
+					}
+					else {
+						// restoreHighlight(0, selection_start, selection_end);
+						if (result.count == 1) {
+							$("#highlights").text("1 highlight");
+						}
+						else {
+							$("#highlights").text(result.count + " highlights");
+						}
+
+						$("#highlights").show();
+					}
+				});
+				
+			    applyHighlight();
+				hideHighlightButton();
+			}
+		}
+	</script>
+</head>
+<body>
+
+<div class="header">
+	<a href="<%= ENV["SITE_URL"] %>/bookmarks">&larr; Back</a> 	
+		<% if @highlights.size > 0 %>
+			<a href="<%= ENV["SITE_URL"] %>/bookmarks/<%= @link.id %>/highlights" id="highlights">
+		<% else %>
+			<a href="<%= ENV["SITE_URL"] %>/bookmarks/<%= @link.id %>/highlights" id="highlights" style="display: none;">
+		<% end %>
+	
+			<% if @highlights.size == 1 %>
+				1 highlight
+			<% else %>
+				<%= @highlights.size %> highlights
+			<% end %>
+
+		</a>
+</div>
+
+<button id="highlight_button" onClick="makeHighlight();">Highlight</button>
+
+<% if !@is_mobile %>
+	<h1><%= @link.title %></h1>
+	
+	<div class="archived">
+		Archived: <a href="<%= @link.archived_url %>"><%= @link.archived_url.gsub("https://", "")[0..60] %>...</a>
+	</div>
+<% end %>
+
+<div id="content">
+	<%= @link.text %>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+<script>
+	(function() {
+		var is_tracking_selection = false;
+		document.onselectionchange = (e) => {
+			var sel = document.getSelection();
+			if (!sel.isCollapsed) {
+				is_tracking_selection = true;
+			}
+			else {
+				hideHighlightButton();
+			}
+		};
+
+		document.onmouseup = (e) => {
+			if (is_tracking_selection) {
+				showHighlightButton();
+				is_tracking_selection = false;
+			}
+		};
+
+		document.addEventListener("touchend", (e) => {
+			if (is_tracking_selection) {
+				showHighlightButton();
+				is_tracking_selection = false;
+			}
+		});
+
+		const highlight_button = document.getElementById("highlight_button");
+		highlight_button.addEventListener("touchstart", (e) => {
+			makeHighlight();
+		});
+		
+		<% for h in @highlights %>
+			restoreHighlight(<%= h.selection_start %>, <%= h.selection_end %>);
+		<% end %>
+	})();
+</script>
+
+</body>
+</html>
