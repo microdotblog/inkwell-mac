@@ -6,6 +6,8 @@
 //
 
 #import "AppDelegate.h"
+#import "MBClient.h"
+#import "MBWelcomeController.h"
 #import <WebKit/WebKit.h>
 
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
@@ -13,10 +15,16 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSInteger const InkwellSidebarTitleTag = 1001;
 static NSInteger const InkwellSidebarSubtitleTag = 1002;
+static NSString * const InkwellTokenDefaultsKey = @"Token";
+static NSString * const InkwellCallbackScheme = @"inkwell";
+static NSString * const InkwellCallbackHost = @"signin";
 
 @interface AppDelegate () <NSToolbarDelegate, NSTableViewDataSource, NSTableViewDelegate>
 
 @property (strong) IBOutlet NSWindow *window;
+@property (strong) MBClient *client;
+@property (strong) MBWelcomeController *welcomeController;
+@property (copy) NSString *pending_oauth_state;
 @property (strong) NSSegmentedControl *filterSegmentedControl;
 @property (strong) NSSearchField *toolbarSearchField;
 @property (strong) NSTableView *sidebarTableView;
@@ -30,17 +38,22 @@ static NSInteger const InkwellSidebarSubtitleTag = 1002;
 
 - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
 {
-	[self setupWindowIfNeeded];
-	[self buildContentSplitView];
-	[self buildToolbar];
+	self.client = [[MBClient alloc] init];
 
-	[self.sidebarTableView reloadData];
-	if (self.sidebarItems.count > 0) {
-		[self.sidebarTableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
-		[self loadDetailForSidebarItemAtIndex:0];
+	NSString *token_value = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellTokenDefaultsKey];
+	if (token_value.length == 0) {
+		[self showWelcomeWindow];
+		return;
 	}
 
-	[self.window makeKeyAndOrderFront:nil];
+	[self showMainWindow];
+}
+
+- (void) application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls
+{
+	for (NSURL *url in urls) {
+		[self handleIncomingURL:url];
+	}
 }
 
 
@@ -53,6 +66,124 @@ static NSInteger const InkwellSidebarSubtitleTag = 1002;
 - (BOOL) applicationSupportsSecureRestorableState:(NSApplication *)app
 {
 	return YES;
+}
+
+- (void) showWelcomeWindow
+{
+	[self.window orderOut:nil];
+
+	if (self.welcomeController == nil) {
+		self.welcomeController = [[MBWelcomeController alloc] init];
+
+		__weak typeof(self) weak_self = self;
+		self.welcomeController.signInHandler = ^{
+			[weak_self beginSignIn];
+		};
+	}
+
+	[self.welcomeController showWindow:nil];
+}
+
+- (void) showMainWindow
+{
+	[self setupWindowIfNeeded];
+	if (self.window.contentViewController == nil) {
+		[self buildContentSplitView];
+		[self buildToolbar];
+
+		[self.sidebarTableView reloadData];
+		if (self.sidebarItems.count > 0) {
+			[self.sidebarTableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+			[self loadDetailForSidebarItemAtIndex:0];
+		}
+	}
+
+	[self.window makeKeyAndOrderFront:nil];
+}
+
+- (void) beginSignIn
+{
+	NSString *oauth_state = NSUUID.UUID.UUIDString;
+	self.pending_oauth_state = oauth_state;
+
+	NSURL *authorization_url = [self.client authorizationURLWithState:oauth_state];
+	if (authorization_url == nil) {
+		[self presentSignInError:@"Couldn't build sign in URL."];
+		return;
+	}
+
+	BOOL did_open = [[NSWorkspace sharedWorkspace] openURL:authorization_url];
+	if (!did_open) {
+		[self presentSignInError:@"Couldn't open your default browser."];
+	}
+}
+
+- (void) handleIncomingURL:(NSURL *)url
+{
+	NSString *scheme = url.scheme.lowercaseString;
+	NSString *host = url.host.lowercaseString;
+	if (![scheme isEqualToString:InkwellCallbackScheme] || ![host isEqualToString:InkwellCallbackHost]) {
+		return;
+	}
+
+	NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
+	NSString *code_value = [self valueForQueryItem:@"code" fromComponents:components];
+	NSString *state_value = [self valueForQueryItem:@"state" fromComponents:components];
+	if (code_value.length == 0 || state_value.length == 0) {
+		[self presentSignInError:@"Missing sign in response data."];
+		return;
+	}
+
+	if (self.pending_oauth_state.length == 0 || ![self.pending_oauth_state isEqualToString:state_value]) {
+		[self presentSignInError:@"Sign in state didn't match. Please try again."];
+		return;
+	}
+
+	[self.client exchangeAuthorizationCode:code_value completion:^(NSString * _Nullable token, NSError * _Nullable error) {
+		if (error != nil || token.length == 0) {
+			NSString *error_message = error.localizedDescription ?: @"Couldn't request an access token.";
+			[self presentSignInError:error_message];
+			return;
+		}
+
+		[self.client verifyToken:token completion:^(BOOL is_valid, NSError * _Nullable verify_error) {
+			if (!is_valid || verify_error != nil) {
+				NSString *error_message = verify_error.localizedDescription ?: @"Token verification failed.";
+				[self presentSignInError:error_message];
+				return;
+			}
+
+			[[NSUserDefaults standardUserDefaults] setObject:token forKey:InkwellTokenDefaultsKey];
+			self.pending_oauth_state = nil;
+			[self.welcomeController close];
+			self.welcomeController = nil;
+			[self showMainWindow];
+		}];
+	}];
+}
+
+- (NSString *) valueForQueryItem:(NSString *)name fromComponents:(NSURLComponents *)components
+{
+	for (NSURLQueryItem *query_item in components.queryItems) {
+		if ([query_item.name isEqualToString:name]) {
+			return query_item.value;
+		}
+	}
+	return nil;
+}
+
+- (void) presentSignInError:(NSString *)message
+{
+	NSAlert *alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Sign In Failed";
+	alert.informativeText = message;
+	if (self.welcomeController.window != nil) {
+		[alert beginSheetModalForWindow:self.welcomeController.window completionHandler:nil];
+	}
+	else {
+		[alert runModal];
+	}
 }
 
 - (void) setupWindowIfNeeded
