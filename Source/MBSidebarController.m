@@ -42,6 +42,7 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	self = [super initWithNibName:nil bundle:nil];
 	if (self) {
 		self.dateFilter = MBSidebarDateFilterToday;
+		self.searchQuery = @"";
 		self.allItems = @[];
 		self.iconURLByHost = @{};
 		self.iconImageByHost = [NSMutableDictionary dictionary];
@@ -90,8 +91,24 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 
 - (void) reloadDataAndSelectFirstItem
 {
-	[self applyDateFilterAndReload];
+	[self applyFiltersAndReload];
 	[self fetchEntriesIfNeeded];
+}
+
+- (void) focusAndSelectFirstItem
+{
+	if (self.tableView == nil) {
+		return;
+	}
+
+	if (self.items.count > 0) {
+		NSIndexSet *index_set = [NSIndexSet indexSetWithIndex:0];
+		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+		[self.tableView scrollRowToVisible:0];
+		[self notifySelectionChanged];
+	}
+
+	[self.view.window makeFirstResponder:self.tableView];
 }
 
 - (void) reloadTableAndSelectFirstItem
@@ -128,7 +145,7 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[]];
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
-		[self applyDateFilterAndReload];
+		[self applyFiltersAndReload];
 		[self fetchFeedIcons];
 	}];
 }
@@ -315,12 +332,33 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	}
 
 	_dateFilter = date_filter;
-	[self applyDateFilterAndReload];
+	[self applyFiltersAndReload];
 }
 
-- (void) applyDateFilterAndReload
+- (void) setSearchQuery:(NSString*) search_query
 {
-	self.items = [self filteredItemsForDateFilter:self.dateFilter];
+	NSString* normalized_query = [search_query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if (normalized_query == nil) {
+		normalized_query = @"";
+	}
+
+	if ([_searchQuery isEqualToString:normalized_query]) {
+		return;
+	}
+
+	_searchQuery = [normalized_query copy];
+	[self applyFiltersAndReload];
+}
+
+- (void) applyFiltersAndReload
+{
+	if (self.searchQuery.length > 0) {
+		self.items = [self filteredItemsForSearchQuery:self.searchQuery];
+	}
+	else {
+		self.items = [self filteredItemsForDateFilter:self.dateFilter];
+	}
+
 	[self reloadTableAndSelectFirstItem];
 }
 
@@ -359,6 +397,35 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 		}
 
 		if (should_include) {
+			[filtered_items addObject:entry];
+		}
+	}
+
+	return [filtered_items copy];
+}
+
+- (NSArray<MBEntry *> *) filteredItemsForSearchQuery:(NSString*) search_query
+{
+	if (self.allItems.count == 0 || search_query.length == 0) {
+		return @[];
+	}
+
+	NSStringCompareOptions compare_options = NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch;
+	NSMutableArray<MBEntry *> *filtered_items = [NSMutableArray array];
+
+	for (MBEntry *entry in self.allItems) {
+		NSString* title_value = entry.title ?: @"";
+		NSString* text_value = entry.text ?: @"";
+		NSString* subscription_title_value = entry.subscriptionTitle ?: @"";
+		BOOL matches_query = [title_value rangeOfString:search_query options:compare_options].location != NSNotFound;
+		if (!matches_query) {
+			matches_query = [text_value rangeOfString:search_query options:compare_options].location != NSNotFound;
+		}
+		if (!matches_query) {
+			matches_query = [subscription_title_value rangeOfString:search_query options:compare_options].location != NSNotFound;
+		}
+
+		if (matches_query) {
 			[filtered_items addObject:entry];
 		}
 	}

@@ -17,7 +17,7 @@ static NSInteger const InkwellFilterTodaySegmentIndex = 0;
 static NSInteger const InkwellFilterRecentSegmentIndex = 1;
 static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 
-@interface MBMainController () <NSToolbarDelegate>
+@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate>
 
 @property (assign) BOOL didBuildInterface;
 @property (strong) MBClient *client;
@@ -238,6 +238,29 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 }
 
+- (void) searchFieldTextDidChange:(NSNotification*) notification
+{
+	NSSearchField* search_field = notification.object;
+	if (![search_field isKindOfClass:[NSSearchField class]]) {
+		return;
+	}
+
+	self.sidebarController.searchQuery = search_field.stringValue ?: @"";
+}
+
+- (BOOL) control:(NSControl*) control textView:(NSTextView*) text_view doCommandBySelector:(SEL) command_selector
+{
+	#pragma unused(control)
+	#pragma unused(text_view)
+
+	if (command_selector == @selector(insertNewline:) || command_selector == @selector(insertLineBreak:) || command_selector == @selector(insertNewlineIgnoringFieldEditor:)) {
+		[self.sidebarController focusAndSelectFirstItem];
+		return YES;
+	}
+
+	return NO;
+}
+
 #pragma mark - Toolbar
 
 - (NSArray<NSToolbarItemIdentifier> *) toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
@@ -299,10 +322,17 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 		NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
 		item.label = @"Search";
 
+		NSSearchField* previous_search_field = self.toolbarSearchField;
+		if (previous_search_field != nil) {
+			[[NSNotificationCenter defaultCenter] removeObserver:self name:NSControlTextDidChangeNotification object:previous_search_field];
+		}
+
 		self.toolbarSearchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 0.0)];
 		self.toolbarSearchField.placeholderString = @"Search";
 		self.toolbarSearchField.translatesAutoresizingMaskIntoConstraints = NO;
+		self.toolbarSearchField.delegate = self;
 		[self.toolbarSearchField.widthAnchor constraintEqualToConstant:240.0].active = YES;
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(searchFieldTextDidChange:) name:NSControlTextDidChangeNotification object:self.toolbarSearchField];
 
 		item.view = self.toolbarSearchField;
 		return item;
