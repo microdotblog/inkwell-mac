@@ -147,7 +147,7 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 	self.mainSplitView = split_view_controller.splitView;
 
 	self.window.contentViewController = split_view_controller;
-	[self.sidebarController reloadDataAndSelectFirstItem];
+	[self.sidebarController reloadData];
 }
 
 - (void) clientNetworkingDidStart:(NSNotification *)notification

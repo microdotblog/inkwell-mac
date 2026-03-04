@@ -23,6 +23,9 @@ static CGFloat const InkwellSidebarTextInset = 10.0;
 static CGFloat const InkwellSidebarRightInset = 10.0;
 static CGFloat const InkwellSidebarRowBackgroundHorizontalInset = 10.0;
 static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
+static CGFloat const InkwellSidebarTitleFontSize = 14.0;
+static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
+static CGFloat const InkwellSidebarDateFontSize = 13.0;
 
 @interface MBSidebarRowView : NSTableRowView
 
@@ -32,11 +35,21 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 
 @implementation MBSidebarRowView
 
+- (void) setCustomBackgroundColor:(NSColor *)custom_background_color
+{
+	if ((_customBackgroundColor == custom_background_color) || [_customBackgroundColor isEqual:custom_background_color]) {
+		return;
+	}
+
+	_customBackgroundColor = custom_background_color;
+	[self setNeedsDisplay:YES];
+}
+
 - (void) drawBackgroundInRect:(NSRect)dirty_rect
 {
+	[super drawBackgroundInRect:dirty_rect];
 	#pragma unused(dirty_rect)
 	if (self.customBackgroundColor == nil) {
-		[super drawBackgroundInRect:dirty_rect];
 		return;
 	}
 
@@ -62,6 +75,8 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 @property (strong) NSImage *defaultAvatarImage;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
+- (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
+- (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 
 @end
 
@@ -94,7 +109,7 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 	table_view.delegate = self;
 	table_view.dataSource = self;
 	table_view.headerView = nil;
-	table_view.allowsEmptySelection = NO;
+	table_view.allowsEmptySelection = YES;
 	table_view.intercellSpacing = NSMakeSize(0.0, 5.0);
 	table_view.style = NSTableViewStyleSourceList;
 	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
@@ -122,7 +137,7 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 	self.view = container_view;
 }
 
-- (void) reloadDataAndSelectFirstItem
+- (void) reloadData
 {
 	[self applyFiltersAndReload];
 	[self fetchEntriesIfNeeded];
@@ -148,20 +163,16 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 	[self.view.window makeFirstResponder:self.tableView];
 }
 
-- (void) reloadTableAndSelectFirstItem
+- (void) reloadTable
 {
 	[self.tableView reloadData];
-
-	if (self.items.count > 0) {
-		NSIndexSet *index_set = [NSIndexSet indexSetWithIndex:0];
-		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-		self.selectedRowForStyling = 0;
-		[self notifySelectionChanged];
-		return;
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row >= 0 && selected_row < self.items.count) {
+		self.selectedRowForStyling = selected_row;
 	}
-
-	self.selectedRowForStyling = -1;
-	[self notifySelectionChanged];
+	else {
+		self.selectedRowForStyling = -1;
+	}
 }
 
 - (void) fetchEntriesIfNeeded
@@ -398,7 +409,7 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 		self.items = [self filteredItemsForDateFilter:self.dateFilter];
 	}
 
-	[self reloadTableAndSelectFirstItem];
+	[self reloadTable];
 }
 
 - (NSArray<MBEntry *> *) filteredItemsForDateFilter:(MBSidebarDateFilter)date_filter
@@ -592,16 +603,64 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 		return;
 	}
 
-	item.isRead = YES;
-	if (row >= 0 && row < self.items.count) {
-		NSIndexSet *row_indexes = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
-		NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
-		[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+	NSInteger entry_id = item.entryID;
+	[self.client markAsRead:entry_id token:self.token completion:^(NSError * _Nullable error) {
+		if (error != nil) {
+			return;
+		}
+
+		[self updateCachedReadState:YES forEntryID:entry_id];
+		[self reloadRowForEntryID:entry_id preferredRow:row];
+	}];
+}
+
+- (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id
+{
+	if (entry_id <= 0) {
+		return;
 	}
 
-	[self.client markAsRead:item.entryID token:self.token completion:^(NSError * _Nullable error) {
-		#pragma unused(error)
-	}];
+	for (MBEntry *cached_entry in self.allItems) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isRead = is_read;
+		}
+	}
+
+	for (MBEntry *cached_entry in self.items) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isRead = is_read;
+		}
+	}
+}
+
+- (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row
+{
+	NSInteger row_to_reload = -1;
+	if (preferred_row >= 0 && preferred_row < self.items.count) {
+		MBEntry *preferred_entry = self.items[(NSUInteger) preferred_row];
+		if (preferred_entry.entryID == entry_id) {
+			row_to_reload = preferred_row;
+		}
+	}
+
+	if (row_to_reload < 0) {
+		NSUInteger item_count = self.items.count;
+		for (NSUInteger i = 0; i < item_count; i++) {
+			MBEntry *entry = self.items[i];
+			if (entry.entryID == entry_id) {
+				row_to_reload = (NSInteger) i;
+				break;
+			}
+		}
+	}
+
+	if (row_to_reload < 0) {
+		return;
+	}
+
+	NSIndexSet *row_indexes = [NSIndexSet indexSetWithIndex:(NSUInteger) row_to_reload];
+	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
+	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
 }
 
 #pragma mark - Table View
@@ -635,7 +694,7 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 
 	MBEntry* item = self.items[(NSUInteger) row];
 	if (item.isRead) {
-		row_view.customBackgroundColor = [NSColor colorWithWhite:0.96 alpha:1.0];
+		row_view.customBackgroundColor = nil;
 	}
 	else {
 		row_view.customBackgroundColor = [NSColor colorWithRed:0.93 green:0.96 blue:1.0 alpha:0.85];
@@ -660,14 +719,14 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 		NSTextField *title_field = [NSTextField labelWithString:@""];
 		title_field.translatesAutoresizingMaskIntoConstraints = NO;
 		title_field.tag = InkwellSidebarTitleTag;
-		title_field.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+		title_field.font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
 		title_field.lineBreakMode = NSLineBreakByWordWrapping;
 		title_field.maximumNumberOfLines = 2;
 
 		NSTextField *subtitle_field = [NSTextField labelWithString:@""];
 		subtitle_field.translatesAutoresizingMaskIntoConstraints = NO;
 		subtitle_field.tag = InkwellSidebarSubtitleTag;
-		subtitle_field.font = [NSFont systemFontOfSize:12.0];
+		subtitle_field.font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
 		subtitle_field.textColor = [NSColor secondaryLabelColor];
 		subtitle_field.lineBreakMode = NSLineBreakByWordWrapping;
 		subtitle_field.maximumNumberOfLines = 2;
@@ -675,7 +734,7 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 		NSTextField *date_field = [NSTextField labelWithString:@""];
 		date_field.translatesAutoresizingMaskIntoConstraints = NO;
 		date_field.tag = InkwellSidebarDateTag;
-		date_field.font = [NSFont systemFontOfSize:11.0];
+		date_field.font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
 		date_field.textColor = [NSColor tertiaryLabelColor];
 		date_field.lineBreakMode = NSLineBreakByTruncatingTail;
 		date_field.maximumNumberOfLines = 1;
@@ -772,9 +831,9 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 		subtitle_value = item.source ?: @"";
 	}
 	NSString *date_value = [self displayDateString:item.date];
-	NSFont *title_font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
-	NSFont *subtitle_font = [NSFont systemFontOfSize:12.0];
-	NSFont *date_font = [NSFont systemFontOfSize:11.0];
+	NSFont *title_font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
+	NSFont *subtitle_font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
+	NSFont *date_font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
 
 	NSString *title_value = item.title ?: @"";
 	if (title_value.length == 0) {
@@ -868,14 +927,37 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 		return @"";
 	}
 
-	static NSDateFormatter *date_formatter;
+	static NSDateFormatter* today_time_formatter;
+	static NSDateFormatter* month_day_formatter;
+	static NSDateFormatter* secondary_time_formatter;
 	static dispatch_once_t once_token;
 	dispatch_once(&once_token, ^{
-		date_formatter = [[NSDateFormatter alloc] init];
-		date_formatter.dateFormat = @"MMM d";
+		today_time_formatter = [[NSDateFormatter alloc] init];
+		today_time_formatter.dateStyle = NSDateFormatterNoStyle;
+		today_time_formatter.timeStyle = NSDateFormatterShortStyle;
+
+		month_day_formatter = [[NSDateFormatter alloc] init];
+		[month_day_formatter setLocalizedDateFormatFromTemplate:@"MMM d"];
+
+		secondary_time_formatter = [[NSDateFormatter alloc] init];
+		secondary_time_formatter.dateStyle = NSDateFormatterNoStyle;
+		secondary_time_formatter.timeStyle = NSDateFormatterShortStyle;
 	});
 
-	return [date_formatter stringFromDate:date];
+	if (self.dateFilter == MBSidebarDateFilterToday) {
+		return [today_time_formatter stringFromDate:date];
+	}
+
+	NSString* date_part = [month_day_formatter stringFromDate:date];
+	NSString* time_part = [secondary_time_formatter stringFromDate:date];
+	if (date_part.length == 0) {
+		return time_part ?: @"";
+	}
+	if (time_part.length == 0) {
+		return date_part;
+	}
+
+	return [NSString stringWithFormat:@"%@, %@", date_part, time_part];
 }
 
 - (NSString *) normalizedPreviewString:(NSString *)string

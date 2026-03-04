@@ -27,7 +27,7 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 @property (nonatomic, assign) MBSidebarDateFilter dateFilter;
 @property (nonatomic, copy) NSString* searchQuery;
 
-- (void) reloadDataAndSelectFirstItem;
+- (void) reloadData;
 - (void) focusAndSelectFirstItem;
 
 @end
