@@ -9,6 +9,8 @@
 #import "MBEntry.h"
 #import <WebKit/WebKit.h>
 
+static CGFloat const InkwellDetailTopBarHeight = 52.0;
+
 @interface MBDetailController ()
 
 @property (strong) WKWebView *webView;
@@ -22,25 +24,25 @@
 	NSView *root_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 780.0, 600.0)];
 	root_view.translatesAutoresizingMaskIntoConstraints = NO;
 
-	NSView *container_view = [[NSView alloc] initWithFrame:NSZeroRect];
-	container_view.translatesAutoresizingMaskIntoConstraints = NO;
-	[root_view addSubview:container_view];
-
-	[NSLayoutConstraint activateConstraints:@[
-		[container_view.topAnchor constraintEqualToAnchor:root_view.topAnchor],
-		[container_view.bottomAnchor constraintEqualToAnchor:root_view.bottomAnchor],
-		[container_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor],
-		[container_view.trailingAnchor constraintEqualToAnchor:root_view.trailingAnchor]
-	]];
+	NSVisualEffectView *top_bar_view = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
+	top_bar_view.translatesAutoresizingMaskIntoConstraints = NO;
+	top_bar_view.blendingMode = NSVisualEffectBlendingModeWithinWindow;
+	top_bar_view.material = NSVisualEffectMaterialHeaderView;
+	top_bar_view.state = NSVisualEffectStateActive;
 
 	WKWebView *web_view = [[WKWebView alloc] initWithFrame:NSZeroRect];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
-	[container_view addSubview:web_view];
+	[root_view addSubview:web_view];
+	[root_view addSubview:top_bar_view];
 	[NSLayoutConstraint activateConstraints:@[
-		[web_view.topAnchor constraintEqualToAnchor:container_view.topAnchor],
-		[web_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
-		[web_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
-		[web_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor]
+		[top_bar_view.topAnchor constraintEqualToAnchor:root_view.topAnchor],
+		[top_bar_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor],
+		[top_bar_view.trailingAnchor constraintEqualToAnchor:root_view.trailingAnchor],
+		[top_bar_view.heightAnchor constraintEqualToConstant:InkwellDetailTopBarHeight],
+		[web_view.topAnchor constraintEqualToAnchor:root_view.topAnchor],
+		[web_view.bottomAnchor constraintEqualToAnchor:root_view.bottomAnchor],
+		[web_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor],
+		[web_view.trailingAnchor constraintEqualToAnchor:root_view.trailingAnchor]
 	]];
 
 	self.webView = web_view;
@@ -50,7 +52,7 @@
 - (void) showSidebarItem:(MBEntry * _Nullable)item
 {
 	if (item == nil) {
-		NSString *placeholder_html = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:40px;color:#1d1d1f;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}p{font-size:16px;line-height:1.5;color:#1d1d1f;max-width:760px;}</style></head><body><h1>Select a source item</h1><p>Pick an item from the sidebar.</p></body></html>";
+		NSString *placeholder_html = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}p{font-size:16px;line-height:1.5;color:#1d1d1f;max-width:760px;}</style></head><body><h1>Select a source item</h1><p>Pick an item from the sidebar.</p></body></html>";
 		[self.webView loadHTMLString:placeholder_html baseURL:nil];
 		return;
 	}
@@ -64,7 +66,7 @@
 		}
 
 		NSString *html = [NSString stringWithFormat:
-			@"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:40px;color:#1d1d1f;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}article{font-size:16px;line-height:1.6;max-width:760px;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}blockquote{border-left:3px solid #d2d2d7;margin:1em 0;padding-left:1em;color:#4d4d4f;}</style></head><body>%@<article>%@</article></body></html>",
+			@"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}article{font-size:16px;line-height:1.6;max-width:760px;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}blockquote{border-left:3px solid #d2d2d7;margin:1em 0;padding-left:1em;color:#4d4d4f;}</style></head><body>%@<article>%@</article></body></html>",
 			title_html,
 			entry_html];
 
@@ -82,7 +84,7 @@
 
 	NSString *safe_fallback = [self escapedHTMLString:fallback_text];
 	NSString *html = [NSString stringWithFormat:
-		@"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:40px;color:#1d1d1f;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}p{font-size:16px;line-height:1.5;color:#1d1d1f;max-width:760px;}</style></head><body><h1>%@</h1><p>%@</p></body></html>",
+		@"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}p{font-size:16px;line-height:1.5;color:#1d1d1f;max-width:760px;}</style></head><body><h1>%@</h1><p>%@</p></body></html>",
 		safe_title,
 		safe_fallback];
 

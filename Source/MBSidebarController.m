@@ -232,10 +232,10 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 			[title_field.topAnchor constraintEqualToAnchor:cell_view.topAnchor constant:8.0],
 			[title_field.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:10.0],
 			[title_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-10.0],
-			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:3.0],
+			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:5.0],
 			[subtitle_field.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:10.0],
 			[subtitle_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-10.0],
-			[date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:3.0],
+			[date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:5.0],
 			[date_field.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:10.0],
 			[date_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-10.0],
 			bottom_constraint
@@ -279,7 +279,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	CGFloat title_height = [self heightForText:item.title ?: @"" font:title_font width:content_width maxLines:2];
 	CGFloat subtitle_height = [self heightForText:subtitle_value font:subtitle_font width:content_width maxLines:2];
 	CGFloat date_height = [self heightForText:date_value font:date_font width:content_width maxLines:1];
-	CGFloat row_height = 6.0 + title_height + 2.0 + subtitle_height + 2.0 + date_height + 6.0;
+	CGFloat row_height = 8.0 + title_height + 5.0 + subtitle_height + 5.0 + date_height + 8.0;
 
 	return MAX(50.0, ceil(row_height));
 }
@@ -310,7 +310,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 
 - (NSDate * _Nullable) dateValueFromEntry:(NSDictionary<NSString *, id> *)entry
 {
-	NSString *published_value = [self stringValueFromObject:entry[@"date_published"]];
+	NSString *published_value = [self stringValueFromObject:entry[@"published"]];
 	if (published_value.length > 0) {
 		return [self dateFromISO8601String:published_value];
 	}
@@ -367,8 +367,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	static dispatch_once_t once_token;
 	dispatch_once(&once_token, ^{
 		date_formatter = [[NSDateFormatter alloc] init];
-		date_formatter.dateStyle = NSDateFormatterMediumStyle;
-		date_formatter.timeStyle = NSDateFormatterShortStyle;
+		date_formatter.dateFormat = @"MMM d";
 	});
 
 	return [date_formatter stringFromDate:date];
