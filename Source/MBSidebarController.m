@@ -23,6 +23,7 @@ static CGFloat const InkwellSidebarTextInset = 10.0;
 static CGFloat const InkwellSidebarRightInset = 10.0;
 static CGFloat const InkwellSidebarRowBackgroundHorizontalInset = 10.0;
 static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
+static CGFloat const InkwellSidebarVerticalSpacing = 8.0;
 static CGFloat const InkwellSidebarTitleFontSize = 14.0;
 static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
 static CGFloat const InkwellSidebarDateFontSize = 13.0;
@@ -140,6 +141,12 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 - (void) reloadData
 {
 	[self applyFiltersAndReload];
+	[self fetchEntriesIfNeeded];
+}
+
+- (void) refreshData
+{
+	self.hasLoadedRemoteItems = NO;
 	[self fetchEntriesIfNeeded];
 }
 
@@ -755,10 +762,10 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 			[title_field.topAnchor constraintEqualToAnchor:cell_view.topAnchor constant:8.0],
 			[title_field.leadingAnchor constraintEqualToAnchor:avatar_view.trailingAnchor constant:InkwellSidebarTextInset],
 			[title_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-InkwellSidebarRightInset],
-			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:5.0],
+			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
 			[subtitle_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[subtitle_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			[date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:5.0],
+			[date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
 			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[date_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			bottom_constraint
@@ -843,7 +850,7 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	CGFloat title_height = [self heightForText:title_value font:title_font width:content_width maxLines:2];
 	CGFloat subtitle_height = [self heightForText:subtitle_value font:subtitle_font width:content_width maxLines:2];
 	CGFloat date_height = [self heightForText:date_value font:date_font width:content_width maxLines:1];
-	CGFloat row_height = 8.0 + title_height + 5.0 + subtitle_height + 5.0 + date_height + 8.0;
+	CGFloat row_height = 8.0 + title_height + InkwellSidebarVerticalSpacing + subtitle_height + InkwellSidebarVerticalSpacing + date_height + 8.0;
 
 	return MAX(50.0, ceil(row_height));
 }

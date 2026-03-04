@@ -238,6 +238,30 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 }
 
+- (IBAction) refreshView:(id)sender
+{
+	#pragma unused(sender)
+	[self.sidebarController refreshData];
+}
+
+- (IBAction) performFindPanelAction:(id)sender
+{
+	if (![sender respondsToSelector:@selector(tag)]) {
+		return;
+	}
+
+	NSInteger action_tag = [(id) sender tag];
+	if (action_tag != NSFindPanelActionShowFindPanel) {
+		return;
+	}
+
+	if (self.toolbarSearchField == nil) {
+		return;
+	}
+
+	[self.toolbarSearchField selectText:nil];
+}
+
 - (void) searchFieldTextDidChange:(NSNotification*) notification
 {
 	NSSearchField* search_field = notification.object;
