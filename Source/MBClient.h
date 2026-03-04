@@ -10,6 +10,8 @@
 NS_ASSUME_NONNULL_BEGIN
 
 extern NSString * const MBClientErrorDomain;
+extern NSString* const MBClientNetworkingDidStartNotification;
+extern NSString* const MBClientNetworkingDidStopNotification;
 
 @interface MBClient : NSObject
 

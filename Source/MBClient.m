@@ -8,6 +8,8 @@
 #import "MBClient.h"
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
+NSString* const MBClientNetworkingDidStartNotification = @"MBClientNetworkingDidStartNotification";
+NSString* const MBClientNetworkingDidStopNotification = @"MBClientNetworkingDidStopNotification";
 
 static NSString * const MBClientIdentifierURL = @"https://micro.ink";
 static NSString * const MBRedirectURI = @"inkwell://signin";
@@ -19,6 +21,7 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 @interface MBClient ()
 
 @property (strong) NSURLSession *session;
+@property (assign) NSInteger activeRequestCount;
 
 @end
 
@@ -80,7 +83,7 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
 	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 
-	NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
 			[self finishWithToken:nil error:error completion:completion];
 			return;
@@ -132,7 +135,7 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
 	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 
-	NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
 			[self finishVerify:NO error:error completion:completion];
 			return;
@@ -166,7 +169,7 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
-	NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
 			[self finishWithEntries:nil error:error completion:completion];
 			return;
@@ -197,6 +200,63 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 		[self finishWithEntries:[entries copy] error:nil completion:completion];
 	}];
 	[task resume];
+}
+
+- (NSURLSessionDataTask *) trackedDataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error))completion_handler
+{
+	[self beginNetworkingActivity];
+
+	MBClient *strong_self = self;
+	NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		@try {
+			if (completion_handler != nil) {
+				completion_handler(data, response, error);
+			}
+		}
+		@finally {
+			[strong_self endNetworkingActivity];
+		}
+	}];
+
+	return task;
+}
+
+- (void) beginNetworkingActivity
+{
+	BOOL should_notify = NO;
+
+	@synchronized (self) {
+		self.activeRequestCount += 1;
+		should_notify = (self.activeRequestCount == 1);
+	}
+
+	if (!should_notify) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[[NSNotificationCenter defaultCenter] postNotificationName:MBClientNetworkingDidStartNotification object:self];
+	});
+}
+
+- (void) endNetworkingActivity
+{
+	BOOL should_notify = NO;
+
+	@synchronized (self) {
+		if (self.activeRequestCount > 0) {
+			self.activeRequestCount -= 1;
+		}
+		should_notify = (self.activeRequestCount == 0);
+	}
+
+	if (!should_notify) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[[NSNotificationCenter defaultCenter] postNotificationName:MBClientNetworkingDidStopNotification object:self];
+	});
 }
 
 - (NSString *) urlEncodedString:(NSString *)string

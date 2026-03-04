@@ -12,17 +12,23 @@
 
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
 static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"InkwellToolbarSearch";
+static NSToolbarItemIdentifier const InkwellToolbarProgressItemIdentifier = @"InkwellToolbarProgress";
+static NSInteger const InkwellFilterTodaySegmentIndex = 0;
+static NSInteger const InkwellFilterRecentSegmentIndex = 1;
+static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 
 @interface MBMainController () <NSToolbarDelegate>
 
 @property (assign) BOOL didBuildInterface;
 @property (strong) MBClient *client;
 @property (strong) NSSegmentedControl *filterSegmentedControl;
+@property (strong) NSProgressIndicator *toolbarProgressIndicator;
 @property (strong) NSSearchField *toolbarSearchField;
 @property (strong) NSSplitView *mainSplitView;
 @property (strong) MBSidebarController *sidebarController;
 @property (strong) MBDetailController *detailController;
 @property (copy) NSString *token;
+@property (assign) BOOL isNetworkingInProgress;
 
 @end
 
@@ -39,8 +45,16 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 	if (self) {
 		self.client = client;
 		self.token = token ?: @"";
+
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(clientNetworkingDidStart:) name:MBClientNetworkingDidStartNotification object:self.client];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(clientNetworkingDidStop:) name:MBClientNetworkingDidStopNotification object:self.client];
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void) showWindow:(id)sender
@@ -136,6 +150,67 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 	[self.sidebarController reloadDataAndSelectFirstItem];
 }
 
+- (void) clientNetworkingDidStart:(NSNotification *)notification
+{
+	#pragma unused(notification)
+	self.isNetworkingInProgress = YES;
+	[self updateToolbarProgressIndicator];
+}
+
+- (void) clientNetworkingDidStop:(NSNotification *)notification
+{
+	#pragma unused(notification)
+	self.isNetworkingInProgress = NO;
+	[self updateToolbarProgressIndicator];
+}
+
+- (void) updateToolbarProgressIndicator
+{
+	if (self.toolbarProgressIndicator == nil) {
+		return;
+	}
+
+	if (self.isNetworkingInProgress) {
+		self.toolbarProgressIndicator.hidden = NO;
+		[self.toolbarProgressIndicator startAnimation:nil];
+	}
+	else {
+		[self.toolbarProgressIndicator stopAnimation:nil];
+		self.toolbarProgressIndicator.hidden = YES;
+	}
+}
+
+- (void) selectFilterSegment:(NSInteger)segment_index
+{
+	if (self.filterSegmentedControl == nil) {
+		return;
+	}
+
+	if (segment_index < 0 || segment_index >= self.filterSegmentedControl.segmentCount) {
+		return;
+	}
+
+	self.filterSegmentedControl.selectedSegment = segment_index;
+}
+
+- (IBAction) selectTodayView:(id)sender
+{
+	#pragma unused(sender)
+	[self selectFilterSegment:InkwellFilterTodaySegmentIndex];
+}
+
+- (IBAction) selectRecentView:(id)sender
+{
+	#pragma unused(sender)
+	[self selectFilterSegment:InkwellFilterRecentSegmentIndex];
+}
+
+- (IBAction) selectFadingView:(id)sender
+{
+	#pragma unused(sender)
+	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
+}
+
 #pragma mark - Toolbar
 
 - (NSArray<NSToolbarItemIdentifier> *) toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
@@ -143,6 +218,7 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 	return @[
 		InkwellToolbarFilterItemIdentifier,
 		NSToolbarSidebarTrackingSeparatorItemIdentifier,
+		InkwellToolbarProgressItemIdentifier,
 		NSToolbarFlexibleSpaceItemIdentifier,
 		InkwellToolbarSearchItemIdentifier
 	];
@@ -153,6 +229,7 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 	return @[
 		InkwellToolbarFilterItemIdentifier,
 		NSToolbarSidebarTrackingSeparatorItemIdentifier,
+		InkwellToolbarProgressItemIdentifier,
 		NSToolbarFlexibleSpaceItemIdentifier,
 		InkwellToolbarSearchItemIdentifier
 	];
@@ -165,11 +242,29 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 		item.label = @"Filter";
 
 		self.filterSegmentedControl = [NSSegmentedControl segmentedControlWithLabels:@[@"Today", @"Recent", @"Fading"] trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
-		self.filterSegmentedControl.selectedSegment = 0;
+		self.filterSegmentedControl.selectedSegment = InkwellFilterTodaySegmentIndex;
 		self.filterSegmentedControl.segmentStyle = NSSegmentStyleAutomatic;
 		self.filterSegmentedControl.translatesAutoresizingMaskIntoConstraints = NO;
 
 		item.view = self.filterSegmentedControl;
+		return item;
+	}
+
+	if ([item_identifier isEqualToString:InkwellToolbarProgressItemIdentifier]) {
+		NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
+		item.label = @"Loading";
+		[item setBordered:NO];
+
+		NSProgressIndicator *progress_indicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(0.0, 0.0, 16.0, 16.0)];
+		progress_indicator.style = NSProgressIndicatorStyleSpinning;
+		progress_indicator.indeterminate = YES;
+		progress_indicator.controlSize = NSControlSizeSmall;
+		progress_indicator.displayedWhenStopped = NO;
+		progress_indicator.hidden = YES;
+
+		item.view = progress_indicator;
+		self.toolbarProgressIndicator = progress_indicator;
+		[self updateToolbarProgressIndicator];
 		return item;
 	}
 
