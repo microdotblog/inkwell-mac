@@ -17,3 +17,5 @@ Local variables use snake_case with underscores.
 Pointers to Obj-C objects should have a space after the `*`, like:
 
 NSString* s = @"Hello";
+
+Avoid including the type of items in arrays, e.g. just use `NSArray* items` not `NSArray<NSNumber *>* items`.

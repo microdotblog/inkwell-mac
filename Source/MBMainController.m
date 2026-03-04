@@ -6,6 +6,7 @@
 //
 
 #import "MBMainController.h"
+#import "MBClient.h"
 #import "MBDetailController.h"
 #import "MBSidebarController.h"
 
@@ -15,11 +16,13 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 @interface MBMainController () <NSToolbarDelegate>
 
 @property (assign) BOOL didBuildInterface;
+@property (strong) MBClient *client;
 @property (strong) NSSegmentedControl *filterSegmentedControl;
 @property (strong) NSSearchField *toolbarSearchField;
 @property (strong) NSSplitView *mainSplitView;
 @property (strong) MBSidebarController *sidebarController;
 @property (strong) MBDetailController *detailController;
+@property (copy) NSString *token;
 
 @end
 
@@ -27,7 +30,16 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 
 - (instancetype) initWithWindow:(nullable NSWindow *)window
 {
+	return [self initWithWindow:window client:nil token:nil];
+}
+
+- (instancetype) initWithWindow:(nullable NSWindow *)window client:(nullable MBClient *)client token:(nullable NSString *)token
+{
 	self = [super initWithWindow:window];
+	if (self) {
+		self.client = client;
+		self.token = token ?: @"";
+	}
 	return self;
 }
 
@@ -97,7 +109,8 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 	self.sidebarController.selectionChangedHandler = ^(NSDictionary<NSString *,NSString *> * _Nullable item) {
 		[weak_self.detailController showSidebarItem:item];
 	};
-	self.sidebarController.items = [self placeholderSidebarItems];
+	self.sidebarController.client = self.client;
+	self.sidebarController.token = self.token;
 
 	NSSplitViewController *split_view_controller = [[NSSplitViewController alloc] init];
 
@@ -121,19 +134,6 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 
 	self.window.contentViewController = split_view_controller;
 	[self.sidebarController reloadDataAndSelectFirstItem];
-}
-
-- (NSArray<NSDictionary<NSString *, NSString *> *> *) placeholderSidebarItems
-{
-	return @[
-		@{ @"title": @"Morning Capture", @"subtitle": @"Save quick notes, links, and headlines for today's review." },
-		@{ @"title": @"Bookmarks", @"subtitle": @"A compact list of highlighted reads from the last couple of days." },
-		@{ @"title": @"Longform Queue", @"subtitle": @"Articles you wanted to revisit, with short context snippets and tags." },
-		@{ @"title": @"Microblog Drafts", @"subtitle": @"Partial drafts and topic ideas waiting for edits before posting." },
-		@{ @"title": @"Research Notes", @"subtitle": @"Reference points, quotes, and summaries collected from your current project." },
-		@{ @"title": @"Weekend Ideas", @"subtitle": @"Loose writing prompts and experiments you may expand later this week." },
-		@{ @"title": @"Archive", @"subtitle": @"Older entries kept for context, search, and occasional resurfacing." }
-	];
 }
 
 #pragma mark - Toolbar

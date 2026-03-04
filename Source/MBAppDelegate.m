@@ -16,6 +16,7 @@
 
 @property (strong) IBOutlet NSWindow *window;
 @property (strong) MBAuthController *authController;
+@property (strong) MBClient *client;
 @property (strong) MBMainController *mainController;
 @property (strong) MBSessionController *sessionController;
 @property (strong) MBWelcomeController *welcomeController;
@@ -26,8 +27,8 @@
 
 - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
 {
-	MBClient *client = [[MBClient alloc] init];
-	self.authController = [[MBAuthController alloc] initWithClient:client];
+	self.client = [[MBClient alloc] init];
+	self.authController = [[MBAuthController alloc] initWithClient:self.client];
 	self.sessionController = [[MBSessionController alloc] init];
 
 	if ([self.sessionController hasToken]) {
@@ -94,7 +95,8 @@
 - (void) showMainWindow
 {
 	if (self.mainController == nil) {
-		self.mainController = [[MBMainController alloc] initWithWindow:self.window];
+		NSString *token_value = [self.sessionController token] ?: @"";
+		self.mainController = [[MBMainController alloc] initWithWindow:self.window client:self.client token:token_value];
 	}
 
 	[self.mainController showWindow:nil];

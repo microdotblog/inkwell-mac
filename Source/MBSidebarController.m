@@ -6,6 +6,7 @@
 //
 
 #import "MBSidebarController.h"
+#import "MBClient.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSInteger const InkwellSidebarTitleTag = 1001;
@@ -13,6 +14,8 @@ static NSInteger const InkwellSidebarSubtitleTag = 1002;
 
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate>
 
+@property (assign) BOOL hasLoadedRemoteItems;
+@property (assign) BOOL isFetching;
 @property (strong) NSTableView *tableView;
 
 @end
@@ -64,15 +67,13 @@ static NSInteger const InkwellSidebarSubtitleTag = 1002;
 	self.view = container_view;
 }
 
-- (void) setItems:(NSArray<NSDictionary<NSString *,NSString *> *> *)items
+- (void) reloadDataAndSelectFirstItem
 {
-	_items = [items copy] ?: @[];
-	if (self.isViewLoaded) {
-		[self.tableView reloadData];
-	}
+	[self reloadTableAndSelectFirstItem];
+	[self fetchEntriesIfNeeded];
 }
 
-- (void) reloadDataAndSelectFirstItem
+- (void) reloadTableAndSelectFirstItem
 {
 	[self.tableView reloadData];
 
@@ -84,6 +85,71 @@ static NSInteger const InkwellSidebarSubtitleTag = 1002;
 	}
 
 	[self notifySelectionChanged];
+}
+
+- (void) fetchEntriesIfNeeded
+{
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	if (self.isFetching || self.hasLoadedRemoteItems) {
+		return;
+	}
+
+	self.isFetching = YES;
+	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error) {
+		self.isFetching = NO;
+		if (error != nil) {
+			return;
+		}
+
+		NSArray<NSDictionary<NSString *, NSString *> *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[]];
+		self.hasLoadedRemoteItems = YES;
+		self.items = sidebar_items;
+		[self reloadTableAndSelectFirstItem];
+	}];
+}
+
+- (NSArray<NSDictionary<NSString *, NSString *> *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries
+{
+	NSMutableArray<NSDictionary<NSString *, NSString *> *> *sidebar_items = [NSMutableArray array];
+
+	for (NSDictionary<NSString *, id> *entry in entries) {
+		NSString *title_value = [self stringValueFromObject:entry[@"title"]];
+		NSString *summary_value = [self stringValueFromObject:entry[@"summary"]];
+		NSString *author_value = [self stringValueFromObject:entry[@"author"]];
+		NSString *url_value = [self stringValueFromObject:entry[@"url"]];
+
+		NSString *resolved_title = title_value;
+		if (resolved_title.length == 0) {
+			resolved_title = url_value.length > 0 ? url_value : @"Untitled";
+		}
+
+		NSString *resolved_subtitle = summary_value;
+		if (resolved_subtitle.length == 0) {
+			resolved_subtitle = author_value;
+		}
+		if (resolved_subtitle.length == 0) {
+			resolved_subtitle = @"";
+		}
+
+		[sidebar_items addObject:@{
+			@"title": resolved_title,
+			@"subtitle": resolved_subtitle
+		}];
+	}
+
+	return [sidebar_items copy];
+}
+
+- (NSString *) stringValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSString class]]) {
+		return object;
+	}
+
+	return @"";
 }
 
 - (void) notifySelectionChanged
