@@ -106,7 +106,7 @@ static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"Inkw
 	self.detailController = [[MBDetailController alloc] init];
 
 	__weak typeof(self) weak_self = self;
-	self.sidebarController.selectionChangedHandler = ^(NSDictionary<NSString *,NSString *> * _Nullable item) {
+	self.sidebarController.selectionChangedHandler = ^(MBEntry * _Nullable item) {
 		[weak_self.detailController showSidebarItem:item];
 	};
 	self.sidebarController.client = self.client;

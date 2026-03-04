@@ -7,11 +7,13 @@
 
 #import <Cocoa/Cocoa.h>
 
+@class MBEntry;
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface MBDetailController : NSViewController
 
-- (void) showSidebarItem:(NSDictionary<NSString *, NSString *> * _Nullable)item;
+- (void) showSidebarItem:(MBEntry * _Nullable)item;
 
 @end
 
