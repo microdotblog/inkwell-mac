@@ -8,12 +8,18 @@
 #import "MBSidebarController.h"
 #import "MBClient.h"
 #import "MBEntry.h"
+#import "MBRoundedImageView.h"
 #import "MBSubscription.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
+static NSInteger const InkwellSidebarAvatarTag = 1000;
 static NSInteger const InkwellSidebarTitleTag = 1001;
 static NSInteger const InkwellSidebarSubtitleTag = 1002;
 static NSInteger const InkwellSidebarDateTag = 1003;
+static CGFloat const InkwellSidebarAvatarSize = 26.0;
+static CGFloat const InkwellSidebarAvatarInset = 3.0;
+static CGFloat const InkwellSidebarTextInset = 10.0;
+static CGFloat const InkwellSidebarRightInset = 10.0;
 
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate>
 
@@ -21,6 +27,11 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 @property (assign) BOOL isFetching;
 @property (strong) NSTableView *tableView;
 @property (copy) NSArray<MBEntry *> *allItems;
+@property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
+@property (strong) NSMutableDictionary<NSString *, NSImage *> *iconImageByHost;
+@property (strong) NSMutableSet<NSString *> *hostsWithPendingImageRequests;
+@property (strong) NSURLSession *imageSession;
+@property (strong) NSImage *defaultAvatarImage;
 
 @end
 
@@ -32,6 +43,10 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	if (self) {
 		self.dateFilter = MBSidebarDateFilterToday;
 		self.allItems = @[];
+		self.iconURLByHost = @{};
+		self.iconImageByHost = [NSMutableDictionary dictionary];
+		self.hostsWithPendingImageRequests = [NSMutableSet set];
+		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.items = @[];
 	}
 	return self;
@@ -114,7 +129,183 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
 		[self applyDateFilterAndReload];
+		[self fetchFeedIcons];
 	}];
+}
+
+- (void) fetchFeedIcons
+{
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	[self.client fetchFeedIconsWithToken:self.token completion:^(NSDictionary<NSString *,NSString *> * _Nullable icons_by_host, NSError * _Nullable error) {
+		if (error != nil) {
+			return;
+		}
+
+		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
+		[self.iconImageByHost removeAllObjects];
+		[self.hostsWithPendingImageRequests removeAllObjects];
+		[self.tableView reloadData];
+	}];
+}
+
+- (NSDictionary<NSString *, NSString *> *) normalizedIconURLByHostFromMap:(NSDictionary<NSString *, NSString *> *)icons_by_host
+{
+	if (icons_by_host.count == 0) {
+		return @{};
+	}
+
+	NSMutableDictionary<NSString *, NSString *> *normalized_icons_by_host = [NSMutableDictionary dictionary];
+	for (NSString *host_value in icons_by_host) {
+		NSString *normalized_host = [self normalizedHostString:host_value];
+		if (normalized_host.length == 0) {
+			continue;
+		}
+
+		NSString *url_value = icons_by_host[host_value];
+		if (url_value.length == 0) {
+			continue;
+		}
+
+		normalized_icons_by_host[normalized_host] = url_value;
+	}
+
+	return [normalized_icons_by_host copy];
+}
+
+- (NSString *) normalizedHostFromURLString:(NSString *)string
+{
+	if (string.length == 0) {
+		return @"";
+	}
+
+	NSURLComponents *components = [NSURLComponents componentsWithString:string];
+	NSString *host_value = components.host ?: @"";
+	if (host_value.length == 0) {
+		NSString *possible_url_string = [NSString stringWithFormat:@"https://%@", string];
+		NSURLComponents *host_only_components = [NSURLComponents componentsWithString:possible_url_string];
+		host_value = host_only_components.host ?: @"";
+	}
+
+	return [self normalizedHostString:host_value];
+}
+
+- (NSString *) normalizedHostString:(NSString *)host_string
+{
+	if (host_string.length == 0) {
+		return @"";
+	}
+
+	NSString *normalized_host = [[host_string lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if ([normalized_host hasPrefix:@"www."]) {
+		normalized_host = [normalized_host substringFromIndex:4];
+	}
+	if ([normalized_host hasSuffix:@"."]) {
+		normalized_host = [normalized_host substringToIndex:(normalized_host.length - 1)];
+	}
+
+	return normalized_host;
+}
+
+- (NSImage *) avatarImageForEntry:(MBEntry *)entry
+{
+	NSString *feed_host = [self normalizedHostString:entry.feedHost ?: @""];
+	if (feed_host.length == 0) {
+		return [self fallbackAvatarImage];
+	}
+
+	NSImage *cached_image = self.iconImageByHost[feed_host];
+	if (cached_image != nil) {
+		return cached_image;
+	}
+
+	NSString *icon_url_string = self.iconURLByHost[feed_host];
+	if (icon_url_string.length > 0) {
+		[self requestAvatarImageForHost:feed_host urlString:icon_url_string];
+	}
+
+	return [self fallbackAvatarImage];
+}
+
+- (NSImage *) fallbackAvatarImage
+{
+	if (self.defaultAvatarImage != nil) {
+		return self.defaultAvatarImage;
+	}
+
+	NSSize image_size = NSMakeSize(InkwellSidebarAvatarSize, InkwellSidebarAvatarSize);
+	NSImage *fallback_image = [[NSImage alloc] initWithSize:image_size];
+	[fallback_image lockFocus];
+	[[NSColor colorWithWhite:0.78 alpha:1.0] setFill];
+	NSRectFill(NSMakeRect(0.0, 0.0, image_size.width, image_size.height));
+	[fallback_image unlockFocus];
+
+	self.defaultAvatarImage = fallback_image;
+	return fallback_image;
+}
+
+- (void) requestAvatarImageForHost:(NSString *)host_value urlString:(NSString *)url_string
+{
+	if (host_value.length == 0 || url_string.length == 0) {
+		return;
+	}
+
+	if (self.iconImageByHost[host_value] != nil || [self.hostsWithPendingImageRequests containsObject:host_value]) {
+		return;
+	}
+
+	NSURL *image_url = [NSURL URLWithString:url_string];
+	if (image_url == nil) {
+		return;
+	}
+
+	[self.hostsWithPendingImageRequests addObject:host_value];
+
+	NSURLSessionDataTask *task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		#pragma unused(response)
+		NSImage *image_value = nil;
+		if (error == nil && data.length > 0) {
+			image_value = [[NSImage alloc] initWithData:data];
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self.hostsWithPendingImageRequests removeObject:host_value];
+
+			if (image_value == nil) {
+				return;
+			}
+
+			self.iconImageByHost[host_value] = image_value;
+			[self reloadRowsForHost:host_value];
+		});
+	}];
+	[task resume];
+}
+
+- (void) reloadRowsForHost:(NSString *)host_value
+{
+	if (host_value.length == 0 || self.items.count == 0) {
+		return;
+	}
+
+	NSMutableIndexSet *row_indexes = [NSMutableIndexSet indexSet];
+	NSUInteger item_count = self.items.count;
+	for (NSUInteger i = 0; i < item_count; i++) {
+		MBEntry *entry = self.items[i];
+		NSString *entry_host = [self normalizedHostString:entry.feedHost ?: @""];
+		if ([entry_host isEqualToString:host_value]) {
+			[row_indexes addIndex:i];
+		}
+	}
+
+	if (row_indexes.count == 0) {
+		return;
+	}
+
+	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
+	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
 }
 
 - (void) setDateFilter:(MBSidebarDateFilter)date_filter
@@ -179,6 +370,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 {
 	NSMutableArray<MBEntry *> *sidebar_items = [NSMutableArray array];
 	NSMutableDictionary<NSNumber *, NSString *> *subscription_titles_by_feed_id = [NSMutableDictionary dictionary];
+	NSMutableDictionary<NSNumber *, NSString *> *feed_hosts_by_feed_id = [NSMutableDictionary dictionary];
 
 	for (MBSubscription *subscription in subscriptions) {
 		if (subscription.feedID <= 0) {
@@ -186,11 +378,17 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		}
 
 		NSString *subscription_title = [self normalizedPreviewString:subscription.title ?: @""];
-		if (subscription_title.length == 0) {
-			continue;
+		if (subscription_title.length > 0) {
+			subscription_titles_by_feed_id[@(subscription.feedID)] = subscription_title;
 		}
 
-		subscription_titles_by_feed_id[@(subscription.feedID)] = subscription_title;
+		NSString *site_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
+		if (site_host.length == 0) {
+			site_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
+		}
+		if (site_host.length > 0) {
+			feed_hosts_by_feed_id[@(subscription.feedID)] = site_host;
+		}
 	}
 
 	for (NSDictionary<NSString *, id> *entry in entries) {
@@ -207,6 +405,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		BOOL is_read_value = [self boolValueFromObject:read_object];
 		NSInteger feed_id_value = [self integerValueFromObject:entry[@"feed_id"]];
 		NSString *subscription_title = subscription_titles_by_feed_id[@(feed_id_value)] ?: @"";
+		NSString *feed_host = feed_hosts_by_feed_id[@(feed_id_value)] ?: @"";
 
 		NSString *resolved_source = source_value;
 		if (resolved_source.length == 0) {
@@ -222,6 +421,8 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		sidebar_entry.summary = summary_value;
 		sidebar_entry.text = content_html_value;
 		sidebar_entry.source = resolved_source;
+		sidebar_entry.feedID = feed_id_value;
+		sidebar_entry.feedHost = feed_host;
 		sidebar_entry.date = entry_date;
 		sidebar_entry.isRead = is_read_value;
 
@@ -278,11 +479,16 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
+	#pragma unused(tableColumn)
 	NSTableCellView *cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
 
 	if (cell_view == nil) {
 		cell_view = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
 		cell_view.identifier = InkwellSidebarCellIdentifier;
+
+		MBRoundedImageView *avatar_view = [[MBRoundedImageView alloc] initWithFrame:NSZeroRect];
+		avatar_view.translatesAutoresizingMaskIntoConstraints = NO;
+		avatar_view.tag = InkwellSidebarAvatarTag;
 
 		NSTextField *title_field = [NSTextField labelWithString:@""];
 		title_field.translatesAutoresizingMaskIntoConstraints = NO;
@@ -307,6 +513,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		date_field.lineBreakMode = NSLineBreakByTruncatingTail;
 		date_field.maximumNumberOfLines = 1;
 
+		[cell_view addSubview:avatar_view];
 		[cell_view addSubview:title_field];
 		[cell_view addSubview:subtitle_field];
 		[cell_view addSubview:date_field];
@@ -315,20 +522,25 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		bottom_constraint.priority = NSLayoutPriorityDefaultHigh;
 
 		[NSLayoutConstraint activateConstraints:@[
+			[avatar_view.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:InkwellSidebarAvatarInset],
+			[avatar_view.topAnchor constraintEqualToAnchor:cell_view.topAnchor constant:8.0],
+			[avatar_view.widthAnchor constraintEqualToConstant:InkwellSidebarAvatarSize],
+			[avatar_view.heightAnchor constraintEqualToConstant:InkwellSidebarAvatarSize],
 			[title_field.topAnchor constraintEqualToAnchor:cell_view.topAnchor constant:8.0],
-			[title_field.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:10.0],
-			[title_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-10.0],
+			[title_field.leadingAnchor constraintEqualToAnchor:avatar_view.trailingAnchor constant:InkwellSidebarTextInset],
+			[title_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-InkwellSidebarRightInset],
 			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:5.0],
-			[subtitle_field.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:10.0],
-			[subtitle_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-10.0],
+			[subtitle_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
+			[subtitle_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			[date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:5.0],
-			[date_field.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:10.0],
-			[date_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-10.0],
+			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
+			[date_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			bottom_constraint
 		]];
 	}
 
 	MBEntry *item = self.items[(NSUInteger) row];
+	MBRoundedImageView *avatar_view = [cell_view viewWithTag:InkwellSidebarAvatarTag];
 	NSTextField *title_field = [cell_view viewWithTag:InkwellSidebarTitleTag];
 	NSTextField *subtitle_field = [cell_view viewWithTag:InkwellSidebarSubtitleTag];
 	NSTextField *date_field = [cell_view viewWithTag:InkwellSidebarDateTag];
@@ -346,6 +558,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	title_field.stringValue = title_value;
 	subtitle_field.stringValue = subtitle_value;
 	date_field.stringValue = date_value;
+	avatar_view.image = [self avatarImageForEntry:item];
 
 	return cell_view;
 }
@@ -357,7 +570,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	}
 
 	MBEntry *item = self.items[(NSUInteger) row];
-	CGFloat content_width = MAX(120.0, tableView.bounds.size.width - 20.0);
+	CGFloat content_width = MAX(120.0, tableView.bounds.size.width - (InkwellSidebarAvatarInset + InkwellSidebarAvatarSize + InkwellSidebarTextInset + InkwellSidebarRightInset));
 	NSString *subtitle_value = item.summary;
 	if (subtitle_value.length == 0) {
 		subtitle_value = item.source ?: @"";

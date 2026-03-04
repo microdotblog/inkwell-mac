@@ -19,6 +19,7 @@ static NSString * const MBTokenEndpoint = @"https://micro.blog/indieauth/token";
 static NSString * const MBVerifyEndpoint = @"https://micro.blog/account/verify";
 static NSString * const MBFeedSubscriptionsEndpoint = @"https://micro.blog/feeds/v2/subscriptions.json";
 static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/entries.json";
+static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icons.json";
 
 @interface MBClient ()
 
@@ -234,6 +235,63 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 	[task resume];
 }
 
+- (void) fetchFeedIconsWithToken:(NSString *)token completion:(void (^)(NSDictionary<NSString *,NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1008 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for icons request." }];
+		[self finishWithIconsByHost:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest *icons_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedIconsEndpoint]];
+	icons_request.HTTPMethod = @"GET";
+	[icons_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[icons_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:icons_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		if (error != nil) {
+			[self finishWithIconsByHost:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse *http_response = (NSHTTPURLResponse *) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Icons request failed."];
+			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithIconsByHost:nil error:request_error completion:completion];
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if (![payload isKindOfClass:[NSArray class]]) {
+			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1009 userInfo:@{ NSLocalizedDescriptionKey: @"Icons response was invalid." }];
+			[self finishWithIconsByHost:nil error:parse_error completion:completion];
+			return;
+		}
+
+		NSMutableDictionary<NSString *, NSString *> *icons_by_host = [NSMutableDictionary dictionary];
+		for (id object in (NSArray *) payload) {
+			if (![object isKindOfClass:[NSDictionary class]]) {
+				continue;
+			}
+
+			NSDictionary<NSString *, id> *dictionary = (NSDictionary<NSString *, id> *) object;
+			NSString *host_value = [self stringValueFromObject:dictionary[@"host"]];
+			NSString *url_value = [self stringValueFromObject:dictionary[@"url"]];
+			if (host_value.length == 0 || url_value.length == 0) {
+				continue;
+			}
+
+			icons_by_host[host_value] = url_value;
+		}
+
+		[self finishWithIconsByHost:[icons_by_host copy] error:nil completion:completion];
+	}];
+	[task resume];
+}
+
 - (NSArray<MBSubscription *> *) subscriptionsFromPayload:(NSArray *)payload
 {
 	NSMutableArray<MBSubscription *> *subscriptions = [NSMutableArray array];
@@ -429,6 +487,17 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(subscriptions, entries, error);
+	});
+}
+
+- (void) finishWithIconsByHost:(NSDictionary<NSString *, NSString *> * _Nullable)icons_by_host error:(NSError * _Nullable)error completion:(void (^)(NSDictionary<NSString *, NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(icons_by_host, error);
 	});
 }
 

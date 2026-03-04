@@ -16,6 +16,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *summary;
 @property (nonatomic, copy, nullable) NSString *text;
 @property (nonatomic, copy, nullable) NSString *source;
+@property (nonatomic, assign) NSInteger feedID;
+@property (nonatomic, copy, nullable) NSString *feedHost;
 @property (nonatomic, strong, nullable) NSDate *date;
 @property (nonatomic, assign) BOOL isRead;
 
