@@ -19,6 +19,7 @@ static NSString * const MBTokenEndpoint = @"https://micro.blog/indieauth/token";
 static NSString * const MBVerifyEndpoint = @"https://micro.blog/account/verify";
 static NSString * const MBFeedSubscriptionsEndpoint = @"https://micro.blog/feeds/v2/subscriptions.json";
 static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/entries.json";
+static NSString * const MBFeedUnreadEntriesEndpoint = @"https://micro.blog/feeds/v2/unread_entries.json";
 static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icons.json";
 
 @interface MBClient ()
@@ -157,11 +158,11 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 	[task resume];
 }
 
-- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error))completion
+- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error))completion
 {
 	if (token.length == 0) {
 		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1005 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for entries request." }];
-		[self finishWithSubscriptions:nil entries:nil error:error completion:completion];
+		[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:error completion:completion];
 		return;
 	}
 
@@ -174,7 +175,7 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 
 	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:subscriptions_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
-			[self finishWithSubscriptions:nil entries:nil error:error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:error completion:completion];
 			return;
 		}
 
@@ -182,14 +183,14 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Subscriptions request failed."];
 			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSubscriptions:nil entries:nil error:request_error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:request_error completion:completion];
 			return;
 		}
 
 		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 		if (![payload isKindOfClass:[NSArray class]]) {
 			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions response was invalid." }];
-			[self finishWithSubscriptions:nil entries:nil error:parse_error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:parse_error completion:completion];
 			return;
 		}
 
@@ -202,7 +203,7 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 
 		NSURLSessionDataTask *entries_task = [self trackedDataTaskWithRequest:entries_request completionHandler:^(NSData * _Nullable entries_data, NSURLResponse * _Nullable entries_response, NSError * _Nullable entries_error) {
 			if (entries_error != nil) {
-				[self finishWithSubscriptions:subscriptions entries:nil error:entries_error completion:completion];
+				[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil error:entries_error completion:completion];
 				return;
 			}
 
@@ -210,14 +211,14 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 			if (entries_http_response.statusCode < 200 || entries_http_response.statusCode >= 300) {
 				NSString *description = [self responseDescriptionForData:entries_data defaultMessage:@"Entries request failed."];
 				NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:entries_http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-				[self finishWithSubscriptions:subscriptions entries:nil error:request_error completion:completion];
+				[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil error:request_error completion:completion];
 				return;
 			}
 
 			id entries_payload = [NSJSONSerialization JSONObjectWithData:entries_data options:0 error:nil];
 			if (![entries_payload isKindOfClass:[NSArray class]]) {
 				NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1007 userInfo:@{ NSLocalizedDescriptionKey: @"Entries response was invalid." }];
-				[self finishWithSubscriptions:subscriptions entries:nil error:parse_error completion:completion];
+				[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil error:parse_error completion:completion];
 				return;
 			}
 
@@ -228,7 +229,26 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 				}
 			}
 
-			[self finishWithSubscriptions:subscriptions entries:[entries copy] error:nil completion:completion];
+			NSMutableURLRequest *unread_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
+			unread_request.HTTPMethod = @"GET";
+			[unread_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+			[unread_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+			NSURLSessionDataTask *unread_task = [self trackedDataTaskWithRequest:unread_request completionHandler:^(NSData * _Nullable unread_data, NSURLResponse * _Nullable unread_response, NSError * _Nullable unread_error) {
+				NSSet *unread_entry_ids = nil;
+				if (unread_error == nil) {
+					NSHTTPURLResponse *unread_http_response = (NSHTTPURLResponse *) unread_response;
+					if (unread_http_response.statusCode >= 200 && unread_http_response.statusCode < 300) {
+						id unread_payload = [NSJSONSerialization JSONObjectWithData:unread_data options:0 error:nil];
+						if ([unread_payload isKindOfClass:[NSArray class]]) {
+							unread_entry_ids = [self unreadEntryIDsFromPayload:(NSArray *) unread_payload];
+						}
+					}
+				}
+
+				[self finishWithSubscriptions:subscriptions entries:[entries copy] unreadEntryIDs:unread_entry_ids error:nil completion:completion];
+			}];
+			[unread_task resume];
 		}];
 		[entries_task resume];
 	}];
@@ -292,6 +312,67 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 	[task resume];
 }
 
+- (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
+{
+	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:NO completion:completion];
+}
+
+- (void) markAsUnread:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
+{
+	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:YES completion:completion];
+}
+
+- (void) updateUnreadStateForEntryID:(NSInteger)entry_id token:(NSString*) token should_mark_unread:(BOOL)should_mark_unread completion:(void (^)(NSError * _Nullable error))completion
+{
+	if (entry_id <= 0) {
+		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1010 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry ID for read state update." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1011 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for read state update." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
+	if (should_mark_unread) {
+		request.HTTPMethod = @"POST";
+	}
+	else {
+		request.HTTPMethod = @"DELETE";
+	}
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSDictionary *payload = @{ @"unread_entries": @[ @(entry_id) ] };
+	NSData *body_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+	request.HTTPBody = body_data;
+
+	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse *http_response = (NSHTTPURLResponse *) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString *default_message = should_mark_unread ? @"Mark unread request failed." : @"Mark read request failed.";
+			NSString *description = [self responseDescriptionForData:data defaultMessage:default_message];
+			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
+	}];
+	[task resume];
+}
+
 - (NSArray<MBSubscription *> *) subscriptionsFromPayload:(NSArray *)payload
 {
 	NSMutableArray<MBSubscription *> *subscriptions = [NSMutableArray array];
@@ -316,6 +397,20 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 	}
 
 	return [subscriptions copy];
+}
+
+- (NSSet *) unreadEntryIDsFromPayload:(NSArray *)payload
+{
+	NSMutableSet *unread_entry_ids = [NSMutableSet set];
+
+	for (id object in payload) {
+		NSInteger entry_id_value = [self integerValueFromObject:object];
+		if (entry_id_value > 0) {
+			[unread_entry_ids addObject:@(entry_id_value)];
+		}
+	}
+
+	return [unread_entry_ids copy];
 }
 
 - (NSInteger) integerValueFromObject:(id)object
@@ -479,14 +574,14 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 	});
 }
 
-- (void) finishWithSubscriptions:(NSArray<MBSubscription *> * _Nullable)subscriptions entries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries error:(NSError * _Nullable)error completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error))completion
+- (void) finishWithSubscriptions:(NSArray<MBSubscription *> * _Nullable)subscriptions entries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids error:(NSError * _Nullable)error completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error))completion
 {
 	if (completion == nil) {
 		return;
 	}
 
 	dispatch_async(dispatch_get_main_queue(), ^{
-		completion(subscriptions, entries, error);
+		completion(subscriptions, entries, unread_entry_ids, error);
 	});
 }
 
@@ -498,6 +593,17 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(icons_by_host, error);
+	});
+}
+
+- (void) finishWithSimpleError:(NSError * _Nullable)error completion:(void (^)(NSError * _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(error);
 	});
 }
 

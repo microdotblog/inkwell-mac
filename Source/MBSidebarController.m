@@ -12,6 +12,7 @@
 #import "MBSubscription.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
+static NSUserInterfaceItemIdentifier const InkwellSidebarRowIdentifier = @"InkwellSidebarRow";
 static NSInteger const InkwellSidebarAvatarTag = 1000;
 static NSInteger const InkwellSidebarTitleTag = 1001;
 static NSInteger const InkwellSidebarSubtitleTag = 1002;
@@ -20,11 +21,38 @@ static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarAvatarInset = 3.0;
 static CGFloat const InkwellSidebarTextInset = 10.0;
 static CGFloat const InkwellSidebarRightInset = 10.0;
+static CGFloat const InkwellSidebarRowBackgroundHorizontalInset = 10.0;
+static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
+
+@interface MBSidebarRowView : NSTableRowView
+
+@property (strong) NSColor* customBackgroundColor;
+
+@end
+
+@implementation MBSidebarRowView
+
+- (void) drawBackgroundInRect:(NSRect)dirty_rect
+{
+	#pragma unused(dirty_rect)
+	if (self.customBackgroundColor == nil) {
+		[super drawBackgroundInRect:dirty_rect];
+		return;
+	}
+
+	NSRect fill_rect = NSInsetRect(self.bounds, InkwellSidebarRowBackgroundHorizontalInset, InkwellSidebarRowBackgroundVerticalInset);
+	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:fill_rect xRadius:10.0 yRadius:10.0];
+	[self.customBackgroundColor setFill];
+	[background_path fill];
+}
+
+@end
 
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate>
 
 @property (assign) BOOL hasLoadedRemoteItems;
 @property (assign) BOOL isFetching;
+@property (assign) NSInteger selectedRowForStyling;
 @property (strong) NSTableView *tableView;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
@@ -32,6 +60,8 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 @property (strong) NSMutableSet<NSString *> *hostsWithPendingImageRequests;
 @property (strong) NSURLSession *imageSession;
 @property (strong) NSImage *defaultAvatarImage;
+
+- (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 
 @end
 
@@ -43,6 +73,7 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	if (self) {
 		self.dateFilter = MBSidebarDateFilterToday;
 		self.searchQuery = @"";
+		self.selectedRowForStyling = -1;
 		self.allItems = @[];
 		self.iconURLByHost = @{};
 		self.iconImageByHost = [NSMutableDictionary dictionary];
@@ -63,8 +94,10 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	table_view.delegate = self;
 	table_view.dataSource = self;
 	table_view.headerView = nil;
-	table_view.intercellSpacing = NSMakeSize(0.0, 2.0);
+	table_view.allowsEmptySelection = NO;
+	table_view.intercellSpacing = NSMakeSize(0.0, 5.0);
 	table_view.style = NSTableViewStyleSourceList;
+	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
 
 	NSTableColumn *source_column = [[NSTableColumn alloc] initWithIdentifier:@"SourceColumn"];
 	source_column.resizingMask = NSTableColumnAutoresizingMask;
@@ -104,8 +137,12 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	if (self.items.count > 0) {
 		NSIndexSet *index_set = [NSIndexSet indexSetWithIndex:0];
 		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+		self.selectedRowForStyling = 0;
 		[self.tableView scrollRowToVisible:0];
 		[self notifySelectionChanged];
+	}
+	else {
+		self.selectedRowForStyling = -1;
 	}
 
 	[self.view.window makeFirstResponder:self.tableView];
@@ -118,10 +155,12 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	if (self.items.count > 0) {
 		NSIndexSet *index_set = [NSIndexSet indexSetWithIndex:0];
 		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+		self.selectedRowForStyling = 0;
 		[self notifySelectionChanged];
 		return;
 	}
 
+	self.selectedRowForStyling = -1;
 	[self notifySelectionChanged];
 }
 
@@ -136,13 +175,13 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	}
 
 	self.isFetching = YES;
-	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error) {
+	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error) {
 		self.isFetching = NO;
 		if (error != nil) {
 			return;
 		}
 
-		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[]];
+		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[] unreadEntryIDs:unread_entry_ids];
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
 		[self applyFiltersAndReload];
@@ -433,7 +472,7 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	return [filtered_items copy];
 }
 
-- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries subscriptions:(NSArray<MBSubscription *> *)subscriptions
+- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries subscriptions:(NSArray<MBSubscription *> *)subscriptions unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids
 {
 	NSMutableArray<MBEntry *> *sidebar_items = [NSMutableArray array];
 	NSMutableDictionary<NSNumber *, NSString *> *subscription_titles_by_feed_id = [NSMutableDictionary dictionary];
@@ -468,8 +507,12 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 		}
 		NSString *source_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"source"]]];
 		NSDate *entry_date = [self dateValueFromEntry:entry];
+		NSInteger entry_id_value = [self integerValueFromObject:entry[@"id"]];
 		id read_object = entry[@"is_read"] ?: entry[@"read"];
 		BOOL is_read_value = [self boolValueFromObject:read_object];
+		if (unread_entry_ids != nil && entry_id_value > 0) {
+			is_read_value = ![unread_entry_ids containsObject:@(entry_id_value)];
+		}
 		NSInteger feed_id_value = [self integerValueFromObject:entry[@"feed_id"]];
 		NSString *subscription_title = subscription_titles_by_feed_id[@(feed_id_value)] ?: @"";
 		NSString *feed_host = feed_hosts_by_feed_id[@(feed_id_value)] ?: @"";
@@ -488,6 +531,7 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 		sidebar_entry.summary = summary_value;
 		sidebar_entry.text = content_html_value;
 		sidebar_entry.source = resolved_source;
+		sidebar_entry.entryID = entry_id_value;
 		sidebar_entry.feedID = feed_id_value;
 		sidebar_entry.feedHost = feed_host;
 		sidebar_entry.date = entry_date;
@@ -523,18 +567,41 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 
 - (void) notifySelectionChanged
 {
-	if (self.selectionChangedHandler == nil) {
-		return;
-	}
-
 	NSInteger selected_row = self.tableView.selectedRow;
 	if (selected_row >= 0 && selected_row < self.items.count) {
 		MBEntry *item = self.items[(NSUInteger) selected_row];
-		self.selectionChangedHandler(item);
+		[self markSelectedItemAsReadIfNeeded:item atRow:selected_row];
+		if (self.selectionChangedHandler != nil) {
+			self.selectionChangedHandler(item);
+		}
 		return;
 	}
 
-	self.selectionChangedHandler(nil);
+	if (self.selectionChangedHandler != nil) {
+		self.selectionChangedHandler(nil);
+	}
+}
+
+- (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row
+{
+	if (item == nil || item.isRead || item.entryID <= 0) {
+		return;
+	}
+
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	item.isRead = YES;
+	if (row >= 0 && row < self.items.count) {
+		NSIndexSet *row_indexes = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+		NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
+		[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+	}
+
+	[self.client markAsRead:item.entryID token:self.token completion:^(NSError * _Nullable error) {
+		#pragma unused(error)
+	}];
 }
 
 #pragma mark - Table View
@@ -542,6 +609,39 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 - (NSInteger) numberOfRowsInTableView:(NSTableView *)tableView
 {
 	return self.items.count;
+}
+
+- (NSTableRowView *) tableView:(NSTableView *)tableView rowViewForRow:(NSInteger)row
+{
+	MBSidebarRowView* row_view = [tableView makeViewWithIdentifier:InkwellSidebarRowIdentifier owner:self];
+	if (row_view == nil) {
+		row_view = [[MBSidebarRowView alloc] initWithFrame:NSZeroRect];
+		row_view.identifier = InkwellSidebarRowIdentifier;
+		row_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
+	}
+
+	BOOL is_selected_row = (row == self.selectedRowForStyling);
+	if (!is_selected_row) {
+		is_selected_row = (tableView.selectedRow == row);
+	}
+	if (!is_selected_row) {
+		is_selected_row = [tableView isRowSelected:row];
+	}
+
+	if (is_selected_row || row < 0 || row >= self.items.count) {
+		row_view.customBackgroundColor = nil;
+		return row_view;
+	}
+
+	MBEntry* item = self.items[(NSUInteger) row];
+	if (item.isRead) {
+		row_view.customBackgroundColor = [NSColor colorWithWhite:0.96 alpha:1.0];
+	}
+	else {
+		row_view.customBackgroundColor = [NSColor colorWithRed:0.93 green:0.96 blue:1.0 alpha:0.85];
+	}
+
+	return row_view;
 }
 
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
@@ -626,6 +726,35 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 	subtitle_field.stringValue = subtitle_value;
 	date_field.stringValue = date_value;
 	avatar_view.image = [self avatarImageForEntry:item];
+
+	BOOL is_selected_row = (row == self.selectedRowForStyling);
+	if (!is_selected_row) {
+		is_selected_row = (tableView.selectedRow == row);
+	}
+	if (!is_selected_row) {
+		is_selected_row = [tableView isRowSelected:row];
+	}
+	if (is_selected_row) {
+		NSColor* selected_text_color = [NSColor alternateSelectedControlTextColor];
+		title_field.textColor = selected_text_color;
+		subtitle_field.textColor = [selected_text_color colorWithAlphaComponent:0.78];
+		date_field.textColor = [selected_text_color colorWithAlphaComponent:0.55];
+		avatar_view.alphaValue = 1.0;
+		return cell_view;
+	}
+
+	if (item.isRead) {
+		title_field.textColor = [NSColor disabledControlTextColor];
+		subtitle_field.textColor = [NSColor disabledControlTextColor];
+		date_field.textColor = [NSColor disabledControlTextColor];
+		avatar_view.alphaValue = 0.35;
+	}
+	else {
+		title_field.textColor = [NSColor labelColor];
+		subtitle_field.textColor = [NSColor secondaryLabelColor];
+		date_field.textColor = [NSColor tertiaryLabelColor];
+		avatar_view.alphaValue = 1.0;
+	}
 
 	return cell_view;
 }
@@ -768,6 +897,23 @@ static CGFloat const InkwellSidebarRightInset = 10.0;
 
 - (void) tableViewSelectionDidChange:(NSNotification *)notification
 {
+	#pragma unused(notification)
+	NSInteger current_selected_row = self.tableView.selectedRow;
+	NSMutableIndexSet *rows_to_reload = [NSMutableIndexSet indexSet];
+	if (self.selectedRowForStyling >= 0 && self.selectedRowForStyling < self.items.count) {
+		[rows_to_reload addIndex:(NSUInteger) self.selectedRowForStyling];
+	}
+	if (current_selected_row >= 0 && current_selected_row < self.items.count) {
+		[rows_to_reload addIndex:(NSUInteger) current_selected_row];
+	}
+
+	self.selectedRowForStyling = current_selected_row;
+
+	if (rows_to_reload.count > 0) {
+		NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
+		[self.tableView reloadDataForRowIndexes:rows_to_reload columnIndexes:column_indexes];
+	}
+
 	[self notifySelectionChanged];
 }
 
