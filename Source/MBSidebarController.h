@@ -30,6 +30,7 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 - (void) reloadData;
 - (void) refreshData;
 - (void) focusAndSelectFirstItem;
+- (MBEntry* _Nullable) selectedItem;
 
 @end
 

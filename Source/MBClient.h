@@ -10,6 +10,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @class MBSubscription;
+@class MBHighlight;
 
 extern NSString * const MBClientErrorDomain;
 extern NSString* const MBClientNetworkingDidStartNotification;
@@ -25,6 +26,7 @@ extern NSString* const MBClientNetworkingDidStopNotification;
 - (void) verifyToken:(NSString *)token completion:(void (^)(BOOL is_valid, NSError * _Nullable error))completion;
 - (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error))completion;
 - (void) fetchFeedIconsWithToken:(NSString *)token completion:(void (^)(NSDictionary<NSString *, NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion;
+- (void) fetchHighlightsForEntryID:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion;
 - (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 - (void) markAsUnread:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 

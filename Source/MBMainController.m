@@ -8,6 +8,8 @@
 #import "MBMainController.h"
 #import "MBClient.h"
 #import "MBDetailController.h"
+#import "MBEntry.h"
+#import "MBHighlightsController.h"
 #import "MBSidebarController.h"
 
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
@@ -27,6 +29,7 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 @property (strong) NSSplitView *mainSplitView;
 @property (strong) MBSidebarController *sidebarController;
 @property (strong) MBDetailController *detailController;
+@property (strong) MBHighlightsController *highlightsController;
 @property (copy) NSString *token;
 @property (assign) BOOL isNetworkingInProgress;
 
@@ -242,6 +245,22 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 {
 	#pragma unused(sender)
 	[self.sidebarController refreshData];
+}
+
+- (IBAction) showHighlights:(id)sender
+{
+	#pragma unused(sender)
+
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil || selected_item.entryID <= 0) {
+		return;
+	}
+
+	if (self.highlightsController == nil) {
+		self.highlightsController = [[MBHighlightsController alloc] initWithClient:self.client token:self.token];
+	}
+
+	[self.highlightsController showHighlightsForEntryID:selected_item.entryID];
 }
 
 - (IBAction) performFindPanelAction:(id)sender

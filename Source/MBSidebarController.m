@@ -170,6 +170,21 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	[self.view.window makeFirstResponder:self.tableView];
 }
 
+- (MBEntry* _Nullable) selectedItem
+{
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.items.count) {
+		return nil;
+	}
+
+	MBEntry* item = self.items[selected_row];
+	if (![item isKindOfClass:[MBEntry class]]) {
+		return nil;
+	}
+
+	return item;
+}
+
 - (void) reloadTable
 {
 	[self.tableView reloadData];

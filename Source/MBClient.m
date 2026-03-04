@@ -6,6 +6,7 @@
 //
 
 #import "MBClient.h"
+#import "MBHighlight.h"
 #import "MBSubscription.h"
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
@@ -21,6 +22,7 @@ static NSString * const MBFeedSubscriptionsEndpoint = @"https://micro.blog/feeds
 static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/entries.json";
 static NSString * const MBFeedUnreadEntriesEndpoint = @"https://micro.blog/feeds/v2/unread_entries.json";
 static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icons.json";
+static NSString* const MBFeedsEndpointBase = @"https://micro.blog/feeds";
 
 @interface MBClient ()
 
@@ -312,6 +314,55 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 	[task resume];
 }
 
+- (void) fetchHighlightsForEntryID:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion
+{
+	if (entry_id <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1012 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry ID for highlights request." }];
+		[self finishWithHighlights:nil error:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1013 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for highlights request." }];
+		[self finishWithHighlights:nil error:error completion:completion];
+		return;
+	}
+
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/highlights", MBFeedsEndpointBase, (long) entry_id];
+	NSMutableURLRequest* highlights_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
+	highlights_request.HTTPMethod = @"GET";
+	[highlights_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[highlights_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:highlights_request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithHighlights:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Highlights request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithHighlights:nil error:request_error completion:completion];
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if (![payload isKindOfClass:[NSDictionary class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1014 userInfo:@{ NSLocalizedDescriptionKey: @"Highlights response was invalid." }];
+			[self finishWithHighlights:nil error:parse_error completion:completion];
+			return;
+		}
+
+		NSArray* highlights = [self highlightsFromFeedPayload:(NSDictionary*) payload defaultEntryID:entry_id];
+		[self finishWithHighlights:highlights error:nil completion:completion];
+	}];
+	[task resume];
+}
+
 - (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
 {
 	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:NO completion:completion];
@@ -411,6 +462,49 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 	}
 
 	return [unread_entry_ids copy];
+}
+
+- (NSArray*) highlightsFromFeedPayload:(NSDictionary*) payload defaultEntryID:(NSInteger)entry_id
+{
+	id items_payload = payload[@"items"];
+	if (![items_payload isKindOfClass:[NSArray class]]) {
+		return @[];
+	}
+
+	NSMutableArray* highlights = [NSMutableArray array];
+
+	for (id object in (NSArray*) items_payload) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* item = (NSDictionary*) object;
+		NSDictionary* microblog_dictionary = nil;
+		id microblog_object = item[@"_microblog"];
+		if ([microblog_object isKindOfClass:[NSDictionary class]]) {
+			microblog_dictionary = (NSDictionary*) microblog_object;
+		}
+
+		MBHighlight* highlight = [[MBHighlight alloc] init];
+		NSInteger entry_id_value = [self integerValueFromObject:microblog_dictionary[@"entry_id"]];
+		if (entry_id_value <= 0) {
+			entry_id_value = entry_id;
+		}
+		highlight.entryID = entry_id_value;
+		highlight.selectionText = [self stringValueFromObject:item[@"content_text"]];
+		highlight.selectionStart = [self integerValueFromObject:microblog_dictionary[@"selection_start"]];
+		highlight.selectionEnd = [self integerValueFromObject:microblog_dictionary[@"selection_end"]];
+
+		NSString* updated_date_string = [self stringValueFromObject:item[@"date_published"]];
+		if (updated_date_string.length == 0) {
+			updated_date_string = [self stringValueFromObject:item[@"date_modified"]];
+		}
+		highlight.updatedDate = [self dateFromISO8601String:updated_date_string];
+
+		[highlights addObject:highlight];
+	}
+
+	return [highlights copy];
 }
 
 - (NSInteger) integerValueFromObject:(id)object
@@ -593,6 +687,17 @@ static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icon
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(icons_by_host, error);
+	});
+}
+
+- (void) finishWithHighlights:(NSArray* _Nullable)highlights error:(NSError* _Nullable)error completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(highlights, error);
 	});
 }
 
