@@ -8,6 +8,7 @@
 #import "MBSidebarController.h"
 #import "MBClient.h"
 #import "MBEntry.h"
+#import "MBSubscription.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSInteger const InkwellSidebarTitleTag = 1001;
@@ -100,28 +101,41 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	}
 
 	self.isFetching = YES;
-	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error) {
+	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error) {
 		self.isFetching = NO;
 		if (error != nil) {
 			return;
 		}
 
-		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[]];
+		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[]];
 		self.hasLoadedRemoteItems = YES;
 		self.items = sidebar_items;
 		[self reloadTableAndSelectFirstItem];
 	}];
 }
 
-- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries
+- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries subscriptions:(NSArray<MBSubscription *> *)subscriptions
 {
 	NSMutableArray<MBEntry *> *sidebar_items = [NSMutableArray array];
+	NSMutableDictionary<NSNumber *, NSString *> *subscription_titles_by_feed_id = [NSMutableDictionary dictionary];
+
+	for (MBSubscription *subscription in subscriptions) {
+		if (subscription.feedID <= 0) {
+			continue;
+		}
+
+		NSString *subscription_title = [self normalizedPreviewString:subscription.title ?: @""];
+		if (subscription_title.length == 0) {
+			continue;
+		}
+
+		subscription_titles_by_feed_id[@(subscription.feedID)] = subscription_title;
+	}
 
 	for (NSDictionary<NSString *, id> *entry in entries) {
 		NSString *title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
 		NSString *summary_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"summary"]]];
 		NSString *author_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"author"]]];
-		NSString *url_value = [self stringValueFromObject:entry[@"url"]];
 		NSString *content_html_value = [self stringValueFromObject:entry[@"content_html"]];
 		if (content_html_value.length == 0) {
 			content_html_value = [self stringValueFromObject:entry[@"content"]];
@@ -130,11 +144,8 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		NSDate *entry_date = [self dateValueFromEntry:entry];
 		id read_object = entry[@"is_read"] ?: entry[@"read"];
 		BOOL is_read_value = [self boolValueFromObject:read_object];
-
-		NSString *resolved_title = title_value;
-		if (resolved_title.length == 0) {
-			resolved_title = url_value.length > 0 ? url_value : @"Untitled";
-		}
+		NSInteger feed_id_value = [self integerValueFromObject:entry[@"feed_id"]];
+		NSString *subscription_title = subscription_titles_by_feed_id[@(feed_id_value)] ?: @"";
 
 		NSString *resolved_source = source_value;
 		if (resolved_source.length == 0) {
@@ -145,7 +156,8 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 		}
 
 		MBEntry *sidebar_entry = [[MBEntry alloc] init];
-		sidebar_entry.title = resolved_title;
+		sidebar_entry.title = title_value;
+		sidebar_entry.subscriptionTitle = subscription_title;
 		sidebar_entry.summary = summary_value;
 		sidebar_entry.text = content_html_value;
 		sidebar_entry.source = resolved_source;
@@ -165,6 +177,19 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	}
 
 	return @"";
+}
+
+- (NSInteger) integerValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber *) object integerValue];
+	}
+
+	if ([object isKindOfClass:[NSString class]]) {
+		return [(NSString *) object integerValue];
+	}
+
+	return 0;
 }
 
 - (void) notifySelectionChanged
@@ -252,7 +277,12 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	}
 	NSString *date_value = [self displayDateString:item.date];
 
-	title_field.stringValue = item.title ?: @"";
+	NSString *title_value = item.title ?: @"";
+	if (title_value.length == 0) {
+		title_value = item.subscriptionTitle ?: @"";
+	}
+
+	title_field.stringValue = title_value;
 	subtitle_field.stringValue = subtitle_value;
 	date_field.stringValue = date_value;
 
@@ -276,7 +306,12 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 	NSFont *subtitle_font = [NSFont systemFontOfSize:12.0];
 	NSFont *date_font = [NSFont systemFontOfSize:11.0];
 
-	CGFloat title_height = [self heightForText:item.title ?: @"" font:title_font width:content_width maxLines:2];
+	NSString *title_value = item.title ?: @"";
+	if (title_value.length == 0) {
+		title_value = item.subscriptionTitle ?: @"";
+	}
+
+	CGFloat title_height = [self heightForText:title_value font:title_font width:content_width maxLines:2];
 	CGFloat subtitle_height = [self heightForText:subtitle_value font:subtitle_font width:content_width maxLines:2];
 	CGFloat date_height = [self heightForText:date_value font:date_font width:content_width maxLines:1];
 	CGFloat row_height = 8.0 + title_height + 5.0 + subtitle_height + 5.0 + date_height + 8.0;

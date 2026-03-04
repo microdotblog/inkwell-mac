@@ -6,6 +6,7 @@
 //
 
 #import "MBClient.h"
+#import "MBSubscription.h"
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
 NSString* const MBClientNetworkingDidStartNotification = @"MBClientNetworkingDidStartNotification";
@@ -16,6 +17,7 @@ static NSString * const MBRedirectURI = @"inkwell://signin";
 static NSString * const MBAuthorizationEndpoint = @"https://micro.blog/indieauth/auth";
 static NSString * const MBTokenEndpoint = @"https://micro.blog/indieauth/token";
 static NSString * const MBVerifyEndpoint = @"https://micro.blog/account/verify";
+static NSString * const MBFeedSubscriptionsEndpoint = @"https://micro.blog/feeds/v2/subscriptions.json";
 static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/entries.json";
 
 @interface MBClient ()
@@ -154,52 +156,154 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 	[task resume];
 }
 
-- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error))completion
+- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error))completion
 {
 	if (token.length == 0) {
 		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1005 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for entries request." }];
-		[self finishWithEntries:nil error:error completion:completion];
+		[self finishWithSubscriptions:nil entries:nil error:error completion:completion];
 		return;
 	}
 
-	NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedEntriesEndpoint]];
-	request.HTTPMethod = @"GET";
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	NSMutableURLRequest *subscriptions_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedSubscriptionsEndpoint]];
+	subscriptions_request.HTTPMethod = @"GET";
+	[subscriptions_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 
 	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+	[subscriptions_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
-	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:subscriptions_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
-			[self finishWithEntries:nil error:error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil error:error completion:completion];
 			return;
 		}
 
 		NSHTTPURLResponse *http_response = (NSHTTPURLResponse *) response;
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Entries request failed."];
+			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Subscriptions request failed."];
 			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithEntries:nil error:request_error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil error:request_error completion:completion];
 			return;
 		}
 
 		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 		if (![payload isKindOfClass:[NSArray class]]) {
-			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Entries response was invalid." }];
-			[self finishWithEntries:nil error:parse_error completion:completion];
+			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions response was invalid." }];
+			[self finishWithSubscriptions:nil entries:nil error:parse_error completion:completion];
 			return;
 		}
 
-		NSMutableArray<NSDictionary<NSString *, id> *> *entries = [NSMutableArray array];
-		for (id object in (NSArray *) payload) {
-			if ([object isKindOfClass:[NSDictionary class]]) {
-				[entries addObject:object];
-			}
-		}
+		NSArray<MBSubscription *> *subscriptions = [self subscriptionsFromPayload:(NSArray *) payload];
 
-		[self finishWithEntries:[entries copy] error:nil completion:completion];
+		NSMutableURLRequest *entries_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedEntriesEndpoint]];
+		entries_request.HTTPMethod = @"GET";
+		[entries_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+		[entries_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+		NSURLSessionDataTask *entries_task = [self trackedDataTaskWithRequest:entries_request completionHandler:^(NSData * _Nullable entries_data, NSURLResponse * _Nullable entries_response, NSError * _Nullable entries_error) {
+			if (entries_error != nil) {
+				[self finishWithSubscriptions:subscriptions entries:nil error:entries_error completion:completion];
+				return;
+			}
+
+			NSHTTPURLResponse *entries_http_response = (NSHTTPURLResponse *) entries_response;
+			if (entries_http_response.statusCode < 200 || entries_http_response.statusCode >= 300) {
+				NSString *description = [self responseDescriptionForData:entries_data defaultMessage:@"Entries request failed."];
+				NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:entries_http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+				[self finishWithSubscriptions:subscriptions entries:nil error:request_error completion:completion];
+				return;
+			}
+
+			id entries_payload = [NSJSONSerialization JSONObjectWithData:entries_data options:0 error:nil];
+			if (![entries_payload isKindOfClass:[NSArray class]]) {
+				NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1007 userInfo:@{ NSLocalizedDescriptionKey: @"Entries response was invalid." }];
+				[self finishWithSubscriptions:subscriptions entries:nil error:parse_error completion:completion];
+				return;
+			}
+
+			NSMutableArray<NSDictionary<NSString *, id> *> *entries = [NSMutableArray array];
+			for (id object in (NSArray *) entries_payload) {
+				if ([object isKindOfClass:[NSDictionary class]]) {
+					[entries addObject:object];
+				}
+			}
+
+			[self finishWithSubscriptions:subscriptions entries:[entries copy] error:nil completion:completion];
+		}];
+		[entries_task resume];
 	}];
 	[task resume];
+}
+
+- (NSArray<MBSubscription *> *) subscriptionsFromPayload:(NSArray *)payload
+{
+	NSMutableArray<MBSubscription *> *subscriptions = [NSMutableArray array];
+
+	for (id object in payload) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary<NSString *, id> *dictionary = (NSDictionary<NSString *, id> *) object;
+		MBSubscription *subscription = [[MBSubscription alloc] init];
+		subscription.subscriptionID = [self integerValueFromObject:dictionary[@"id"]];
+		subscription.feedID = [self integerValueFromObject:dictionary[@"feed_id"]];
+		subscription.title = [self stringValueFromObject:dictionary[@"title"]];
+		subscription.feedURL = [self stringValueFromObject:dictionary[@"feed_url"]];
+		subscription.siteURL = [self stringValueFromObject:dictionary[@"site_url"]];
+
+		NSString *created_at_string = [self stringValueFromObject:dictionary[@"created_at"]];
+		subscription.createdAt = [self dateFromISO8601String:created_at_string];
+
+		[subscriptions addObject:subscription];
+	}
+
+	return [subscriptions copy];
+}
+
+- (NSInteger) integerValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber *) object integerValue];
+	}
+
+	if ([object isKindOfClass:[NSString class]]) {
+		return [(NSString *) object integerValue];
+	}
+
+	return 0;
+}
+
+- (NSString *) stringValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSString class]]) {
+		return object;
+	}
+
+	return @"";
+}
+
+- (NSDate * _Nullable) dateFromISO8601String:(NSString *)string
+{
+	if (string.length == 0) {
+		return nil;
+	}
+
+	static NSISO8601DateFormatter *fractional_date_formatter;
+	static NSISO8601DateFormatter *default_date_formatter;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		fractional_date_formatter = [[NSISO8601DateFormatter alloc] init];
+		fractional_date_formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+
+		default_date_formatter = [[NSISO8601DateFormatter alloc] init];
+		default_date_formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+	});
+
+	NSDate *date_value = [fractional_date_formatter dateFromString:string];
+	if (date_value == nil) {
+		return [default_date_formatter dateFromString:string];
+	}
+	return date_value;
 }
 
 - (NSURLSessionDataTask *) trackedDataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error))completion_handler
@@ -317,14 +421,14 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 	});
 }
 
-- (void) finishWithEntries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries error:(NSError * _Nullable)error completion:(void (^)(NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error))completion
+- (void) finishWithSubscriptions:(NSArray<MBSubscription *> * _Nullable)subscriptions entries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries error:(NSError * _Nullable)error completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSError * _Nullable error))completion
 {
 	if (completion == nil) {
 		return;
 	}
 
 	dispatch_async(dispatch_get_main_queue(), ^{
-		completion(entries, error);
+		completion(subscriptions, entries, error);
 	});
 }
 
