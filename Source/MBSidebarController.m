@@ -20,6 +20,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 @property (assign) BOOL hasLoadedRemoteItems;
 @property (assign) BOOL isFetching;
 @property (strong) NSTableView *tableView;
+@property (copy) NSArray<MBEntry *> *allItems;
 
 @end
 
@@ -29,6 +30,8 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 {
 	self = [super initWithNibName:nil bundle:nil];
 	if (self) {
+		self.dateFilter = MBSidebarDateFilterToday;
+		self.allItems = @[];
 		self.items = @[];
 	}
 	return self;
@@ -72,7 +75,7 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 
 - (void) reloadDataAndSelectFirstItem
 {
-	[self reloadTableAndSelectFirstItem];
+	[self applyDateFilterAndReload];
 	[self fetchEntriesIfNeeded];
 }
 
@@ -109,9 +112,67 @@ static NSInteger const InkwellSidebarDateTag = 1003;
 
 		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[]];
 		self.hasLoadedRemoteItems = YES;
-		self.items = sidebar_items;
-		[self reloadTableAndSelectFirstItem];
+		self.allItems = sidebar_items;
+		[self applyDateFilterAndReload];
 	}];
+}
+
+- (void) setDateFilter:(MBSidebarDateFilter)date_filter
+{
+	if (_dateFilter == date_filter) {
+		return;
+	}
+
+	_dateFilter = date_filter;
+	[self applyDateFilterAndReload];
+}
+
+- (void) applyDateFilterAndReload
+{
+	self.items = [self filteredItemsForDateFilter:self.dateFilter];
+	[self reloadTableAndSelectFirstItem];
+}
+
+- (NSArray<MBEntry *> *) filteredItemsForDateFilter:(MBSidebarDateFilter)date_filter
+{
+	if (self.allItems.count == 0) {
+		return @[];
+	}
+
+	NSCalendar *calendar = [NSCalendar currentCalendar];
+	NSDate *start_of_today = [calendar startOfDayForDate:[NSDate date]];
+	NSDate *start_of_tomorrow = [calendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:start_of_today options:0];
+	NSDate *start_of_two_days_ago = [calendar dateByAddingUnit:NSCalendarUnitDay value:-2 toDate:start_of_today options:0];
+	NSDate *start_of_six_days_ago = [calendar dateByAddingUnit:NSCalendarUnitDay value:-6 toDate:start_of_today options:0];
+	NSMutableArray<MBEntry *> *filtered_items = [NSMutableArray array];
+
+	for (MBEntry *entry in self.allItems) {
+		NSDate *entry_date = entry.date;
+		if (entry_date == nil) {
+			continue;
+		}
+
+		BOOL should_include = NO;
+		switch (date_filter) {
+			case MBSidebarDateFilterToday:
+				should_include = ([entry_date compare:start_of_today] != NSOrderedAscending) && ([entry_date compare:start_of_tomorrow] == NSOrderedAscending);
+				break;
+
+			case MBSidebarDateFilterRecent:
+				should_include = ([entry_date compare:start_of_two_days_ago] != NSOrderedAscending) && ([entry_date compare:start_of_today] == NSOrderedAscending);
+				break;
+
+			case MBSidebarDateFilterFading:
+				should_include = ([entry_date compare:start_of_six_days_ago] != NSOrderedAscending) && ([entry_date compare:start_of_two_days_ago] == NSOrderedAscending);
+				break;
+		}
+
+		if (should_include) {
+			[filtered_items addObject:entry];
+		}
+	}
+
+	return [filtered_items copy];
 }
 
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries subscriptions:(NSArray<MBSubscription *> *)subscriptions

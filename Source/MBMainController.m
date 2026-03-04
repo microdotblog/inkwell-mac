@@ -180,17 +180,44 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 	}
 }
 
+- (MBSidebarDateFilter) sidebarDateFilterForSegmentIndex:(NSInteger)segment_index
+{
+	switch (segment_index) {
+		case InkwellFilterRecentSegmentIndex:
+			return MBSidebarDateFilterRecent;
+
+		case InkwellFilterFadingSegmentIndex:
+			return MBSidebarDateFilterFading;
+
+		case InkwellFilterTodaySegmentIndex:
+		default:
+			return MBSidebarDateFilterToday;
+	}
+}
+
 - (void) selectFilterSegment:(NSInteger)segment_index
 {
+	if (segment_index < InkwellFilterTodaySegmentIndex || segment_index > InkwellFilterFadingSegmentIndex) {
+		return;
+	}
+
+	self.sidebarController.dateFilter = [self sidebarDateFilterForSegmentIndex:segment_index];
+
 	if (self.filterSegmentedControl == nil) {
 		return;
 	}
 
-	if (segment_index < 0 || segment_index >= self.filterSegmentedControl.segmentCount) {
+	if (segment_index >= self.filterSegmentedControl.segmentCount) {
 		return;
 	}
 
 	self.filterSegmentedControl.selectedSegment = segment_index;
+}
+
+- (IBAction) filterSegmentChanged:(id)sender
+{
+	#pragma unused(sender)
+	[self selectFilterSegment:self.filterSegmentedControl.selectedSegment];
 }
 
 - (IBAction) selectTodayView:(id)sender
@@ -241,7 +268,7 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 		NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
 		item.label = @"Filter";
 
-		self.filterSegmentedControl = [NSSegmentedControl segmentedControlWithLabels:@[@"Today", @"Recent", @"Fading"] trackingMode:NSSegmentSwitchTrackingSelectOne target:nil action:nil];
+		self.filterSegmentedControl = [NSSegmentedControl segmentedControlWithLabels:@[@"Today", @"Recent", @"Fading"] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(filterSegmentChanged:)];
 		self.filterSegmentedControl.selectedSegment = InkwellFilterTodaySegmentIndex;
 		self.filterSegmentedControl.segmentStyle = NSSegmentStyleAutomatic;
 		self.filterSegmentedControl.translatesAutoresizingMaskIntoConstraints = NO;
