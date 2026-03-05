@@ -115,6 +115,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
+- (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
 - (BOOL) openSelectedItemInBrowser;
 - (void) updateRecapUI;
 - (void) setRecapFetching:(BOOL)is_fetching;
@@ -1318,22 +1319,33 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 {
 	#pragma unused(notification)
 	NSInteger current_selected_row = self.tableView.selectedRow;
+	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+	[self notifySelectionChanged];
+}
+
+- (void) tableViewSelectionIsChanging:(NSNotification *)notification
+{
+	#pragma unused(notification)
+	NSInteger current_selected_row = self.tableView.selectedRow;
+	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+}
+
+- (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row
+{
 	NSMutableIndexSet *rows_to_reload = [NSMutableIndexSet indexSet];
 	if (self.selectedRowForStyling >= 0 && self.selectedRowForStyling < self.items.count) {
 		[rows_to_reload addIndex:(NSUInteger) self.selectedRowForStyling];
 	}
-	if (current_selected_row >= 0 && current_selected_row < self.items.count) {
-		[rows_to_reload addIndex:(NSUInteger) current_selected_row];
+	if (selected_row >= 0 && selected_row < self.items.count) {
+		[rows_to_reload addIndex:(NSUInteger) selected_row];
 	}
 
-	self.selectedRowForStyling = current_selected_row;
+	self.selectedRowForStyling = selected_row;
 
 	if (rows_to_reload.count > 0) {
 		NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
 		[self.tableView reloadDataForRowIndexes:rows_to_reload columnIndexes:column_indexes];
 	}
-
-	[self notifySelectionChanged];
 }
 
 @end
