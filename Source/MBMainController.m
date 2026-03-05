@@ -125,6 +125,7 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 	__weak typeof(self) weak_self = self;
 	self.sidebarController.selectionChangedHandler = ^(MBEntry * _Nullable item) {
 		[weak_self.detailController showSidebarItem:item];
+		[weak_self.highlightsController updateForSelectedEntry:item];
 	};
 	self.sidebarController.client = self.client;
 	self.sidebarController.token = self.token;
@@ -260,7 +261,7 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 		self.highlightsController = [[MBHighlightsController alloc] initWithClient:self.client token:self.token];
 	}
 
-	[self.highlightsController showHighlightsForEntryID:selected_item.entryID];
+	[self.highlightsController showHighlightsForEntry:selected_item];
 }
 
 - (IBAction) performFindPanelAction:(id)sender

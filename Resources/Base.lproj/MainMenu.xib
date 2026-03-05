@@ -396,8 +396,13 @@
                                     <action selector="performZoom:" target="-1" id="DIl-cC-cCs"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Highlights" id="nvn-Xl-jU7">
-                                <modifierMask key="keyEquivalentModifierMask"/>
+                            <menuItem isSeparatorItem="YES" id="Ng2-Sp-VlN"/>
+                            <menuItem title="Inkwell" keyEquivalent="O" id="ONo-q3-EYc">
+                                <connections>
+                                    <action selector="showMainWindowAction:" target="Voe-Tx-rLC" id="vXe-eW-7K7"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Highlights" keyEquivalent="L" id="nvn-Xl-jU7">
                                 <connections>
                                     <action selector="showHighlights:" target="-1" id="5I2-SV-GDp"/>
                                 </connections>
@@ -427,7 +432,7 @@
             </items>
             <point key="canvasLocation" x="200" y="121"/>
         </menu>
-        <window title="Inkwell" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" animationBehavior="default" id="QvC-M9-y7g">
+        <window title="Inkwell" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" frameAutosaveName="InkwellWindow" animationBehavior="default" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="335" y="390" width="480" height="360"/>

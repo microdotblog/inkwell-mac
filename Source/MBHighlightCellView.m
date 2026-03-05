@@ -26,7 +26,9 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 {
 	self = [super initWithFrame:frame_rect];
 	if (self) {
+		self.wantsLayer = YES;
 		[self setupTextField];
+		[self applyCellBackgroundColor];
 	}
 	return self;
 }
@@ -35,6 +37,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 {
 	[super prepareForReuse];
 	self.textField.attributedStringValue = [[NSAttributedString alloc] initWithString:@""];
+	[self applyCellBackgroundColor];
 }
 
 - (void) configureWithHighlight:(MBHighlight*) highlight
@@ -45,7 +48,6 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	NSMutableAttributedString* attributed_string = [[NSMutableAttributedString alloc] initWithString:selection_text attributes:[self highlightTextAttributes]];
-	[attributed_string addAttributes:[self highlightBackgroundAttributes] range:NSMakeRange(0, selection_text.length)];
 
 	NSString* date_text = [self formattedDateString:highlight.updatedDate];
 	if (date_text.length > 0) {
@@ -57,6 +59,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	self.textField.attributedStringValue = attributed_string;
+	[self applyCellBackgroundColor];
 }
 
 - (void) setupTextField
@@ -81,21 +84,13 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (NSDictionary*) highlightTextAttributes
 {
+	NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
+	paragraph_style.paragraphSpacing = 5.0;
+
 	return @{
 		NSFontAttributeName: [NSFont systemFontOfSize:13.0],
-		NSForegroundColorAttributeName: NSColor.labelColor
-	};
-}
-
-- (NSDictionary*) highlightBackgroundAttributes
-{
-	NSColor* highlight_color = [NSColor colorNamed:InkwellHighlightColorName];
-	if (highlight_color == nil) {
-		highlight_color = [NSColor colorWithCalibratedRed:1.0 green:0.95 blue:0.56 alpha:1.0];
-	}
-
-	return @{
-		NSBackgroundColorAttributeName: highlight_color
+		NSForegroundColorAttributeName: NSColor.labelColor,
+		NSParagraphStyleAttributeName: paragraph_style
 	};
 }
 
@@ -121,6 +116,22 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	return [self.dateFormatter stringFromDate:date_value] ?: @"";
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self applyCellBackgroundColor];
+}
+
+- (void) applyCellBackgroundColor
+{
+	NSColor* background_color = [NSColor colorNamed:InkwellHighlightColorName];
+	if (background_color == nil) {
+		background_color = [NSColor colorWithCalibratedRed:1.0 green:0.95 blue:0.56 alpha:1.0];
+	}
+
+	self.layer.backgroundColor = background_color.CGColor;
 }
 
 @end

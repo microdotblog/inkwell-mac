@@ -102,6 +102,12 @@
 	[self.mainController showWindow:nil];
 }
 
+- (IBAction) showMainWindowAction:(id) sender
+{
+	#pragma unused(sender)
+	[self showMainWindow];
+}
+
 - (void) beginSignIn
 {
 	[self.authController beginSignInWithCompletion:^(NSError * _Nullable error) {

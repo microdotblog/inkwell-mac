@@ -8,6 +8,7 @@
 #import <Cocoa/Cocoa.h>
 
 @class MBClient;
+@class MBEntry;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -16,6 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign, readonly) NSInteger entryID;
 
 - (instancetype) initWithClient:(MBClient*) client token:(NSString*) token;
+- (void) updateForSelectedEntry:(MBEntry* _Nullable) entry;
+- (void) showHighlightsForEntry:(MBEntry*) entry;
 - (void) showHighlightsForEntryID:(NSInteger) entry_id;
 - (void) reloadHighlights;
 
