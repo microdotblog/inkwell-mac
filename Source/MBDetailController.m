@@ -62,30 +62,24 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	}
 
 	NSString* safe_title = [self escapedHTMLString:item.title ?: @""];
-	NSString* title_html = @"";
-	if (safe_title.length > 0) {
-		title_html = [NSString stringWithFormat:@"<h1>%@</h1>", safe_title];
-	}
-
 	NSString* entry_html = item.text ?: @"";
+	NSString* content_value = @"";
 	if (entry_html.length > 0) {
-		NSString* content_html = [NSString stringWithFormat:@"<article>%@</article>", entry_html];
-		NSString* html = [self htmlForPostTitle:title_html content:content_html];
-		[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
-		return;
+		content_value = entry_html;
+	}
+	else {
+		NSString* fallback_text = item.summary;
+		if (fallback_text.length == 0) {
+			fallback_text = item.source;
+		}
+		if (fallback_text.length == 0) {
+			fallback_text = @"No content.";
+		}
+
+		content_value = [self escapedHTMLString:fallback_text];
 	}
 
-	NSString* fallback_text = item.summary;
-	if (fallback_text.length == 0) {
-		fallback_text = item.source;
-	}
-	if (fallback_text.length == 0) {
-		fallback_text = @"No content.";
-	}
-
-	NSString* safe_fallback = [self escapedHTMLString:fallback_text];
-	NSString* content_html = [NSString stringWithFormat:@"<p>%@</p>", safe_fallback];
-	NSString* html = [self htmlForPostTitle:title_html content:content_html];
+	NSString* html = [self htmlForPostTitle:safe_title content:content_value];
 	[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
 }
 
@@ -113,7 +107,7 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 		}
 
 		if (cached_template.length == 0) {
-			cached_template = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}.content{max-width:600px;margin-left:auto;margin-right:auto;}h1{font-size:30px;line-height:1.2;margin:0 0 12px;}article{font-size:16px;line-height:1.6;}p{font-size:16px;line-height:1.5;color:#1d1d1f;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}blockquote{border-left:3px solid #d2d2d7;margin:1em 0;padding-left:1em;color:#4d4d4f;}</style></head><body><div class='content'>[TITLE][CONTENT]</div></body></html>";
+			cached_template = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}.content{max-width:600px;margin-left:auto;margin-right:auto;}.post-title{font-size:30px;line-height:1.2;margin:0 0 12px;}.post-title:empty{display:none;}.post-content{font-size:16px;line-height:1.6;}.post-content:empty{display:none;}p{font-size:16px;line-height:1.5;color:#1d1d1f;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}blockquote{border-left:3px solid #d2d2d7;margin:1em 0;padding-left:1em;color:#4d4d4f;}</style></head><body><div class='content'><h1 class='post-title'>[TITLE]</h1><article class='post-content'>[CONTENT]</article></div></body></html>";
 		}
 	});
 
