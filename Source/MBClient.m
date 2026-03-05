@@ -26,11 +26,13 @@ static NSString* const MBFeedsEndpointBase = @"https://micro.blog/feeds";
 static NSString* const MBFeedsRecapEndpoint = @"https://micro.blog/feeds/recap";
 static NSInteger const MBFeedEntriesPageSize = 200;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
+static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 
 @interface MBClient ()
 
 @property (strong) NSURLSession *session;
 @property (assign) NSInteger activeRequestCount;
+@property (copy) NSSet* cachedUnreadEntryIDs;
 
 @end
 
@@ -41,6 +43,7 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 	self = [super init];
 	if (self) {
 		self.session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+		self.cachedUnreadEntryIDs = [self loadCachedUnreadEntryIDs];
 	}
 	return self;
 }
@@ -163,11 +166,11 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 	[task resume];
 }
 
-- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error))completion
+- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion
 {
 	if (token.length == 0) {
 		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1005 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for entries request." }];
-		[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:error completion:completion];
+		[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:error completion:completion];
 		return;
 	}
 
@@ -180,7 +183,7 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 
 	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:subscriptions_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:error completion:completion];
 			return;
 		}
 
@@ -188,14 +191,14 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Subscriptions request failed."];
 			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:request_error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:request_error completion:completion];
 			return;
 		}
 
 		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 		if (![payload isKindOfClass:[NSArray class]]) {
 			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions response was invalid." }];
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil error:parse_error completion:completion];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:parse_error completion:completion];
 			return;
 		}
 
@@ -204,9 +207,12 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 		NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-MBFeedEntriesLookbackInterval];
 		NSMutableArray* accumulated_entries = [NSMutableArray array];
 		NSMutableSet* seen_entry_ids = [NSMutableSet set];
-		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
+		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
+			NSSet* unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
+			[self finishWithSubscriptions:subscriptions entries:updated_entries unreadEntryIDs:unread_entry_ids isFinished:NO error:nil completion:completion];
+		} completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
 			if (entries_error != nil) {
-				[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil error:entries_error completion:completion];
+				[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil isFinished:YES error:entries_error completion:completion];
 				return;
 			}
 
@@ -223,11 +229,16 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 						id unread_payload = [NSJSONSerialization JSONObjectWithData:unread_data options:0 error:nil];
 						if ([unread_payload isKindOfClass:[NSArray class]]) {
 							unread_entry_ids = [self unreadEntryIDsFromPayload:(NSArray *) unread_payload];
+							self.cachedUnreadEntryIDs = unread_entry_ids ?: [NSSet set];
+							[self cacheUnreadEntryIDs:self.cachedUnreadEntryIDs];
 						}
 					}
 				}
 
-				[self finishWithSubscriptions:subscriptions entries:entries unreadEntryIDs:unread_entry_ids error:nil completion:completion];
+				if (unread_entry_ids == nil) {
+					unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
+				}
+				[self finishWithSubscriptions:subscriptions entries:entries unreadEntryIDs:unread_entry_ids isFinished:YES error:nil completion:completion];
 			}];
 			[unread_task resume];
 		}];
@@ -235,7 +246,7 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 	[task resume];
 }
 
-- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number cutoffDate:(NSDate*) cutoff_date accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
+- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number cutoffDate:(NSDate*) cutoff_date accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
 {
 	NSURLComponents* components = [NSURLComponents componentsWithString:MBFeedEntriesEndpoint];
 	if (components == nil) {
@@ -338,13 +349,18 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 			should_continue = NO;
 		}
 
+		NSArray* filtered_entries = [self filterEntries:accumulated_entries byCutoffDate:cutoff_date];
+		BOOL should_send_update = (page_number == 1 || added_count > 0);
+		if (should_send_update) {
+			[self finishWithPagedEntriesUpdate:filtered_entries update:update];
+		}
+
 		if (!should_continue) {
-			NSArray* filtered_entries = [self filterEntries:accumulated_entries byCutoffDate:cutoff_date];
 			[self finishWithPagedEntries:filtered_entries error:nil completion:completion];
 			return;
 		}
 
-		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:(page_number + 1) cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids completion:completion];
+		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:(page_number + 1) cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:update completion:completion];
 	}];
 	[entries_task resume];
 }
@@ -657,6 +673,66 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 	return [unread_entry_ids copy];
 }
 
+- (NSURL * _Nullable) unreadEntryIDsCacheURL
+{
+	NSFileManager* file_manager = [NSFileManager defaultManager];
+	NSArray* application_support_urls = [file_manager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
+	NSURL* application_support_url = [application_support_urls firstObject];
+	if (application_support_url == nil) {
+		return nil;
+	}
+
+	NSString* bundle_identifier = [[NSBundle mainBundle] bundleIdentifier];
+	if (bundle_identifier.length == 0) {
+		bundle_identifier = @"Inkwell";
+	}
+
+	NSURL* directory_url = [application_support_url URLByAppendingPathComponent:bundle_identifier isDirectory:YES];
+	NSError* directory_error = nil;
+	BOOL is_directory_ready = [file_manager createDirectoryAtURL:directory_url withIntermediateDirectories:YES attributes:nil error:&directory_error];
+	if (!is_directory_ready) {
+		return nil;
+	}
+
+	return [directory_url URLByAppendingPathComponent:MBUnreadEntryIDsCacheFilename isDirectory:NO];
+}
+
+- (NSSet*) loadCachedUnreadEntryIDs
+{
+	NSURL* cache_url = [self unreadEntryIDsCacheURL];
+	if (cache_url == nil) {
+		return [NSSet set];
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+	if (data.length == 0) {
+		return [NSSet set];
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if (![payload isKindOfClass:[NSArray class]]) {
+		return [NSSet set];
+	}
+
+	return [self unreadEntryIDsFromPayload:(NSArray *) payload];
+}
+
+- (void) cacheUnreadEntryIDs:(NSSet*) unread_entry_ids
+{
+	NSURL* cache_url = [self unreadEntryIDsCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	NSArray* sorted_entry_ids = [[unread_entry_ids allObjects] sortedArrayUsingSelector:@selector(compare:)];
+	NSData* data = [NSJSONSerialization dataWithJSONObject:sorted_entry_ids options:0 error:nil];
+	if (data.length == 0) {
+		return;
+	}
+
+	[data writeToURL:cache_url atomically:YES];
+}
+
 - (NSArray*) highlightsFromFeedPayload:(NSDictionary*) payload defaultEntryID:(NSInteger)entry_id
 {
 	id items_payload = payload[@"items"];
@@ -876,14 +952,14 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 	});
 }
 
-- (void) finishWithSubscriptions:(NSArray<MBSubscription *> * _Nullable)subscriptions entries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids error:(NSError * _Nullable)error completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error))completion
+- (void) finishWithSubscriptions:(NSArray<MBSubscription *> * _Nullable)subscriptions entries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids isFinished:(BOOL)is_finished error:(NSError * _Nullable)error completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion
 {
 	if (completion == nil) {
 		return;
 	}
 
 	dispatch_async(dispatch_get_main_queue(), ^{
-		completion(subscriptions, entries, unread_entry_ids, error);
+		completion(subscriptions, entries, unread_entry_ids, is_finished, error);
 	});
 }
 
@@ -906,6 +982,17 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(entries, error);
+	});
+}
+
+- (void) finishWithPagedEntriesUpdate:(NSArray*) entries update:(void (^ _Nullable)(NSArray* entries))update
+{
+	if (update == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		update(entries ?: @[]);
 	});
 }
 

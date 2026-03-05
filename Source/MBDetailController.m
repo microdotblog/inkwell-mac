@@ -16,9 +16,9 @@ static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
 
-@interface MBDetailController ()
+@interface MBDetailController () <WKNavigationDelegate>
 
-@property (strong) WKWebView *webView;
+@property (strong) WKWebView* webView;
 
 @end
 
@@ -35,8 +35,9 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	top_bar_view.material = NSVisualEffectMaterialHeaderView;
 	top_bar_view.state = NSVisualEffectStateActive;
 
-	WKWebView *web_view = [[WKWebView alloc] initWithFrame:NSZeroRect];
+	WKWebView* web_view = [[WKWebView alloc] initWithFrame:NSZeroRect];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
+	web_view.navigationDelegate = self;
 	[root_view addSubview:web_view];
 	[root_view addSubview:top_bar_view];
 	[NSLayoutConstraint activateConstraints:@[
@@ -52,6 +53,20 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 
 	self.webView = web_view;
 	self.view = root_view;
+}
+
+- (void) webView:(WKWebView *)web_view decidePolicyForNavigationAction:(WKNavigationAction *)navigation_action decisionHandler:(void (^)(WKNavigationActionPolicy))decision_handler
+{
+	#pragma unused(web_view)
+	NSURL* request_url = navigation_action.request.URL;
+	BOOL is_link_activated = (navigation_action.navigationType == WKNavigationTypeLinkActivated);
+	if (!is_link_activated || request_url == nil) {
+		decision_handler(WKNavigationActionPolicyAllow);
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:request_url];
+	decision_handler(WKNavigationActionPolicyCancel);
 }
 
 - (void) showSidebarItem:(MBEntry * _Nullable)item

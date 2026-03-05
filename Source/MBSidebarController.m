@@ -16,7 +16,10 @@ static NSUserInterfaceItemIdentifier const InkwellSidebarRowIdentifier = @"Inkwe
 static NSInteger const InkwellSidebarAvatarTag = 1000;
 static NSInteger const InkwellSidebarTitleTag = 1001;
 static NSInteger const InkwellSidebarSubtitleTag = 1002;
-static NSInteger const InkwellSidebarDateTag = 1003;
+static NSInteger const InkwellSidebarSubscriptionTag = 1003;
+static NSInteger const InkwellSidebarDateTag = 1004;
+static NSString* const InkwellSidebarDateTopWithSubscriptionConstraintIdentifier = @"InkwellSidebarDateTopWithSubscription";
+static NSString* const InkwellSidebarDateTopWithoutSubscriptionConstraintIdentifier = @"InkwellSidebarDateTopWithoutSubscription";
 static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarAvatarInset = 3.0;
 static CGFloat const InkwellSidebarTextInset = 10.0;
@@ -118,6 +121,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
+- (NSLayoutConstraint* _Nullable) constraintWithIdentifier:(NSString*) identifier inView:(NSView*) view;
 - (IBAction) readingRecapButtonPressed:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 
@@ -300,8 +304,12 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	}
 
 	self.isFetching = YES;
-	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, NSError * _Nullable error) {
-		self.isFetching = NO;
+	__block BOOL did_fetch_icons = NO;
+	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
+		if (is_finished) {
+			self.isFetching = NO;
+		}
+
 		if (error != nil) {
 			return;
 		}
@@ -310,7 +318,11 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
 		[self applyFiltersAndReload];
-		[self fetchFeedIcons];
+
+		if (!did_fetch_icons) {
+			did_fetch_icons = YES;
+			[self fetchFeedIcons];
+		}
 	}];
 }
 
@@ -487,6 +499,21 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 
 	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
 	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+}
+
+- (NSLayoutConstraint* _Nullable) constraintWithIdentifier:(NSString*) identifier inView:(NSView*) view
+{
+	if (identifier.length == 0 || view == nil) {
+		return nil;
+	}
+
+	for (NSLayoutConstraint* constraint in view.constraints) {
+		if ([constraint.identifier isEqualToString:identifier]) {
+			return constraint;
+		}
+	}
+
+	return nil;
 }
 
 - (void) setDateFilter:(MBSidebarDateFilter)date_filter
@@ -968,24 +995,24 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
 	#pragma unused(tableColumn)
-	NSTableCellView *cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
+	NSTableCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
 
 	if (cell_view == nil) {
 		cell_view = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
 		cell_view.identifier = InkwellSidebarCellIdentifier;
 
-		MBRoundedImageView *avatar_view = [[MBRoundedImageView alloc] initWithFrame:NSZeroRect];
+		MBRoundedImageView* avatar_view = [[MBRoundedImageView alloc] initWithFrame:NSZeroRect];
 		avatar_view.translatesAutoresizingMaskIntoConstraints = NO;
 		avatar_view.tag = InkwellSidebarAvatarTag;
 
-		NSTextField *title_field = [NSTextField labelWithString:@""];
+		NSTextField* title_field = [NSTextField labelWithString:@""];
 		title_field.translatesAutoresizingMaskIntoConstraints = NO;
 		title_field.tag = InkwellSidebarTitleTag;
 		title_field.font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
 		title_field.lineBreakMode = NSLineBreakByWordWrapping;
 		title_field.maximumNumberOfLines = 2;
 
-		NSTextField *subtitle_field = [NSTextField labelWithString:@""];
+		NSTextField* subtitle_field = [NSTextField labelWithString:@""];
 		subtitle_field.translatesAutoresizingMaskIntoConstraints = NO;
 		subtitle_field.tag = InkwellSidebarSubtitleTag;
 		subtitle_field.font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
@@ -993,7 +1020,16 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		subtitle_field.lineBreakMode = NSLineBreakByWordWrapping;
 		subtitle_field.maximumNumberOfLines = 2;
 
-		NSTextField *date_field = [NSTextField labelWithString:@""];
+		NSTextField* subscription_field = [NSTextField labelWithString:@""];
+		subscription_field.translatesAutoresizingMaskIntoConstraints = NO;
+		subscription_field.tag = InkwellSidebarSubscriptionTag;
+		subscription_field.font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
+		subscription_field.textColor = [NSColor secondaryLabelColor];
+		subscription_field.lineBreakMode = NSLineBreakByTruncatingTail;
+		subscription_field.maximumNumberOfLines = 1;
+		subscription_field.hidden = YES;
+
+		NSTextField* date_field = [NSTextField labelWithString:@""];
 		date_field.translatesAutoresizingMaskIntoConstraints = NO;
 		date_field.tag = InkwellSidebarDateTag;
 		date_field.font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
@@ -1004,10 +1040,19 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		[cell_view addSubview:avatar_view];
 		[cell_view addSubview:title_field];
 		[cell_view addSubview:subtitle_field];
+		[cell_view addSubview:subscription_field];
 		[cell_view addSubview:date_field];
 
-		NSLayoutConstraint *bottom_constraint = [date_field.bottomAnchor constraintLessThanOrEqualToAnchor:cell_view.bottomAnchor constant:-8.0];
+		NSLayoutConstraint* bottom_constraint = [date_field.bottomAnchor constraintLessThanOrEqualToAnchor:cell_view.bottomAnchor constant:-8.0];
 		bottom_constraint.priority = NSLayoutPriorityDefaultHigh;
+
+		NSLayoutConstraint* date_top_with_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subscription_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
+		date_top_with_subscription_constraint.identifier = InkwellSidebarDateTopWithSubscriptionConstraintIdentifier;
+		date_top_with_subscription_constraint.active = NO;
+
+		NSLayoutConstraint* date_top_without_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
+		date_top_without_subscription_constraint.identifier = InkwellSidebarDateTopWithoutSubscriptionConstraintIdentifier;
+		date_top_without_subscription_constraint.active = YES;
 
 		[NSLayoutConstraint activateConstraints:@[
 			[avatar_view.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:InkwellSidebarAvatarInset],
@@ -1020,33 +1065,53 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
 			[subtitle_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[subtitle_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			[date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
+			[subscription_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
+			[subscription_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
+			[subscription_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
+			date_top_with_subscription_constraint,
+			date_top_without_subscription_constraint,
 			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[date_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			bottom_constraint
 		]];
 	}
 
-	MBEntry *item = self.items[(NSUInteger) row];
-	MBRoundedImageView *avatar_view = [cell_view viewWithTag:InkwellSidebarAvatarTag];
-	NSTextField *title_field = [cell_view viewWithTag:InkwellSidebarTitleTag];
-	NSTextField *subtitle_field = [cell_view viewWithTag:InkwellSidebarSubtitleTag];
-	NSTextField *date_field = [cell_view viewWithTag:InkwellSidebarDateTag];
-	NSString *subtitle_value = item.summary;
+	MBEntry* item = self.items[(NSUInteger) row];
+	MBRoundedImageView* avatar_view = [cell_view viewWithTag:InkwellSidebarAvatarTag];
+	NSTextField* title_field = [cell_view viewWithTag:InkwellSidebarTitleTag];
+	NSTextField* subtitle_field = [cell_view viewWithTag:InkwellSidebarSubtitleTag];
+	NSTextField* subscription_field = [cell_view viewWithTag:InkwellSidebarSubscriptionTag];
+	NSTextField* date_field = [cell_view viewWithTag:InkwellSidebarDateTag];
+
+	NSString* subtitle_value = item.summary;
 	if (subtitle_value.length == 0) {
 		subtitle_value = item.source ?: @"";
 	}
-	NSString *date_value = [self displayDateString:item.date];
+	NSString* date_value = [self displayDateString:item.date];
 
-	NSString *title_value = item.title ?: @"";
-	if (title_value.length == 0) {
+	NSString* raw_title_value = item.title ?: @"";
+	BOOL has_post_title = (raw_title_value.length > 0);
+	NSString* title_value = raw_title_value;
+	if (!has_post_title) {
 		title_value = item.subscriptionTitle ?: @"";
 	}
 
+	NSString* subscription_value = has_post_title ? (item.subscriptionTitle ?: @"") : @"";
+	BOOL should_show_subscription = (subscription_value.length > 0);
+
 	title_field.stringValue = title_value;
 	subtitle_field.stringValue = subtitle_value;
+	subscription_field.stringValue = subscription_value;
+	subscription_field.hidden = !should_show_subscription;
 	date_field.stringValue = date_value;
 	avatar_view.image = [self avatarImageForEntry:item];
+
+	NSLayoutConstraint* date_top_with_subscription_constraint = [self constraintWithIdentifier:InkwellSidebarDateTopWithSubscriptionConstraintIdentifier inView:cell_view];
+	NSLayoutConstraint* date_top_without_subscription_constraint = [self constraintWithIdentifier:InkwellSidebarDateTopWithoutSubscriptionConstraintIdentifier inView:cell_view];
+	if (date_top_with_subscription_constraint != nil && date_top_without_subscription_constraint != nil) {
+		date_top_with_subscription_constraint.active = should_show_subscription;
+		date_top_without_subscription_constraint.active = !should_show_subscription;
+	}
 
 	BOOL is_selected_row = (row == self.selectedRowForStyling);
 	if (!is_selected_row) {
@@ -1059,6 +1124,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		NSColor* selected_text_color = [NSColor alternateSelectedControlTextColor];
 		title_field.textColor = selected_text_color;
 		subtitle_field.textColor = [selected_text_color colorWithAlphaComponent:0.78];
+		subscription_field.textColor = [selected_text_color colorWithAlphaComponent:0.78];
 		date_field.textColor = [selected_text_color colorWithAlphaComponent:0.55];
 		avatar_view.alphaValue = 1.0;
 		return cell_view;
@@ -1067,12 +1133,14 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	if (item.isRead) {
 		title_field.textColor = [NSColor disabledControlTextColor];
 		subtitle_field.textColor = [NSColor disabledControlTextColor];
+		subscription_field.textColor = [NSColor disabledControlTextColor];
 		date_field.textColor = [NSColor disabledControlTextColor];
 		avatar_view.alphaValue = 0.35;
 	}
 	else {
 		title_field.textColor = [NSColor labelColor];
 		subtitle_field.textColor = [NSColor secondaryLabelColor];
+		subscription_field.textColor = [NSColor secondaryLabelColor];
 		date_field.textColor = [NSColor tertiaryLabelColor];
 		avatar_view.alphaValue = 1.0;
 	}
@@ -1097,15 +1165,22 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	NSFont *subtitle_font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
 	NSFont *date_font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
 
-	NSString *title_value = item.title ?: @"";
-	if (title_value.length == 0) {
+	NSString* title_value = item.title ?: @"";
+	BOOL has_post_title = (title_value.length > 0);
+	if (!has_post_title) {
 		title_value = item.subscriptionTitle ?: @"";
 	}
+	NSString* subscription_value = has_post_title ? (item.subscriptionTitle ?: @"") : @"";
 
 	CGFloat title_height = [self heightForText:title_value font:title_font width:content_width maxLines:2];
 	CGFloat subtitle_height = [self heightForText:subtitle_value font:subtitle_font width:content_width maxLines:2];
+	CGFloat subscription_height = [self heightForText:subscription_value font:subtitle_font width:content_width maxLines:1];
 	CGFloat date_height = [self heightForText:date_value font:date_font width:content_width maxLines:1];
-	CGFloat row_height = 8.0 + title_height + InkwellSidebarVerticalSpacing + subtitle_height + InkwellSidebarVerticalSpacing + date_height + 8.0;
+	CGFloat row_height = 8.0 + title_height + InkwellSidebarVerticalSpacing + subtitle_height + InkwellSidebarVerticalSpacing;
+	if (subscription_height > 0.0) {
+		row_height += subscription_height + InkwellSidebarVerticalSpacing;
+	}
+	row_height += date_height + 8.0;
 
 	return MAX(50.0, ceil(row_height));
 }
