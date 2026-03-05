@@ -26,6 +26,125 @@
 		pre {
 			white-space: pre-wrap;
 		}
+
+		:root {
+			--recap-text: #2a241f;
+			--recap-muted: #6b6258;
+			--recap-link: #4779b2;
+			--recap-topics-background: rgba(0, 0, 0, 0.08);
+			--recap-blockquote-background: #e1e3f0;
+			--recap-blockquote-border: #9b99cb;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--recap-text: #e6ebf3;
+				--recap-muted: #b5bdcb;
+				--recap-link: #7cb7ff;
+				--recap-topics-background: rgba(255, 255, 255, 0.16);
+				--recap-blockquote-background: #2a3446;
+				--recap-blockquote-border: #7f8fb0;
+			}
+		}
+
+		.reading-recap {
+			padding-top: 15px;
+			padding-bottom: 15px;
+			padding-left: 18px;
+			padding-right: 18px;
+			border-radius: 10px;
+			margin-bottom: 2rem;
+			font-size: 0.9rem;
+			line-height: 1.8;
+			color: var(--recap-text);
+		}
+
+		.reading-recap .reading-header {
+			display: flex;
+			align-items: center;
+			gap: 0.7rem;
+			margin-top: 0.1rem;
+			margin-bottom: 1rem;
+		}
+
+		.reading-recap .reading-header h2 {
+			margin: 0;
+			display: flex;
+			align-items: center;
+			gap: 0.4rem;
+			font-size: 1rem;
+		}
+
+		.reading-recap .reading-header h2 action-text-attachment img,
+		.reading-recap .reading-header h2 img {
+			border-radius: 999px;
+			margin-right: 4px;
+			width: 20px;
+			height: 20px;
+			flex: 0 0 auto;
+			object-fit: cover;
+		}
+
+		.reading-recap .reading-header .topics {
+			margin: 0 0 0 auto;
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			gap: 0.35rem;
+		}
+
+		.reading-recap .reading-header .topics span {
+			display: inline-flex;
+			align-items: center;
+			padding: 0.18rem 0.48rem;
+			border-radius: 999px;
+			background: var(--recap-topics-background);
+			font-size: 0.68rem;
+			line-height: 1.2;
+			white-space: nowrap;
+		}
+
+		.reading-recap p {
+			margin-bottom: 1rem;
+			color: inherit;
+		}
+
+		.reading-recap a {
+			color: var(--recap-link);
+			text-decoration: none;
+		}
+
+		.reading-recap a:hover {
+			text-decoration: underline;
+		}
+
+		.reading-recap blockquote {
+			display: block;
+			margin: 1rem 0;
+			padding: 1rem;
+			padding-top: 8px;
+			padding-bottom: 10px;
+			border-right: none;
+			border-left: 0.25rem solid var(--recap-blockquote-border);
+			border-inline-start: 0.25rem solid var(--recap-blockquote-border);
+			border-inline-end: none;
+			background: var(--recap-blockquote-background);
+		}
+
+		.reading-recap blockquote p:last-child {
+			padding-bottom: 0;
+			margin-bottom: 0;
+		}
+
+		.reading-recap blockquote footer {
+			margin-top: 0.5rem;
+			color: var(--recap-muted);
+			text-align: right;
+		}
+
+		.reading-recap ul {
+			margin-bottom: 0;
+		}
 	</style>
 </head>
 <body>

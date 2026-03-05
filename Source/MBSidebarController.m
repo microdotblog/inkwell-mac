@@ -153,7 +153,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	recap_box.borderColor = [NSColor separatorColor];
 	recap_box.borderWidth = 1.0;
 	recap_box.cornerRadius = 0.0;
-	recap_box.fillColor = [NSColor controlBackgroundColor];
+	recap_box.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
 	recap_box.hidden = YES;
 
 	NSButton* recap_button = [NSButton buttonWithTitle:@"Reading Recap" target:self action:@selector(readingRecapButtonPressed:)];
