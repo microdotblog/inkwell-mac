@@ -23,6 +23,7 @@ static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/en
 static NSString * const MBFeedUnreadEntriesEndpoint = @"https://micro.blog/feeds/v2/unread_entries.json";
 static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icons.json";
 static NSString* const MBFeedsEndpointBase = @"https://micro.blog/feeds";
+static NSString* const MBFeedsRecapEndpoint = @"https://micro.blog/feeds/recap";
 static NSInteger const MBFeedEntriesPageSize = 200;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 
@@ -427,6 +428,85 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 	[task resume];
 }
 
+- (void) fetchReadingRecapForEntryIDs:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1015 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for recap request." }];
+		[self finishWithRecapStatusCode:0 html:nil error:error completion:completion];
+		return;
+	}
+
+	if (entry_ids.count == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1016 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry IDs for recap request." }];
+		[self finishWithRecapStatusCode:0 html:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableArray* payload_entry_ids = [NSMutableArray array];
+	for (id object in entry_ids) {
+		NSInteger entry_id_value = [self integerValueFromObject:object];
+		if (entry_id_value > 0) {
+			[payload_entry_ids addObject:@(entry_id_value)];
+		}
+	}
+
+	if (payload_entry_ids.count == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1016 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry IDs for recap request." }];
+		[self finishWithRecapStatusCode:0 html:nil error:error completion:completion];
+		return;
+	}
+
+	NSURL* recap_url = [NSURL URLWithString:MBFeedsRecapEndpoint];
+	if (recap_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1017 userInfo:@{ NSLocalizedDescriptionKey: @"Recap endpoint URL was invalid." }];
+		[self finishWithRecapStatusCode:0 html:nil error:error completion:completion];
+		return;
+	}
+
+	NSData* body_data = [NSJSONSerialization dataWithJSONObject:payload_entry_ids options:0 error:nil];
+	if (body_data.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1018 userInfo:@{ NSLocalizedDescriptionKey: @"Recap request body was invalid." }];
+		[self finishWithRecapStatusCode:0 html:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* recap_request = [NSMutableURLRequest requestWithURL:recap_url];
+	recap_request.HTTPMethod = @"POST";
+	recap_request.HTTPBody = body_data;
+	[recap_request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+	[recap_request setValue:@"text/html" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[recap_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:recap_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		if (error != nil) {
+			[self finishWithRecapStatusCode:0 html:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode == 202) {
+			[self finishWithRecapStatusCode:202 html:nil error:nil completion:completion];
+			return;
+		}
+
+		if (http_response.statusCode == 200) {
+			NSString* html = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+			if (html.length == 0 && data.length > 0) {
+				html = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+			}
+			[self finishWithRecapStatusCode:200 html:(html ?: @"") error:nil completion:completion];
+			return;
+		}
+
+		NSString* description = [self responseDescriptionForData:data defaultMessage:@"Recap request failed."];
+		NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+		[self finishWithRecapStatusCode:http_response.statusCode html:nil error:request_error completion:completion];
+	}];
+	[task resume];
+}
+
 - (void) fetchHighlightsForEntryID:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion
 {
 	if (entry_id <= 0) {
@@ -826,6 +906,17 @@ static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(entries, error);
+	});
+}
+
+- (void) finishWithRecapStatusCode:(NSInteger)status_code html:(NSString* _Nullable)html error:(NSError* _Nullable)error completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(status_code, html, error);
 	});
 }
 

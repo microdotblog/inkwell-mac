@@ -27,6 +27,33 @@ static CGFloat const InkwellSidebarVerticalSpacing = 8.0;
 static CGFloat const InkwellSidebarTitleFontSize = 14.0;
 static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
 static CGFloat const InkwellSidebarDateFontSize = 13.0;
+static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
+static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
+static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
+
+@interface MBSidebarTableView : NSTableView
+
+@property (copy, nullable) BOOL (^openSelectedItemHandler)(void);
+
+@end
+
+@implementation MBSidebarTableView
+
+- (void) keyDown:(NSEvent*) event
+{
+	NSString* characters = event.charactersIgnoringModifiers ?: @"";
+	if (characters.length > 0) {
+		unichar key_code = [characters characterAtIndex:0];
+		BOOL is_return_key = (key_code == NSCarriageReturnCharacter || key_code == NSNewlineCharacter || key_code == NSEnterCharacter);
+		if (is_return_key && self.openSelectedItemHandler != nil && self.openSelectedItemHandler()) {
+			return;
+		}
+	}
+
+	[super keyDown:event];
+}
+
+@end
 
 @interface MBSidebarRowView : NSTableRowView
 
@@ -74,10 +101,25 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 @property (strong) NSMutableSet<NSString *> *hostsWithPendingImageRequests;
 @property (strong) NSURLSession *imageSession;
 @property (strong) NSImage *defaultAvatarImage;
+@property (strong) NSBox* recapBoxView;
+@property (strong) NSButton* recapButton;
+@property (strong) NSTextField* recapCountLabel;
+@property (strong) NSLayoutConstraint* recapBoxHeightConstraint;
+@property (strong) NSLayoutConstraint* recapToTableTopConstraint;
+@property (assign) BOOL isRecapFetching;
+@property (assign) NSInteger recapRequestIdentifier;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
+- (BOOL) openSelectedItemInBrowser;
+- (void) updateRecapUI;
+- (void) setRecapFetching:(BOOL)is_fetching;
+- (NSArray*) fadingItems;
+- (NSArray*) fadingEntryIDs;
+- (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
+- (IBAction) readingRecapButtonPressed:(id)sender;
+- (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 
 @end
 
@@ -105,7 +147,35 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	NSView *container_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 600.0)];
 	container_view.translatesAutoresizingMaskIntoConstraints = NO;
 
-	NSTableView *table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
+	NSBox* recap_box = [[NSBox alloc] initWithFrame:NSZeroRect];
+	recap_box.translatesAutoresizingMaskIntoConstraints = NO;
+	recap_box.boxType = NSBoxCustom;
+	recap_box.borderColor = [NSColor separatorColor];
+	recap_box.borderWidth = 1.0;
+	recap_box.cornerRadius = 0.0;
+	recap_box.fillColor = [NSColor controlBackgroundColor];
+	recap_box.hidden = YES;
+
+	NSButton* recap_button = [NSButton buttonWithTitle:@"Reading Recap" target:self action:@selector(readingRecapButtonPressed:)];
+	recap_button.translatesAutoresizingMaskIntoConstraints = NO;
+	recap_button.bezelStyle = NSBezelStyleRounded;
+	recap_button.controlSize = NSControlSizeSmall;
+	recap_button.font = [NSFont systemFontOfSize:13.0];
+
+	NSTextField* recap_label = [NSTextField labelWithString:@""];
+	recap_label.translatesAutoresizingMaskIntoConstraints = NO;
+	recap_label.font = [NSFont systemFontOfSize:13.0];
+	recap_label.textColor = [NSColor secondaryLabelColor];
+	recap_label.lineBreakMode = NSLineBreakByTruncatingTail;
+	recap_label.maximumNumberOfLines = 1;
+	recap_label.usesSingleLineMode = YES;
+	[recap_label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[recap_label setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+	[recap_box addSubview:recap_button];
+	[recap_box addSubview:recap_label];
+
+	MBSidebarTableView *table_view = [[MBSidebarTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
 	table_view.dataSource = self;
@@ -114,6 +184,10 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	table_view.intercellSpacing = NSMakeSize(0.0, 5.0);
 	table_view.style = NSTableViewStyleSourceList;
 	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
+	__weak typeof(self) weak_self = self;
+	table_view.openSelectedItemHandler = ^BOOL {
+		return [weak_self openSelectedItemInBrowser];
+	};
 
 	NSTableColumn *source_column = [[NSTableColumn alloc] initWithIdentifier:@"SourceColumn"];
 	source_column.resizingMask = NSTableColumnAutoresizingMask;
@@ -126,16 +200,34 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	scroll_view.borderType = NSNoBorder;
 	scroll_view.documentView = table_view;
 
+	[container_view addSubview:recap_box];
 	[container_view addSubview:scroll_view];
+	NSLayoutConstraint* recap_height_constraint = [recap_box.heightAnchor constraintEqualToConstant:0.0];
+	NSLayoutConstraint* recap_to_table_top_constraint = [scroll_view.topAnchor constraintEqualToAnchor:recap_box.bottomAnchor constant:0.0];
 	[NSLayoutConstraint activateConstraints:@[
-		[scroll_view.topAnchor constraintEqualToAnchor:container_view.topAnchor],
+		[recap_box.topAnchor constraintEqualToAnchor:container_view.safeAreaLayoutGuide.topAnchor constant:-1.0],
+		[recap_box.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor constant:-1.0],
+		[recap_box.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor constant:1.0],
+		recap_height_constraint,
+			[recap_button.leadingAnchor constraintEqualToAnchor:recap_box.leadingAnchor constant:12.0],
+			[recap_button.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
+			[recap_label.leadingAnchor constraintEqualToAnchor:recap_button.trailingAnchor constant:12.0],
+			[recap_label.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
+			[recap_label.trailingAnchor constraintLessThanOrEqualToAnchor:recap_box.trailingAnchor constant:-14.0],
+		recap_to_table_top_constraint,
 		[scroll_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
 		[scroll_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor]
 	]];
 
+	self.recapBoxView = recap_box;
+	self.recapButton = recap_button;
+	self.recapCountLabel = recap_label;
+	self.recapBoxHeightConstraint = recap_height_constraint;
+	self.recapToTableTopConstraint = recap_to_table_top_constraint;
 	self.tableView = table_view;
 	self.view = container_view;
+	[self updateRecapUI];
 }
 
 - (void) reloadData
@@ -404,6 +496,10 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	}
 
 	_dateFilter = date_filter;
+	if (_dateFilter != MBSidebarDateFilterFading && self.isRecapFetching) {
+		self.recapRequestIdentifier += 1;
+		[self setRecapFetching:NO];
+	}
 	[self applyFiltersAndReload];
 }
 
@@ -432,6 +528,129 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	}
 
 	[self reloadTable];
+	[self updateRecapUI];
+}
+
+- (void) updateRecapUI
+{
+	BOOL is_fading_filter = (self.dateFilter == MBSidebarDateFilterFading);
+	if (self.recapBoxView != nil) {
+		self.recapBoxView.hidden = !is_fading_filter;
+	}
+	if (self.recapBoxHeightConstraint != nil) {
+		self.recapBoxHeightConstraint.constant = is_fading_filter ? InkwellSidebarRecapBoxHeight : 0.0;
+	}
+	if (self.recapToTableTopConstraint != nil) {
+		self.recapToTableTopConstraint.constant = is_fading_filter ? 8.0 : 0.0;
+	}
+
+	NSInteger fading_count = [self fadingItems].count;
+	if (self.recapCountLabel != nil) {
+		self.recapCountLabel.stringValue = [self recapCountStringForPostsCount:fading_count];
+	}
+	if (self.recapButton != nil) {
+		self.recapButton.enabled = is_fading_filter && !self.isRecapFetching && (fading_count > 0);
+	}
+}
+
+- (void) setRecapFetching:(BOOL)is_fetching
+{
+	_isRecapFetching = is_fetching;
+	[self updateRecapUI];
+}
+
+- (NSArray*) fadingItems
+{
+	return [self filteredItemsForDateFilter:MBSidebarDateFilterFading];
+}
+
+- (NSArray*) fadingEntryIDs
+{
+	NSArray* fading_items = [self fadingItems];
+	if (fading_items.count == 0) {
+		return @[];
+	}
+
+	NSMutableArray* entry_ids = [NSMutableArray array];
+	for (MBEntry* entry in fading_items) {
+		if (entry.entryID > 0) {
+			[entry_ids addObject:@(entry.entryID)];
+		}
+	}
+
+	return [entry_ids copy];
+}
+
+- (NSString*) recapCountStringForPostsCount:(NSInteger)post_count
+{
+	if (post_count == 1) {
+		return @"1 older post, grouped";
+	}
+
+	return [NSString stringWithFormat:@"%ld older posts, grouped", (long) post_count];
+}
+
+- (IBAction) readingRecapButtonPressed:(id)sender
+{
+	#pragma unused(sender)
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	NSArray* entry_ids = [self fadingEntryIDs];
+	if (entry_ids.count == 0) {
+		return;
+	}
+
+	self.recapRequestIdentifier += 1;
+	NSInteger request_identifier = self.recapRequestIdentifier;
+	[self setRecapFetching:YES];
+	[self pollReadingRecapForEntryIDs:entry_ids attempt:1 requestIdentifier:request_identifier];
+}
+
+- (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier
+{
+	if (request_identifier != self.recapRequestIdentifier) {
+		return;
+	}
+
+	if (attempt > InkwellSidebarRecapMaxAttempts) {
+		[self setRecapFetching:NO];
+		return;
+	}
+
+	[self.client fetchReadingRecapForEntryIDs:entry_ids token:self.token completion:^(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error) {
+		if (request_identifier != self.recapRequestIdentifier) {
+			return;
+		}
+
+		if (error != nil) {
+			[self setRecapFetching:NO];
+			return;
+		}
+
+		if (status_code == 200) {
+			[self setRecapFetching:NO];
+			if (self.readingRecapHandler != nil) {
+				self.readingRecapHandler(html ?: @"");
+			}
+			return;
+		}
+
+		if (status_code != 202) {
+			[self setRecapFetching:NO];
+			return;
+		}
+
+		if (attempt >= InkwellSidebarRecapMaxAttempts) {
+			[self setRecapFetching:NO];
+			return;
+		}
+
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (InkwellSidebarRecapPollInterval * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			[self pollReadingRecapForEntryIDs:entry_ids attempt:(attempt + 1) requestIdentifier:request_identifier];
+		});
+	}];
 }
 
 - (NSArray<MBEntry *> *) filteredItemsForDateFilter:(MBSidebarDateFilter)date_filter
@@ -560,6 +779,7 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 
 		MBEntry *sidebar_entry = [[MBEntry alloc] init];
 		sidebar_entry.title = title_value;
+		sidebar_entry.url = [self stringValueFromObject:entry[@"url"]];
 		sidebar_entry.subscriptionTitle = subscription_title;
 		sidebar_entry.summary = summary_value;
 		sidebar_entry.text = content_html_value;
@@ -596,6 +816,26 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 	}
 
 	return 0;
+}
+
+- (BOOL) openSelectedItemInBrowser
+{
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil) {
+		return NO;
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if (url_string.length == 0) {
+		return NO;
+	}
+
+	NSURL* open_url = [NSURL URLWithString:url_string];
+	if (open_url == nil) {
+		return NO;
+	}
+
+	return [[NSWorkspace sharedWorkspace] openURL:open_url];
 }
 
 - (void) notifySelectionChanged

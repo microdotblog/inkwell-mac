@@ -18,6 +18,7 @@ static NSToolbarItemIdentifier const InkwellToolbarProgressItemIdentifier = @"In
 static NSInteger const InkwellFilterTodaySegmentIndex = 0;
 static NSInteger const InkwellFilterRecentSegmentIndex = 1;
 static NSInteger const InkwellFilterFadingSegmentIndex = 2;
+static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 @interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate>
 
@@ -127,13 +128,16 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 		[weak_self.detailController showSidebarItem:item];
 		[weak_self.highlightsController updateForSelectedEntry:item];
 	};
+	self.sidebarController.readingRecapHandler = ^(NSString* html) {
+		[weak_self.detailController showReadingRecapHTML:html];
+	};
 	self.sidebarController.client = self.client;
 	self.sidebarController.token = self.token;
 
 	NSSplitViewController *split_view_controller = [[NSSplitViewController alloc] init];
 
 	NSSplitViewItem *sidebar_item = [NSSplitViewItem sidebarWithViewController:self.sidebarController];
-	sidebar_item.minimumThickness = 290.0;
+	sidebar_item.minimumThickness = InkwellSidebarPaneWidth;
 	sidebar_item.maximumThickness = 520.0;
 	sidebar_item.canCollapse = NO;
 	sidebar_item.holdingPriority = 260.0;
@@ -147,7 +151,7 @@ static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 	[split_view_controller addSplitViewItem:sidebar_item];
 	[split_view_controller addSplitViewItem:detail_item];
 	split_view_controller.splitView.dividerStyle = NSSplitViewDividerStyleThin;
-	[split_view_controller.splitView setPosition:290.0 ofDividerAtIndex:0];
+	[split_view_controller.splitView setPosition:InkwellSidebarPaneWidth ofDividerAtIndex:0];
 	self.mainSplitView = split_view_controller.splitView;
 
 	self.window.contentViewController = split_view_controller;

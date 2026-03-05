@@ -11,6 +11,7 @@
 
 static CGFloat const InkwellDetailTopBarHeight = 52.0;
 static NSString* const InkwellPostTemplateName = @"PostTemplate";
+static NSString* const InkwellRecapTemplateName = @"RecapTemplate";
 static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
@@ -83,6 +84,19 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
 }
 
+- (void) showReadingRecapHTML:(NSString*) html
+{
+	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
+	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
+	[self.webView loadHTMLString:recap_html baseURL:[NSBundle mainBundle].resourceURL];
+}
+
+- (NSString*) processedReadingRecapHTML:(NSString*) html
+{
+	// Placeholder for future recap-specific HTML processing (e.g. JS/CSS transforms).
+	return html ?: @"";
+}
+
 - (NSString *) htmlForPostTitle:(NSString *)title content:(NSString *)content
 {
 	NSString* template_html = [self postHTMLTemplate];
@@ -90,6 +104,13 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	NSString* safe_content = content ?: @"";
 	NSString* html = [template_html stringByReplacingOccurrencesOfString:InkwellPostTitleToken withString:safe_title];
 	return [html stringByReplacingOccurrencesOfString:InkwellPostContentToken withString:safe_content];
+}
+
+- (NSString*) htmlForReadingRecapContent:(NSString*) content
+{
+	NSString* template_html = [self recapHTMLTemplate];
+	NSString* safe_content = content ?: @"";
+	return [template_html stringByReplacingOccurrencesOfString:InkwellPostContentToken withString:safe_content];
 }
 
 - (NSString *) postHTMLTemplate
@@ -108,6 +129,28 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 
 		if (cached_template.length == 0) {
 			cached_template = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}.content{max-width:600px;margin-left:auto;margin-right:auto;}.post-title{font-size:30px;line-height:1.2;margin:0 0 12px;}.post-title:empty{display:none;}.post-content{font-size:16px;line-height:1.6;}.post-content:empty{display:none;}p{font-size:16px;line-height:1.5;color:#1d1d1f;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}blockquote{border-left:3px solid #d2d2d7;margin:1em 0;padding-left:1em;color:#4d4d4f;}</style></head><body><div class='content'><h1 class='post-title'>[TITLE]</h1><article class='post-content'>[CONTENT]</article></div></body></html>";
+		}
+	});
+
+	return cached_template;
+}
+
+- (NSString*) recapHTMLTemplate
+{
+	static NSString* cached_template;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		NSString* path = [[NSBundle mainBundle] pathForResource:InkwellRecapTemplateName ofType:InkwellPostTemplateType];
+		if (path.length > 0) {
+			NSError* read_error = nil;
+			NSString* template_html = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&read_error];
+			if (template_html.length > 0) {
+				cached_template = template_html;
+			}
+		}
+
+		if (cached_template.length == 0) {
+			cached_template = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}.content{max-width:680px;margin-left:auto;margin-right:auto;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}</style></head><body><div class='content'>[CONTENT]</div></body></html>";
 		}
 	});
 

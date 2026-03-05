@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBEntry : NSObject
 
 @property (nonatomic, copy, nullable) NSString *title;
+@property (nonatomic, copy, nullable) NSString *url;
 @property (nonatomic, copy, nullable) NSString *subscriptionTitle;
 @property (nonatomic, copy, nullable) NSString *summary;
 @property (nonatomic, copy, nullable) NSString *text;

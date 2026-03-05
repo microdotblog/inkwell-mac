@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBDetailController : NSViewController
 
 - (void) showSidebarItem:(MBEntry * _Nullable)item;
+- (void) showReadingRecapHTML:(NSString*) html;
 
 @end
 
