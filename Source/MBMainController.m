@@ -20,7 +20,7 @@ static NSInteger const InkwellFilterRecentSegmentIndex = 1;
 static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
-@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate>
+@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation>
 
 @property (assign) BOOL didBuildInterface;
 @property (strong) MBClient *client;
@@ -266,6 +266,59 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	}
 
 	[self.highlightsController showHighlightsForEntry:selected_item];
+}
+
+- (IBAction) newPost:(id)sender
+{
+	#pragma unused(sender)
+
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil) {
+		return;
+	}
+
+	NSString* title_string = [selected_item.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title_string.length == 0) {
+		title_string = [selected_item.subscriptionTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return;
+	}
+
+	NSString* markdown_text = [NSString stringWithFormat:@"[%@](%@):\n\n", title_string, url_string];
+	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+	[allowed_character_set removeCharactersInString:@":#[]@!$&'()*+,;=/?"];
+	NSString* encoded_text = [markdown_text stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
+	if (encoded_text.length == 0) {
+		return;
+	}
+
+	BOOL has_microblog_app = ([[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"blog.micro.mac"] != nil);
+	NSString* open_url_string = nil;
+	if (has_microblog_app) {
+		open_url_string = [NSString stringWithFormat:@"microblog://post?text=%@", encoded_text];
+	}
+	else {
+		open_url_string = [NSString stringWithFormat:@"https://micro.blog/post?text=%@", encoded_text];
+	}
+
+	NSURL* open_url = [NSURL URLWithString:open_url_string];
+	if (open_url == nil) {
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:open_url];
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	if (menu_item.action == @selector(newPost:)) {
+		return ([self.sidebarController selectedItem] != nil);
+	}
+
+	return YES;
 }
 
 - (IBAction) performFindPanelAction:(id)sender
