@@ -18,8 +18,6 @@ static NSInteger const InkwellSidebarTitleTag = 1001;
 static NSInteger const InkwellSidebarSubtitleTag = 1002;
 static NSInteger const InkwellSidebarSubscriptionTag = 1003;
 static NSInteger const InkwellSidebarDateTag = 1004;
-static NSString* const InkwellSidebarDateTopWithSubscriptionConstraintIdentifier = @"InkwellSidebarDateTopWithSubscription";
-static NSString* const InkwellSidebarDateTopWithoutSubscriptionConstraintIdentifier = @"InkwellSidebarDateTopWithoutSubscription";
 static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarAvatarInset = 3.0;
 static CGFloat const InkwellSidebarTextInset = 10.0;
@@ -92,6 +90,16 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 
 @end
 
+@interface MBSidebarCellView : NSTableCellView
+
+@property (strong) NSLayoutConstraint* dateTopWithSubscriptionConstraint;
+@property (strong) NSLayoutConstraint* dateTopWithoutSubscriptionConstraint;
+
+@end
+
+@implementation MBSidebarCellView
+@end
+
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate>
 
 @property (assign) BOOL hasLoadedRemoteItems;
@@ -122,7 +130,6 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
-- (NSLayoutConstraint* _Nullable) constraintWithIdentifier:(NSString*) identifier inView:(NSView*) view;
 - (IBAction) readingRecapButtonPressed:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 
@@ -500,21 +507,6 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 
 	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
 	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
-}
-
-- (NSLayoutConstraint* _Nullable) constraintWithIdentifier:(NSString*) identifier inView:(NSView*) view
-{
-	if (identifier.length == 0 || view == nil) {
-		return nil;
-	}
-
-	for (NSLayoutConstraint* constraint in view.constraints) {
-		if ([constraint.identifier isEqualToString:identifier]) {
-			return constraint;
-		}
-	}
-
-	return nil;
 }
 
 - (void) setDateFilter:(MBSidebarDateFilter)date_filter
@@ -996,10 +988,10 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
 	#pragma unused(tableColumn)
-	NSTableCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
+	MBSidebarCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
 
 	if (cell_view == nil) {
-		cell_view = [[NSTableCellView alloc] initWithFrame:NSZeroRect];
+		cell_view = [[MBSidebarCellView alloc] initWithFrame:NSZeroRect];
 		cell_view.identifier = InkwellSidebarCellIdentifier;
 
 		MBRoundedImageView* avatar_view = [[MBRoundedImageView alloc] initWithFrame:NSZeroRect];
@@ -1048,12 +1040,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		bottom_constraint.priority = NSLayoutPriorityDefaultHigh;
 
 		NSLayoutConstraint* date_top_with_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subscription_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		date_top_with_subscription_constraint.identifier = InkwellSidebarDateTopWithSubscriptionConstraintIdentifier;
-		date_top_with_subscription_constraint.active = NO;
-
 		NSLayoutConstraint* date_top_without_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		date_top_without_subscription_constraint.identifier = InkwellSidebarDateTopWithoutSubscriptionConstraintIdentifier;
-		date_top_without_subscription_constraint.active = YES;
 
 		[NSLayoutConstraint activateConstraints:@[
 			[avatar_view.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:InkwellSidebarAvatarInset],
@@ -1069,12 +1056,15 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 			[subscription_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
 			[subscription_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[subscription_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			date_top_with_subscription_constraint,
-			date_top_without_subscription_constraint,
 			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[date_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			bottom_constraint
 		]];
+
+		date_top_with_subscription_constraint.active = NO;
+		date_top_without_subscription_constraint.active = YES;
+		cell_view.dateTopWithSubscriptionConstraint = date_top_with_subscription_constraint;
+		cell_view.dateTopWithoutSubscriptionConstraint = date_top_without_subscription_constraint;
 	}
 
 	MBEntry* item = self.items[(NSUInteger) row];
@@ -1107,8 +1097,8 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	date_field.stringValue = date_value;
 	avatar_view.image = [self avatarImageForEntry:item];
 
-	NSLayoutConstraint* date_top_with_subscription_constraint = [self constraintWithIdentifier:InkwellSidebarDateTopWithSubscriptionConstraintIdentifier inView:cell_view];
-	NSLayoutConstraint* date_top_without_subscription_constraint = [self constraintWithIdentifier:InkwellSidebarDateTopWithoutSubscriptionConstraintIdentifier inView:cell_view];
+	NSLayoutConstraint* date_top_with_subscription_constraint = cell_view.dateTopWithSubscriptionConstraint;
+	NSLayoutConstraint* date_top_without_subscription_constraint = cell_view.dateTopWithoutSubscriptionConstraint;
 	if (date_top_with_subscription_constraint != nil && date_top_without_subscription_constraint != nil) {
 		date_top_with_subscription_constraint.active = should_show_subscription;
 		date_top_without_subscription_constraint.active = !should_show_subscription;
