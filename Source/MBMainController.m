@@ -14,13 +14,14 @@
 
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
 static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"InkwellToolbarSearch";
+static NSToolbarItemIdentifier const InkwellToolbarHighlightItemIdentifier = @"InkwellToolbarHighlight";
 static NSToolbarItemIdentifier const InkwellToolbarProgressItemIdentifier = @"InkwellToolbarProgress";
 static NSInteger const InkwellFilterTodaySegmentIndex = 0;
 static NSInteger const InkwellFilterRecentSegmentIndex = 1;
 static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
-@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation>
+@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation>
 
 @property (assign) BOOL didBuildInterface;
 @property (strong) MBClient *client;
@@ -127,6 +128,10 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	self.sidebarController.selectionChangedHandler = ^(MBEntry * _Nullable item) {
 		[weak_self.detailController showSidebarItem:item];
 		[weak_self.highlightsController updateForSelectedEntry:item];
+	};
+	self.detailController.selectionChangedHandler = ^(BOOL has_selection) {
+		#pragma unused(has_selection)
+		[weak_self.window.toolbar validateVisibleItems];
 	};
 	self.sidebarController.readingRecapHandler = ^(NSString* html) {
 		[weak_self.detailController showReadingRecapHTML:html];
@@ -350,6 +355,15 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	return YES;
 }
 
+- (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
+{
+	if (toolbar_item.action == @selector(highlightSelectedItem:)) {
+		return [self.detailController hasSelection];
+	}
+
+	return YES;
+}
+
 - (IBAction) performFindPanelAction:(id)sender
 {
 	if (![sender respondsToSelector:@selector(tag)]) {
@@ -391,6 +405,11 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	return NO;
 }
 
+- (IBAction) highlightSelectedItem:(id) sender
+{
+	#pragma unused(sender)
+}
+
 #pragma mark - Toolbar
 
 - (NSArray<NSToolbarItemIdentifier> *) toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
@@ -400,6 +419,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		NSToolbarSidebarTrackingSeparatorItemIdentifier,
 		InkwellToolbarProgressItemIdentifier,
 		NSToolbarFlexibleSpaceItemIdentifier,
+		InkwellToolbarHighlightItemIdentifier,
 		InkwellToolbarSearchItemIdentifier
 	];
 }
@@ -411,7 +431,8 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		NSToolbarSidebarTrackingSeparatorItemIdentifier,
 		InkwellToolbarProgressItemIdentifier,
 		NSToolbarFlexibleSpaceItemIdentifier,
-		InkwellToolbarSearchItemIdentifier
+		InkwellToolbarSearchItemIdentifier,
+		InkwellToolbarHighlightItemIdentifier
 	];
 }
 
@@ -449,22 +470,34 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	}
 
 	if ([item_identifier isEqualToString:InkwellToolbarSearchItemIdentifier]) {
-		NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
+		NSSearchToolbarItem *item = [[NSSearchToolbarItem alloc] initWithItemIdentifier:item_identifier];
 		item.label = @"Search";
+		item.paletteLabel = @"Search";
+		item.preferredWidthForSearchField = 200.0;
 
 		NSSearchField* previous_search_field = self.toolbarSearchField;
 		if (previous_search_field != nil) {
 			[[NSNotificationCenter defaultCenter] removeObserver:self name:NSControlTextDidChangeNotification object:previous_search_field];
 		}
 
-		self.toolbarSearchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 0.0)];
+		self.toolbarSearchField = [[NSSearchField alloc] initWithFrame:NSMakeRect(0.0, 0.0, 200.0, 0.0)];
 		self.toolbarSearchField.placeholderString = @"Search";
-		self.toolbarSearchField.translatesAutoresizingMaskIntoConstraints = NO;
 		self.toolbarSearchField.delegate = self;
-		[self.toolbarSearchField.widthAnchor constraintEqualToConstant:240.0].active = YES;
+		[self.toolbarSearchField.widthAnchor constraintEqualToConstant:200.0].active = YES;
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(searchFieldTextDidChange:) name:NSControlTextDidChangeNotification object:self.toolbarSearchField];
 
-		item.view = self.toolbarSearchField;
+		item.searchField = self.toolbarSearchField;
+		return item;
+	}
+
+	if ([item_identifier isEqualToString:InkwellToolbarHighlightItemIdentifier]) {
+		NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
+		item.label = @"Highlight";
+		item.paletteLabel = @"Highlight";
+		item.toolTip = @"Highlight";
+		item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
+		item.target = self;
+		item.action = @selector(highlightSelectedItem:);
 		return item;
 	}
 

@@ -15,10 +15,39 @@ static NSString* const InkwellRecapTemplateName = @"RecapTemplate";
 static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
+static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
 
-@interface MBDetailController () <WKNavigationDelegate>
+@interface MBWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
+
+@property (nonatomic, weak) id<WKScriptMessageHandler> target;
+
+- (instancetype) initWithTarget:(id<WKScriptMessageHandler>)target;
+
+@end
+
+@implementation MBWeakScriptMessageHandler
+
+- (instancetype) initWithTarget:(id<WKScriptMessageHandler>)target
+{
+	self = [super init];
+	if (self) {
+		self.target = target;
+	}
+	return self;
+}
+
+- (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
+{
+	[self.target userContentController:user_content_controller didReceiveScriptMessage:script_message];
+}
+
+@end
+
+@interface MBDetailController () <WKNavigationDelegate, WKScriptMessageHandler>
 
 @property (strong) WKWebView* webView;
+@property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
+@property (assign) BOOL hasTextSelection;
 
 @end
 
@@ -35,7 +64,17 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	top_bar_view.material = NSVisualEffectMaterialHeaderView;
 	top_bar_view.state = NSVisualEffectStateActive;
 
-	WKWebView* web_view = [[WKWebView alloc] initWithFrame:NSZeroRect];
+	WKUserContentController* user_content_controller = [[WKUserContentController alloc] init];
+	self.selectionScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
+	[user_content_controller addScriptMessageHandler:self.selectionScriptMessageHandler name:InkwellSelectionChangedScriptMessageName];
+
+	WKUserScript* selection_script = [[WKUserScript alloc] initWithSource:[self selectionObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
+	[user_content_controller addUserScript:selection_script];
+
+	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+	configuration.userContentController = user_content_controller;
+
+	WKWebView* web_view = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
 	web_view.navigationDelegate = self;
 	[root_view addSubview:web_view];
@@ -55,6 +94,16 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	self.view = root_view;
 }
 
+- (void) dealloc
+{
+	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellSelectionChangedScriptMessageName];
+}
+
+- (BOOL) hasSelection
+{
+	return self.hasTextSelection;
+}
+
 - (void) webView:(WKWebView *)web_view decidePolicyForNavigationAction:(WKNavigationAction *)navigation_action decisionHandler:(void (^)(WKNavigationActionPolicy))decision_handler
 {
 	#pragma unused(web_view)
@@ -71,6 +120,8 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 
 - (void) showSidebarItem:(MBEntry * _Nullable)item
 {
+	[self updateSelectionState:NO];
+
 	if (item == nil) {
 		NSString* html = [self htmlForPostTitle:@"" content:@""];
 		[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
@@ -101,9 +152,27 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 
 - (void) showReadingRecapHTML:(NSString*) html
 {
+	[self updateSelectionState:NO];
+
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
 	[self.webView loadHTMLString:recap_html baseURL:[NSBundle mainBundle].resourceURL];
+}
+
+- (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
+{
+	#pragma unused(user_content_controller)
+
+	if (![script_message.name isEqualToString:InkwellSelectionChangedScriptMessageName]) {
+		return;
+	}
+
+	BOOL has_selection = NO;
+	if ([script_message.body respondsToSelector:@selector(boolValue)]) {
+		has_selection = [(id) script_message.body boolValue];
+	}
+
+	[self updateSelectionState:has_selection];
 }
 
 - (NSString*) processedReadingRecapHTML:(NSString*) html
@@ -170,6 +239,36 @@ static NSString* const InkwellPostContentToken = @"[CONTENT]";
 	});
 
 	return cached_template;
+}
+
+- (NSString*) selectionObserverScript
+{
+	return @"(function() {"
+		"if (window.__inkwellSelectionObserverInstalled) { return; }"
+		"window.__inkwellSelectionObserverInstalled = true;"
+		"function postSelectionState() {"
+			"var selection = window.getSelection();"
+			"var hasSelection = !!selection && selection.toString().trim().length > 0;"
+			"window.webkit.messageHandlers.selectionChanged.postMessage(hasSelection);"
+		"}"
+		"document.addEventListener('selectionchange', postSelectionState);"
+		"document.addEventListener('mouseup', postSelectionState);"
+		"document.addEventListener('keyup', postSelectionState);"
+		"window.addEventListener('load', postSelectionState);"
+		"postSelectionState();"
+		"})();";
+}
+
+- (void) updateSelectionState:(BOOL) has_selection
+{
+	if (self.hasTextSelection == has_selection) {
+		return;
+	}
+
+	self.hasTextSelection = has_selection;
+	if (self.selectionChangedHandler != nil) {
+		self.selectionChangedHandler(has_selection);
+	}
 }
 
 - (NSString *) escapedHTMLString:(NSString *)string

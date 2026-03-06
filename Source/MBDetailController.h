@@ -13,6 +13,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MBDetailController : NSViewController
 
+@property (nonatomic, copy, nullable) void (^selectionChangedHandler)(BOOL has_selection);
+
+- (BOOL) hasSelection;
 - (void) showSidebarItem:(MBEntry * _Nullable)item;
 - (void) showReadingRecapHTML:(NSString*) html;
 
