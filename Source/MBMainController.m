@@ -312,10 +312,39 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	[[NSWorkspace sharedWorkspace] openURL:open_url];
 }
 
+- (IBAction) copyLink:(id)sender
+{
+	#pragma unused(sender)
+
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil) {
+		return;
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:url_string forType:NSPasteboardTypeString];
+}
+
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
 	if (menu_item.action == @selector(newPost:)) {
 		return ([self.sidebarController selectedItem] != nil);
+	}
+
+	if (menu_item.action == @selector(copyLink:)) {
+		MBEntry* selected_item = [self.sidebarController selectedItem];
+		if (selected_item == nil) {
+			return NO;
+		}
+
+		NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		return (url_string.length > 0);
 	}
 
 	return YES;

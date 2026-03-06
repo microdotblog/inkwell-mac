@@ -35,6 +35,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 @interface MBSidebarTableView : NSTableView
 
 @property (copy, nullable) BOOL (^openSelectedItemHandler)(void);
+@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
 
 @end
 
@@ -52,6 +53,30 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	}
 
 	[super keyDown:event];
+}
+
+- (NSMenu*) menuForEvent:(NSEvent*) event
+{
+	if (self.contextMenuHandler == nil) {
+		return [super menuForEvent:event];
+	}
+
+	NSPoint point_in_window = event.locationInWindow;
+	NSPoint point_in_table = [self convertPoint:point_in_window fromView:nil];
+	NSInteger row = [self rowAtPoint:point_in_table];
+	if (row < 0 || row >= self.numberOfRows) {
+		return nil;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+	[self selectRowIndexes:index_set byExtendingSelection:NO];
+
+	NSMenu* menu = self.contextMenuHandler();
+	if (menu != nil) {
+		return menu;
+	}
+
+	return [super menuForEvent:event];
 }
 
 @end
@@ -100,7 +125,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 @implementation MBSidebarCellView
 @end
 
-@interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate>
+@interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
 @property (assign) BOOL hasLoadedRemoteItems;
 @property (assign) BOOL isFetching;
@@ -112,6 +137,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 @property (strong) NSMutableSet<NSString *> *hostsWithPendingImageRequests;
 @property (strong) NSURLSession *imageSession;
 @property (strong) NSImage *defaultAvatarImage;
+@property (strong) NSMenu* contextMenu;
 @property (strong) NSBox* recapBoxView;
 @property (strong) NSButton* recapButton;
 @property (strong) NSTextField* recapCountLabel;
@@ -130,6 +156,9 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
+- (NSMenu*) sidebarContextMenu;
+- (IBAction) openSelectedItemInBrowserAction:(id)sender;
+- (IBAction) copySelectedItemLinkAction:(id)sender;
 - (IBAction) readingRecapButtonPressed:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 
@@ -199,6 +228,9 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	__weak typeof(self) weak_self = self;
 	table_view.openSelectedItemHandler = ^BOOL {
 		return [weak_self openSelectedItemInBrowser];
+	};
+	table_view.contextMenuHandler = ^NSMenu* {
+		return [weak_self sidebarContextMenu];
 	};
 
 	NSTableColumn *source_column = [[NSTableColumn alloc] initWithIdentifier:@"SourceColumn"];
@@ -856,6 +888,74 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	}
 
 	return [[NSWorkspace sharedWorkspace] openURL:open_url];
+}
+
+- (NSMenu*) sidebarContextMenu
+{
+	if (self.contextMenu != nil) {
+		return self.contextMenu;
+	}
+
+	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
+	SEL new_post_selector = NSSelectorFromString(@"newPost:");
+
+	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post" action:new_post_selector keyEquivalent:@""];
+	new_post_item.target = nil;
+	[menu addItem:new_post_item];
+
+	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:@"Open in Browser" action:@selector(openSelectedItemInBrowserAction:) keyEquivalent:@""];
+	open_item.target = self;
+	[menu addItem:open_item];
+
+	NSMenuItem* copy_item = [[NSMenuItem alloc] initWithTitle:@"Copy Link" action:@selector(copySelectedItemLinkAction:) keyEquivalent:@""];
+	copy_item.target = self;
+	[menu addItem:copy_item];
+
+	self.contextMenu = menu;
+	return self.contextMenu;
+}
+
+- (IBAction) openSelectedItemInBrowserAction:(id)sender
+{
+	#pragma unused(sender)
+	[self openSelectedItemInBrowser];
+}
+
+- (IBAction) copySelectedItemLinkAction:(id)sender
+{
+	#pragma unused(sender)
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil) {
+		return;
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:url_string forType:NSPasteboardTypeString];
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	if (menu_item.action == NSSelectorFromString(@"newPost:")) {
+		return ([self selectedItem] != nil);
+	}
+
+	if (menu_item.action != @selector(openSelectedItemInBrowserAction:) && menu_item.action != @selector(copySelectedItemLinkAction:)) {
+		return YES;
+	}
+
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil) {
+		return NO;
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (url_string.length > 0);
 }
 
 - (void) notifySelectionChanged
