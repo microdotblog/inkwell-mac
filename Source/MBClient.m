@@ -22,17 +22,20 @@ static NSString * const MBFeedSubscriptionsEndpoint = @"https://micro.blog/feeds
 static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/entries.json";
 static NSString * const MBFeedUnreadEntriesEndpoint = @"https://micro.blog/feeds/v2/unread_entries.json";
 static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icons.json";
+static NSString* const MBFeedHighlightsEndpoint = @"https://micro.blog/feeds/highlights";
 static NSString* const MBFeedsEndpointBase = @"https://micro.blog/feeds";
 static NSString* const MBFeedsRecapEndpoint = @"https://micro.blog/feeds/recap";
 static NSInteger const MBFeedEntriesPageSize = 200;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
+static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 @interface MBClient ()
 
 @property (strong) NSURLSession *session;
 @property (assign) NSInteger activeRequestCount;
 @property (copy) NSSet* cachedUnreadEntryIDs;
+@property (copy) NSArray* cachedHighlights;
 
 @end
 
@@ -44,6 +47,7 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 	if (self) {
 		self.session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.cachedUnreadEntryIDs = [self loadCachedUnreadEntryIDs];
+		self.cachedHighlights = [self loadCachedHighlights];
 	}
 	return self;
 }
@@ -572,6 +576,240 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 	[task resume];
 }
 
+- (void) fetchAllHighlightsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1019 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for all highlights request." }];
+		[self finishWithHighlights:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* highlights_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedHighlightsEndpoint]];
+	highlights_request.HTTPMethod = @"GET";
+	[highlights_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[highlights_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:highlights_request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithHighlights:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"All highlights request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithHighlights:nil error:request_error completion:completion];
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if (![payload isKindOfClass:[NSDictionary class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1020 userInfo:@{ NSLocalizedDescriptionKey: @"All highlights response was invalid." }];
+			[self finishWithHighlights:nil error:parse_error completion:completion];
+			return;
+		}
+
+		NSArray* highlights = [self highlightsFromFeedPayload:(NSDictionary*) payload defaultEntryID:0];
+		[self finishWithHighlights:highlights error:nil completion:completion];
+	}];
+	[task resume];
+}
+
+- (void) createHighlightForEntryID:(NSInteger)entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end token:(NSString*) token completion:(void (^)(NSString* _Nullable highlight_id, NSError* _Nullable error))completion
+{
+	if (entry_id <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1021 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry ID for create highlight request." }];
+		[self finishWithHighlightID:nil error:error completion:completion];
+		return;
+	}
+
+	NSString* trimmed_selection_text = [selection_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_selection_text.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1022 userInfo:@{ NSLocalizedDescriptionKey: @"Missing text for create highlight request." }];
+		[self finishWithHighlightID:nil error:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1023 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for create highlight request." }];
+		[self finishWithHighlightID:nil error:error completion:completion];
+		return;
+	}
+
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/highlights", MBFeedsEndpointBase, (long) entry_id];
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
+	request.HTTPMethod = @"POST";
+	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSMutableArray* body_parts = [NSMutableArray array];
+	NSString* encoded_text = [self urlEncodedString:trimmed_selection_text];
+	[body_parts addObject:[NSString stringWithFormat:@"text=%@", encoded_text]];
+	[body_parts addObject:[NSString stringWithFormat:@"start=%ld", (long) selection_start]];
+	[body_parts addObject:[NSString stringWithFormat:@"end=%ld", (long) selection_end]];
+	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
+	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithHighlightID:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Create highlight request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithHighlightID:nil error:request_error completion:completion];
+			return;
+		}
+
+		NSString* returned_highlight_id = @"";
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if ([payload isKindOfClass:[NSDictionary class]]) {
+			NSDictionary* dictionary = (NSDictionary*) payload;
+			returned_highlight_id = [self stringValueFromObjectOrNumber:dictionary[@"id"]];
+		}
+
+		[self finishWithHighlightID:returned_highlight_id error:nil completion:completion];
+	}];
+	[task resume];
+}
+
+- (NSArray*) cachedHighlightsForEntryID:(NSInteger) entry_id
+{
+	if (entry_id <= 0) {
+		return @[];
+	}
+
+	@synchronized (self) {
+		NSMutableArray* filtered_highlights = [NSMutableArray array];
+		for (id object in self.cachedHighlights ?: @[]) {
+			if (![object isKindOfClass:[MBHighlight class]]) {
+				continue;
+			}
+
+			MBHighlight* highlight = (MBHighlight*) object;
+			if (highlight.entryID != entry_id) {
+				continue;
+			}
+
+			[filtered_highlights addObject:[self highlightCopy:highlight]];
+		}
+
+		NSArray* sorted_highlights = [self sortedHighlightsFromHighlights:filtered_highlights];
+		return sorted_highlights ?: @[];
+	}
+}
+
+- (void) mergeRemoteHighlightsIntoCache:(NSArray*) highlights
+{
+	if (![highlights isKindOfClass:[NSArray class]] || highlights.count == 0) {
+		return;
+	}
+
+	@synchronized (self) {
+		NSMutableArray* merged_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
+		for (id object in highlights) {
+			if (![object isKindOfClass:[MBHighlight class]]) {
+				continue;
+			}
+
+			MBHighlight* incoming_highlight = (MBHighlight*) object;
+			NSInteger index = [self indexOfMatchingHighlight:incoming_highlight inCollection:merged_highlights];
+			if (index < 0) {
+				[merged_highlights addObject:[self highlightCopy:incoming_highlight]];
+				continue;
+			}
+
+			MBHighlight* existing_highlight = merged_highlights[index];
+			merged_highlights[index] = [self mergedHighlightFromExisting:existing_highlight incoming:incoming_highlight];
+		}
+
+		NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:merged_highlights];
+		self.cachedHighlights = normalized_highlights ?: @[];
+		[self cacheHighlights:self.cachedHighlights];
+	}
+}
+
+- (MBHighlight*) saveLocalHighlightForEntryID:(NSInteger) entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end
+{
+	if (entry_id <= 0) {
+		return nil;
+	}
+
+	NSString* trimmed_selection_text = [selection_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_selection_text.length == 0) {
+		return nil;
+	}
+
+	MBHighlight* local_highlight = [[MBHighlight alloc] init];
+	local_highlight.entryID = entry_id;
+	local_highlight.localID = [self generatedLocalHighlightID];
+	local_highlight.highlightID = @"";
+	local_highlight.selectionText = trimmed_selection_text;
+	local_highlight.selectionStart = MAX(0, selection_start);
+	local_highlight.selectionEnd = MAX(local_highlight.selectionStart + 1, selection_end);
+	local_highlight.updatedDate = [NSDate date];
+
+	@synchronized (self) {
+		NSMutableArray* merged_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
+		[merged_highlights addObject:local_highlight];
+		NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:merged_highlights];
+		self.cachedHighlights = normalized_highlights ?: @[];
+		[self cacheHighlights:self.cachedHighlights];
+	}
+
+	return [self highlightCopy:local_highlight];
+}
+
+- (void) assignRemoteHighlightID:(NSString*) highlight_id toLocalHighlightID:(NSString*) local_id entryID:(NSInteger) entry_id
+{
+	NSString* trimmed_highlight_id = [highlight_id stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* trimmed_local_id = [local_id stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_highlight_id.length == 0 || trimmed_local_id.length == 0 || entry_id <= 0) {
+		return;
+	}
+
+	@synchronized (self) {
+		NSMutableArray* updated_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
+		for (NSInteger i = 0; i < updated_highlights.count; i++) {
+			id object = updated_highlights[i];
+			if (![object isKindOfClass:[MBHighlight class]]) {
+				continue;
+			}
+
+			MBHighlight* highlight = (MBHighlight*) object;
+			if (highlight.entryID != entry_id) {
+				continue;
+			}
+			NSString* highlight_local_id = highlight.localID ?: @"";
+			if (![highlight_local_id isEqualToString:trimmed_local_id]) {
+				continue;
+			}
+
+			MBHighlight* updated_highlight = [self highlightCopy:highlight];
+			updated_highlight.highlightID = trimmed_highlight_id;
+			updated_highlight.updatedDate = [NSDate date];
+			if (updated_highlight.localID.length == 0) {
+				updated_highlight.localID = trimmed_highlight_id;
+			}
+			updated_highlights[i] = updated_highlight;
+			break;
+		}
+
+		NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:updated_highlights];
+		self.cachedHighlights = normalized_highlights ?: @[];
+		[self cacheHighlights:self.cachedHighlights];
+	}
+}
+
 - (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
 {
 	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:NO completion:completion];
@@ -673,7 +911,7 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 	return [unread_entry_ids copy];
 }
 
-- (NSURL * _Nullable) unreadEntryIDsCacheURL
+- (NSURL * _Nullable) applicationSupportDirectoryURL
 {
 	NSFileManager* file_manager = [NSFileManager defaultManager];
 	NSArray* application_support_urls = [file_manager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
@@ -694,7 +932,27 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 		return nil;
 	}
 
+	return directory_url;
+}
+
+- (NSURL * _Nullable) unreadEntryIDsCacheURL
+{
+	NSURL* directory_url = [self applicationSupportDirectoryURL];
+	if (directory_url == nil) {
+		return nil;
+	}
+
 	return [directory_url URLByAppendingPathComponent:MBUnreadEntryIDsCacheFilename isDirectory:NO];
+}
+
+- (NSURL * _Nullable) highlightsCacheURL
+{
+	NSURL* directory_url = [self applicationSupportDirectoryURL];
+	if (directory_url == nil) {
+		return nil;
+	}
+
+	return [directory_url URLByAppendingPathComponent:MBHighlightsCacheFilename isDirectory:NO];
 }
 
 - (NSSet*) loadCachedUnreadEntryIDs
@@ -733,6 +991,431 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 	[data writeToURL:cache_url atomically:YES];
 }
 
+- (NSArray*) loadCachedHighlights
+{
+	NSURL* cache_url = [self highlightsCacheURL];
+	if (cache_url == nil) {
+		return @[];
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+	if (data.length == 0) {
+		return @[];
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	NSArray* items = nil;
+	if ([payload isKindOfClass:[NSDictionary class]]) {
+		items = [(NSDictionary*) payload objectForKey:@"items"];
+	}
+	else if ([payload isKindOfClass:[NSArray class]]) {
+		items = (NSArray*) payload;
+	}
+
+	if (![items isKindOfClass:[NSArray class]]) {
+		return @[];
+	}
+
+	NSMutableArray* highlights = [NSMutableArray array];
+	for (id object in items) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		MBHighlight* highlight = [self highlightFromDictionary:(NSDictionary*) object];
+		if (highlight == nil) {
+			continue;
+		}
+
+		[highlights addObject:highlight];
+	}
+
+	NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:highlights];
+	return normalized_highlights ?: @[];
+}
+
+- (void) cacheHighlights:(NSArray*) highlights
+{
+	NSURL* cache_url = [self highlightsCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	NSMutableArray* serialized_highlights = [NSMutableArray array];
+	for (id object in highlights ?: @[]) {
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* highlight = (MBHighlight*) object;
+		NSDictionary* dictionary = [self dictionaryFromHighlight:highlight];
+		if (dictionary.count == 0) {
+			continue;
+		}
+
+		[serialized_highlights addObject:dictionary];
+	}
+
+	NSDictionary* payload = @{
+		@"version": @1,
+		@"items": serialized_highlights
+	};
+	NSData* data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+	if (data.length == 0) {
+		return;
+	}
+
+	[data writeToURL:cache_url atomically:YES];
+}
+
+- (MBHighlight*) highlightFromDictionary:(NSDictionary*) dictionary
+{
+	if (![dictionary isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSInteger entry_id = [self integerValueFromObject:dictionary[@"entry_id"]];
+	if (entry_id <= 0) {
+		entry_id = [self integerValueFromObject:dictionary[@"post_id"]];
+	}
+	if (entry_id <= 0) {
+		return nil;
+	}
+
+	MBHighlight* highlight = [[MBHighlight alloc] init];
+	highlight.entryID = entry_id;
+	highlight.localID = [self stringValueFromObjectOrNumber:dictionary[@"id"]];
+	highlight.highlightID = [self stringValueFromObjectOrNumber:dictionary[@"highlight_id"]];
+	if (highlight.highlightID.length == 0 && highlight.localID.length > 0 && ![highlight.localID hasPrefix:@"hl-"]) {
+		highlight.highlightID = highlight.localID;
+	}
+
+	NSString* selection_text = [self stringValueFromObject:dictionary[@"selection_text"]];
+	if (selection_text.length == 0) {
+		selection_text = [self stringValueFromObject:dictionary[@"content_text"]];
+	}
+	if (selection_text.length == 0) {
+		selection_text = [self stringValueFromObject:dictionary[@"text"]];
+	}
+	highlight.selectionText = selection_text ?: @"";
+
+	NSInteger selection_start = [self integerValueFromObject:dictionary[@"selection_start"]];
+	NSInteger selection_end = [self integerValueFromObject:dictionary[@"selection_end"]];
+	if (selection_start == 0 && selection_end == 0) {
+		selection_start = [self integerValueFromObject:dictionary[@"start_offset"]];
+		selection_end = [self integerValueFromObject:dictionary[@"end_offset"]];
+	}
+	if (selection_start == 0 && selection_end == 0) {
+		selection_start = [self integerValueFromObject:dictionary[@"start"]];
+		selection_end = [self integerValueFromObject:dictionary[@"end"]];
+	}
+
+	selection_start = MAX(0, selection_start);
+	selection_end = MAX(selection_start + 1, selection_end);
+	highlight.selectionStart = selection_start;
+	highlight.selectionEnd = selection_end;
+
+	NSString* updated_string = [self stringValueFromObject:dictionary[@"updated_at"]];
+	if (updated_string.length == 0) {
+		updated_string = [self stringValueFromObject:dictionary[@"date_published"]];
+	}
+	if (updated_string.length == 0) {
+		updated_string = [self stringValueFromObject:dictionary[@"date_modified"]];
+	}
+	if (updated_string.length == 0) {
+		updated_string = [self stringValueFromObject:dictionary[@"created_at"]];
+	}
+	highlight.updatedDate = [self dateFromISO8601String:updated_string];
+
+	if (highlight.localID.length == 0) {
+		highlight.localID = [NSString stringWithFormat:@"mb-%ld-%ld-%ld",
+			(long) highlight.entryID,
+			(long) highlight.selectionStart,
+			(long) highlight.selectionEnd];
+	}
+
+	return highlight;
+}
+
+- (NSDictionary*) dictionaryFromHighlight:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]] || highlight.entryID <= 0) {
+		return @{};
+	}
+
+	NSMutableDictionary* dictionary = [NSMutableDictionary dictionary];
+	dictionary[@"id"] = highlight.localID ?: @"";
+	if (highlight.highlightID.length > 0) {
+		dictionary[@"highlight_id"] = highlight.highlightID;
+	}
+	dictionary[@"entry_id"] = @(highlight.entryID);
+	dictionary[@"selection_text"] = highlight.selectionText ?: @"";
+	dictionary[@"selection_start"] = @(MAX(0, highlight.selectionStart));
+	dictionary[@"selection_end"] = @(MAX(MAX(0, highlight.selectionStart) + 1, highlight.selectionEnd));
+
+	if (highlight.updatedDate != nil) {
+		dictionary[@"updated_at"] = [[self iso8601Formatter] stringFromDate:highlight.updatedDate] ?: @"";
+	}
+
+	return dictionary;
+}
+
+- (NSISO8601DateFormatter*) iso8601Formatter
+{
+	static NSISO8601DateFormatter* iso8601_formatter;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		iso8601_formatter = [[NSISO8601DateFormatter alloc] init];
+		iso8601_formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+	});
+
+	return iso8601_formatter;
+}
+
+- (NSString*) generatedLocalHighlightID
+{
+	long long milliseconds = (long long) ([[NSDate date] timeIntervalSince1970] * 1000.0);
+	NSString* uuid_value = [[NSUUID UUID] UUIDString] ?: @"";
+	return [NSString stringWithFormat:@"hl-%lld-%@", milliseconds, [uuid_value lowercaseString]];
+}
+
+- (MBHighlight*) highlightCopy:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return nil;
+	}
+
+	MBHighlight* copied_highlight = [[MBHighlight alloc] init];
+	copied_highlight.entryID = highlight.entryID;
+	copied_highlight.localID = highlight.localID ?: @"";
+	copied_highlight.highlightID = highlight.highlightID ?: @"";
+	copied_highlight.selectionText = highlight.selectionText ?: @"";
+	copied_highlight.selectionStart = highlight.selectionStart;
+	copied_highlight.selectionEnd = highlight.selectionEnd;
+	copied_highlight.updatedDate = highlight.updatedDate;
+	return copied_highlight;
+}
+
+- (NSString*) normalizedRemoteHighlightIDForHighlight:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return @"";
+	}
+
+	NSString* highlight_id = [highlight.highlightID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (highlight_id.length > 0) {
+		return highlight_id;
+	}
+
+	NSString* local_id = [highlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (local_id.length == 0 || [local_id hasPrefix:@"hl-"]) {
+		return @"";
+	}
+	return local_id;
+}
+
+- (NSString*) highlightSignature:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return @"";
+	}
+	if (highlight.entryID <= 0) {
+		return @"";
+	}
+
+	NSString* trimmed_text = [highlight.selectionText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_text.length == 0) {
+		return @"";
+	}
+
+	NSInteger start_offset = MAX(0, highlight.selectionStart);
+	NSInteger end_offset = MAX(start_offset + 1, highlight.selectionEnd);
+	return [NSString stringWithFormat:@"%ld|%ld|%ld|%@", (long) highlight.entryID, (long) start_offset, (long) end_offset, trimmed_text];
+}
+
+- (BOOL) isSameStoredHighlight:(MBHighlight*) first_highlight other:(MBHighlight*) second_highlight
+{
+	if (![first_highlight isKindOfClass:[MBHighlight class]] || ![second_highlight isKindOfClass:[MBHighlight class]]) {
+		return NO;
+	}
+
+	if (first_highlight.entryID <= 0 || second_highlight.entryID <= 0 || first_highlight.entryID != second_highlight.entryID) {
+		return NO;
+	}
+
+	NSString* first_remote_id = [self normalizedRemoteHighlightIDForHighlight:first_highlight];
+	NSString* second_remote_id = [self normalizedRemoteHighlightIDForHighlight:second_highlight];
+	if (first_remote_id.length > 0 && second_remote_id.length > 0) {
+		return [first_remote_id isEqualToString:second_remote_id];
+	}
+
+	NSString* first_local_id = [first_highlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* second_local_id = [second_highlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (first_local_id.length > 0 && second_local_id.length > 0 && [first_local_id isEqualToString:second_local_id]) {
+		return YES;
+	}
+
+	NSString* first_signature = [self highlightSignature:first_highlight];
+	NSString* second_signature = [self highlightSignature:second_highlight];
+	if (first_signature.length == 0 || second_signature.length == 0) {
+		return NO;
+	}
+
+	return [first_signature isEqualToString:second_signature];
+}
+
+- (NSInteger) indexOfMatchingHighlight:(MBHighlight*) highlight inCollection:(NSArray*) highlights
+{
+	if (![highlight isKindOfClass:[MBHighlight class]] || ![highlights isKindOfClass:[NSArray class]]) {
+		return -1;
+	}
+
+	for (NSInteger i = 0; i < highlights.count; i++) {
+		id object = highlights[i];
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* existing_highlight = (MBHighlight*) object;
+		if ([self isSameStoredHighlight:existing_highlight other:highlight]) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+- (MBHighlight*) mergedHighlightFromExisting:(MBHighlight*) existing_highlight incoming:(MBHighlight*) incoming_highlight
+{
+	MBHighlight* merged_highlight = [self highlightCopy:existing_highlight];
+	if (merged_highlight == nil) {
+		return [self highlightCopy:incoming_highlight];
+	}
+
+	if (incoming_highlight.entryID > 0) {
+		merged_highlight.entryID = incoming_highlight.entryID;
+	}
+
+	NSString* incoming_text = incoming_highlight.selectionText ?: @"";
+	if (incoming_text.length > 0) {
+		merged_highlight.selectionText = incoming_text;
+	}
+
+	NSInteger incoming_start = MAX(0, incoming_highlight.selectionStart);
+	NSInteger incoming_end = MAX(incoming_start + 1, incoming_highlight.selectionEnd);
+	if (incoming_highlight.selectionEnd > incoming_highlight.selectionStart) {
+		merged_highlight.selectionStart = incoming_start;
+		merged_highlight.selectionEnd = incoming_end;
+	}
+
+	if (incoming_highlight.updatedDate != nil) {
+		if (merged_highlight.updatedDate == nil || [incoming_highlight.updatedDate compare:merged_highlight.updatedDate] == NSOrderedDescending) {
+			merged_highlight.updatedDate = incoming_highlight.updatedDate;
+		}
+	}
+
+	NSString* existing_local_id = [merged_highlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* incoming_local_id = [incoming_highlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (existing_local_id.length == 0) {
+		merged_highlight.localID = incoming_local_id;
+	}
+	else if (![existing_local_id hasPrefix:@"hl-"] && incoming_local_id.length > 0 && [incoming_local_id hasPrefix:@"hl-"]) {
+		merged_highlight.localID = incoming_local_id;
+	}
+
+	NSString* existing_remote_id = [self normalizedRemoteHighlightIDForHighlight:merged_highlight];
+	NSString* incoming_remote_id = [self normalizedRemoteHighlightIDForHighlight:incoming_highlight];
+	NSString* resolved_remote_id = incoming_remote_id.length > 0 ? incoming_remote_id : existing_remote_id;
+	if (resolved_remote_id.length > 0) {
+		merged_highlight.highlightID = resolved_remote_id;
+		if ((merged_highlight.localID ?: @"").length == 0) {
+			merged_highlight.localID = resolved_remote_id;
+		}
+	}
+
+	if ((merged_highlight.localID ?: @"").length == 0) {
+		merged_highlight.localID = [self generatedLocalHighlightID];
+	}
+
+	return merged_highlight;
+}
+
+- (long long) highlightSortTimestamp:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return 0;
+	}
+
+	if (highlight.updatedDate != nil) {
+		return (long long) ([highlight.updatedDate timeIntervalSince1970] * 1000.0);
+	}
+
+	NSString* local_id = highlight.localID ?: @"";
+	if ([local_id hasPrefix:@"hl-"]) {
+		NSArray* id_parts = [local_id componentsSeparatedByString:@"-"];
+		if (id_parts.count > 1) {
+			long long timestamp_value = [id_parts[1] longLongValue];
+			if (timestamp_value > 0) {
+				return timestamp_value;
+			}
+		}
+	}
+
+	return 0;
+}
+
+- (NSArray*) sortedHighlightsFromHighlights:(NSArray*) highlights
+{
+	if (![highlights isKindOfClass:[NSArray class]] || highlights.count == 0) {
+		return @[];
+	}
+
+	NSArray* sorted_highlights = [highlights sortedArrayUsingComparator:^NSComparisonResult(id first_object, id second_object) {
+		MBHighlight* first_highlight = [first_object isKindOfClass:[MBHighlight class]] ? (MBHighlight*) first_object : nil;
+		MBHighlight* second_highlight = [second_object isKindOfClass:[MBHighlight class]] ? (MBHighlight*) second_object : nil;
+		long long first_timestamp = [self highlightSortTimestamp:first_highlight];
+		long long second_timestamp = [self highlightSortTimestamp:second_highlight];
+		if (first_timestamp > second_timestamp) {
+			return NSOrderedAscending;
+		}
+		if (first_timestamp < second_timestamp) {
+			return NSOrderedDescending;
+		}
+
+		NSString* first_id = first_highlight.localID ?: @"";
+		NSString* second_id = second_highlight.localID ?: @"";
+		return [second_id compare:first_id];
+	}];
+
+	return [sorted_highlights copy];
+}
+
+- (NSArray*) normalizedHighlightsFromHighlights:(NSArray*) highlights
+{
+	NSMutableArray* merged_highlights = [NSMutableArray array];
+	for (id object in highlights ?: @[]) {
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* candidate_highlight = [self highlightCopy:(MBHighlight*) object];
+		if (candidate_highlight == nil || candidate_highlight.entryID <= 0) {
+			continue;
+		}
+
+		NSInteger existing_index = [self indexOfMatchingHighlight:candidate_highlight inCollection:merged_highlights];
+		if (existing_index < 0) {
+			[merged_highlights addObject:candidate_highlight];
+			continue;
+		}
+
+		MBHighlight* existing_highlight = merged_highlights[existing_index];
+		merged_highlights[existing_index] = [self mergedHighlightFromExisting:existing_highlight incoming:candidate_highlight];
+	}
+
+	return [self sortedHighlightsFromHighlights:merged_highlights];
+}
+
 - (NSArray*) highlightsFromFeedPayload:(NSDictionary*) payload defaultEntryID:(NSInteger)entry_id
 {
 	id items_payload = payload[@"items"];
@@ -759,7 +1442,12 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 		if (entry_id_value <= 0) {
 			entry_id_value = entry_id;
 		}
+		if (entry_id_value <= 0) {
+			continue;
+		}
 		highlight.entryID = entry_id_value;
+		highlight.localID = [self stringValueFromObjectOrNumber:item[@"id"]];
+		highlight.highlightID = highlight.localID;
 		highlight.selectionText = [self stringValueFromObject:item[@"content_text"]];
 		highlight.selectionStart = [self integerValueFromObject:microblog_dictionary[@"selection_start"]];
 		highlight.selectionEnd = [self integerValueFromObject:microblog_dictionary[@"selection_end"]];
@@ -769,11 +1457,19 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 			updated_date_string = [self stringValueFromObject:item[@"date_modified"]];
 		}
 		highlight.updatedDate = [self dateFromISO8601String:updated_date_string];
+		if (highlight.localID.length == 0) {
+			NSString* fallback_identifier = [NSString stringWithFormat:@"mb-%ld-%ld-%ld-%@",
+				(long) highlight.entryID,
+				(long) highlight.selectionStart,
+				(long) highlight.selectionEnd,
+				(updated_date_string.length > 0 ? updated_date_string : @"unknown")];
+			highlight.localID = fallback_identifier;
+		}
 
 		[highlights addObject:highlight];
 	}
 
-	return [highlights copy];
+	return [self normalizedHighlightsFromHighlights:highlights];
 }
 
 - (NSDate* _Nullable) dateValueFromEntry:(NSDictionary*) entry
@@ -808,6 +1504,19 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 {
 	if ([object isKindOfClass:[NSString class]]) {
 		return object;
+	}
+
+	return @"";
+}
+
+- (NSString*) stringValueFromObjectOrNumber:(id) object
+{
+	if ([object isKindOfClass:[NSString class]]) {
+		return (NSString*) object;
+	}
+
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object stringValue] ?: @"";
 	}
 
 	return @"";
@@ -1015,6 +1724,17 @@ static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(highlights, error);
+	});
+}
+
+- (void) finishWithHighlightID:(NSString* _Nullable)highlight_id error:(NSError* _Nullable)error completion:(void (^)(NSString* _Nullable highlight_id, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(highlight_id, error);
 	});
 }
 

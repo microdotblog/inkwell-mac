@@ -7,6 +7,7 @@
 
 #import "MBDetailController.h"
 #import "MBEntry.h"
+#import "MBHighlight.h"
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellDetailTopBarHeight = 52.0;
@@ -48,6 +49,7 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 @property (strong) WKWebView* webView;
 @property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
 @property (assign) BOOL hasTextSelection;
+@property (assign) NSInteger currentEntryID;
 
 @end
 
@@ -118,15 +120,25 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 	decision_handler(WKNavigationActionPolicyCancel);
 }
 
+- (void) webView:(WKWebView*) web_view didFinishNavigation:(WKNavigation*) navigation
+{
+	#pragma unused(web_view)
+	#pragma unused(navigation)
+	[self refreshHighlights];
+}
+
 - (void) showSidebarItem:(MBEntry * _Nullable)item
 {
 	[self updateSelectionState:NO];
 
 	if (item == nil) {
+		self.currentEntryID = 0;
 		NSString* html = [self htmlForPostTitle:@"" content:@""];
 		[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
 		return;
 	}
+
+	self.currentEntryID = item.entryID;
 
 	NSString* safe_title = [self escapedHTMLString:item.title ?: @""];
 	NSString* entry_html = item.text ?: @"";
@@ -153,6 +165,7 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 - (void) showReadingRecapHTML:(NSString*) html
 {
 	[self updateSelectionState:NO];
+	self.currentEntryID = 0;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
@@ -173,6 +186,76 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 	}
 
 	[self updateSelectionState:has_selection];
+}
+
+- (void) requestSelectionHighlightPayloadWithCompletion:(void (^)(NSDictionary* _Nullable payload)) completion
+{
+	NSString* script = @"(window.inkwellHighlights && window.inkwellHighlights.getSelectionPayload) ? window.inkwellHighlights.getSelectionPayload() : null;";
+	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+		#pragma unused(error)
+		NSDictionary* payload = nil;
+		if ([result isKindOfClass:[NSDictionary class]]) {
+			payload = (NSDictionary*) result;
+		}
+
+		if (completion != nil) {
+			completion(payload);
+		}
+	}];
+}
+
+- (void) clearSelection
+{
+	NSString* script = @"if (window.inkwellHighlights && window.inkwellHighlights.clearSelection) { window.inkwellHighlights.clearSelection(); }";
+	[self.webView evaluateJavaScript:script completionHandler:nil];
+	[self updateSelectionState:NO];
+}
+
+- (void) refreshHighlights
+{
+	NSArray* highlights = @[];
+	if (self.currentEntryID > 0 && self.highlightsProvider != nil) {
+		NSArray* provided_highlights = self.highlightsProvider(self.currentEntryID);
+		if ([provided_highlights isKindOfClass:[NSArray class]]) {
+			highlights = provided_highlights;
+		}
+	}
+
+	NSMutableArray* range_payload = [NSMutableArray array];
+	for (id object in highlights) {
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* highlight = (MBHighlight*) object;
+		if (highlight.entryID != self.currentEntryID) {
+			continue;
+		}
+
+		NSInteger start_offset = MAX(0, highlight.selectionStart);
+		NSInteger end_offset = MAX(start_offset + 1, highlight.selectionEnd);
+		if (end_offset <= start_offset) {
+			continue;
+		}
+
+		NSDictionary* dictionary = @{
+			@"start_offset": @(start_offset),
+			@"end_offset": @(end_offset)
+		};
+		[range_payload addObject:dictionary];
+	}
+
+	NSData* json_data = [NSJSONSerialization dataWithJSONObject:range_payload options:0 error:nil];
+	NSString* json_string = @"[]";
+	if (json_data.length > 0) {
+		NSString* parsed_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
+		if (parsed_string.length > 0) {
+			json_string = parsed_string;
+		}
+	}
+
+	NSString* script = [NSString stringWithFormat:@"if (window.inkwellHighlights && window.inkwellHighlights.restoreHighlights) { window.inkwellHighlights.restoreHighlights(%@); }", json_string];
+	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
 - (NSString*) processedReadingRecapHTML:(NSString*) html
@@ -248,7 +331,14 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 		"window.__inkwellSelectionObserverInstalled = true;"
 		"function postSelectionState() {"
 			"var selection = window.getSelection();"
-			"var hasSelection = !!selection && selection.toString().trim().length > 0;"
+			"var hasSelection = false;"
+			"if (selection && !selection.isCollapsed && selection.rangeCount > 0 && selection.toString().trim().length > 0) {"
+				"var content = document.querySelector('.post-content');"
+				"if (content) {"
+					"var range = selection.getRangeAt(0);"
+					"hasSelection = content.contains(range.commonAncestorContainer);"
+				"}"
+			"}"
 			"window.webkit.messageHandlers.selectionChanged.postMessage(hasSelection);"
 		"}"
 		"document.addEventListener('selectionchange', postSelectionState);"

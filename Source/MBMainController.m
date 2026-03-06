@@ -9,6 +9,7 @@
 #import "MBClient.h"
 #import "MBDetailController.h"
 #import "MBEntry.h"
+#import "MBHighlight.h"
 #import "MBHighlightsController.h"
 #import "MBSidebarController.h"
 
@@ -34,6 +35,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 @property (strong) MBHighlightsController *highlightsController;
 @property (copy) NSString *token;
 @property (assign) BOOL isNetworkingInProgress;
+@property (assign) BOOL isSyncingHighlights;
 
 @end
 
@@ -129,9 +131,15 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		[weak_self.detailController showSidebarItem:item];
 		[weak_self.highlightsController updateForSelectedEntry:item];
 	};
+	self.sidebarController.syncCompletedHandler = ^{
+		[weak_self syncHighlightsFromServer];
+	};
 	self.detailController.selectionChangedHandler = ^(BOOL has_selection) {
 		#pragma unused(has_selection)
 		[weak_self.window.toolbar validateVisibleItems];
+	};
+	self.detailController.highlightsProvider = ^NSArray* (NSInteger entry_id) {
+		return [weak_self.client cachedHighlightsForEntryID:entry_id];
 	};
 	self.sidebarController.readingRecapHandler = ^(NSString* html) {
 		[weak_self.detailController showReadingRecapHTML:html];
@@ -408,6 +416,114 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 - (IBAction) highlightSelectedItem:(id) sender
 {
 	#pragma unused(sender)
+
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil || selected_item.entryID <= 0) {
+		return;
+	}
+
+	NSInteger selected_entry_id = selected_item.entryID;
+	__weak typeof(self) weak_self = self;
+	[self.detailController requestSelectionHighlightPayloadWithCompletion:^(NSDictionary* _Nullable payload) {
+		if (![payload isKindOfClass:[NSDictionary class]]) {
+			return;
+		}
+
+		NSString* selection_text = [weak_self stringValueFromObjectOrNumber:payload[@"selection_text"]];
+		NSInteger selection_start = [weak_self integerValueFromObject:payload[@"start_offset"]];
+		NSInteger selection_end = [weak_self integerValueFromObject:payload[@"end_offset"]];
+		NSString* trimmed_selection_text = [selection_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (trimmed_selection_text.length == 0 || selection_end <= selection_start) {
+			return;
+		}
+
+		MBHighlight* local_highlight = [weak_self.client saveLocalHighlightForEntryID:selected_entry_id selectionText:trimmed_selection_text selectionStart:selection_start selectionEnd:selection_end];
+		if (local_highlight == nil) {
+			return;
+		}
+
+		[weak_self.detailController clearSelection];
+		[weak_self updateHighlightViewsForEntryID:selected_entry_id];
+
+		if (weak_self.token.length == 0) {
+			return;
+		}
+
+		NSString* local_id = local_highlight.localID ?: @"";
+		NSString* remote_selection_text = selection_text.length > 0 ? selection_text : trimmed_selection_text;
+		[weak_self.client createHighlightForEntryID:selected_entry_id selectionText:remote_selection_text selectionStart:selection_start selectionEnd:selection_end token:weak_self.token completion:^(NSString * _Nullable highlight_id, NSError * _Nullable error) {
+			#pragma unused(error)
+			NSString* trimmed_highlight_id = [highlight_id stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+			if (trimmed_highlight_id.length == 0 || local_id.length == 0) {
+				return;
+			}
+
+			[weak_self.client assignRemoteHighlightID:trimmed_highlight_id toLocalHighlightID:local_id entryID:selected_entry_id];
+			[weak_self updateHighlightViewsForEntryID:selected_entry_id];
+		}];
+	}];
+}
+
+- (void) syncHighlightsFromServer
+{
+	if (self.isSyncingHighlights || self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	self.isSyncingHighlights = YES;
+	__weak typeof(self) weak_self = self;
+	[self.client fetchAllHighlightsWithToken:self.token completion:^(NSArray * _Nullable highlights, NSError * _Nullable error) {
+		weak_self.isSyncingHighlights = NO;
+		if (error != nil || ![highlights isKindOfClass:[NSArray class]]) {
+			return;
+		}
+
+		[weak_self.client mergeRemoteHighlightsIntoCache:highlights];
+		MBEntry* selected_item = [weak_self.sidebarController selectedItem];
+		NSInteger selected_entry_id = selected_item.entryID;
+		[weak_self updateHighlightViewsForEntryID:selected_entry_id];
+		if (weak_self.highlightsController != nil) {
+			[weak_self.highlightsController reloadHighlights];
+		}
+	}];
+}
+
+- (void) updateHighlightViewsForEntryID:(NSInteger) entry_id
+{
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item != nil && selected_item.entryID == entry_id) {
+		[self.detailController refreshHighlights];
+	}
+
+	if (self.highlightsController != nil && self.highlightsController.entryID == entry_id) {
+		[self.highlightsController reloadHighlights];
+	}
+}
+
+- (NSInteger) integerValueFromObject:(id) object
+{
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object integerValue];
+	}
+
+	if ([object isKindOfClass:[NSString class]]) {
+		return [(NSString*) object integerValue];
+	}
+
+	return 0;
+}
+
+- (NSString*) stringValueFromObjectOrNumber:(id) object
+{
+	if ([object isKindOfClass:[NSString class]]) {
+		return (NSString*) object;
+	}
+
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object stringValue] ?: @"";
+	}
+
+	return @"";
 }
 
 #pragma mark - Toolbar

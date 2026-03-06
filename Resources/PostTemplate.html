@@ -33,6 +33,12 @@
 			line-height: 1.8;
 		}
 
+		.post-content .reader-highlight-text {
+			background: #FFF9D6;
+			box-decoration-break: clone;
+			-webkit-box-decoration-break: clone;
+		}
+
 		.post-content:empty {
 			display: none;
 		}
@@ -79,5 +85,239 @@
 		<h1 class="post-title">[TITLE]</h1>
 		<article class="post-content">[CONTENT]</article>
 	</div>
+	<script>
+		(function() {
+			if (window.inkwellHighlights) {
+				return;
+			}
+
+			function contentElement() {
+				return document.querySelector(".post-content");
+			}
+
+			function currentSelectionRange() {
+				const selection = window.getSelection();
+				if (!selection || selection.isCollapsed || selection.rangeCount == 0) {
+					return null;
+				}
+				return selection.getRangeAt(0);
+			}
+
+			function getSelectionPayload() {
+				const content = contentElement();
+				const range = currentSelectionRange();
+				if (!content || !range || !content.contains(range.commonAncestorContainer)) {
+					return null;
+				}
+
+				const raw_text = window.getSelection().toString();
+				const trimmed_text = (raw_text || "").trim();
+				if (!trimmed_text) {
+					return null;
+				}
+
+				try {
+					const root_range = document.createRange();
+					root_range.selectNodeContents(content);
+					root_range.setEnd(range.startContainer, range.startOffset);
+					const start_offset = root_range.toString().length;
+					const selection_text = range.toString();
+					const end_offset = start_offset + selection_text.length;
+					return {
+						selection_text: selection_text,
+						start_offset: start_offset,
+						end_offset: end_offset
+					};
+				}
+				catch (error) {
+					return {
+						selection_text: raw_text,
+						start_offset: null,
+						end_offset: null
+					};
+				}
+			}
+
+			function clearSelection() {
+				const selection = window.getSelection();
+				if (selection) {
+					selection.removeAllRanges();
+				}
+			}
+
+			function clearReaderHighlightMarkup(content) {
+				if (!content) {
+					return;
+				}
+
+				const highlight_nodes = Array.from(content.querySelectorAll("span.reader-highlight-text"));
+				highlight_nodes.forEach((highlight_node) => {
+					const parent_node = highlight_node.parentNode;
+					if (!parent_node) {
+						return;
+					}
+
+					while (highlight_node.firstChild) {
+						parent_node.insertBefore(highlight_node.firstChild, highlight_node);
+					}
+					parent_node.removeChild(highlight_node);
+				});
+				content.normalize();
+			}
+
+			function parseOffsetRange(item) {
+				if (!item || typeof item != "object") {
+					return null;
+				}
+
+				const raw_start = (item.start_offset != null)
+					? item.start_offset
+					: ((item.selection_start != null) ? item.selection_start : item.start);
+				const raw_end = (item.end_offset != null)
+					? item.end_offset
+					: ((item.selection_end != null) ? item.selection_end : item.end);
+				const start_offset = Number(raw_start);
+				const end_offset = Number(raw_end);
+				if (!Number.isFinite(start_offset) || !Number.isFinite(end_offset)) {
+					return null;
+				}
+
+				const normalized_start = Math.max(0, Math.floor(start_offset));
+				const normalized_end = Math.max(0, Math.floor(end_offset));
+				if (normalized_end <= normalized_start) {
+					return null;
+				}
+
+				return {
+					start_offset: normalized_start,
+					end_offset: normalized_end
+				};
+			}
+
+			function buildMergedOffsetRanges(items) {
+				const ranges = (Array.isArray(items) ? items : [])
+					.map((item) => parseOffsetRange(item))
+					.filter(Boolean)
+					.sort((a, b) => a.start_offset - b.start_offset);
+				if (ranges.length == 0) {
+					return [];
+				}
+
+				const merged = [ranges[0]];
+				for (let i = 1; i < ranges.length; i++) {
+					const range = ranges[i];
+					const last_range = merged[merged.length - 1];
+					if (range.start_offset > last_range.end_offset) {
+						merged.push(range);
+						continue;
+					}
+					if (range.end_offset > last_range.end_offset) {
+						last_range.end_offset = range.end_offset;
+					}
+				}
+
+				return merged;
+			}
+
+			function buildReaderHighlightSegments(content, ranges) {
+				const segments = [];
+				const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null);
+				let node = walker.nextNode();
+				let absolute_offset = 0;
+
+				while (node) {
+					const text = node.textContent || "";
+					const text_length = text.length;
+					const node_start = absolute_offset;
+					const node_end = absolute_offset + text_length;
+					if (text_length > 0) {
+						ranges.forEach((range) => {
+							if (range.end_offset <= node_start) {
+								return;
+							}
+							if (range.start_offset >= node_end) {
+								return;
+							}
+
+							const overlap_start = Math.max(range.start_offset, node_start);
+							const overlap_end = Math.min(range.end_offset, node_end);
+							if (overlap_end <= overlap_start) {
+								return;
+							}
+
+							segments.push({
+								node: node,
+								start_offset: overlap_start - node_start,
+								end_offset: overlap_end - node_start,
+								absolute_start: overlap_start
+							});
+						});
+					}
+
+					absolute_offset = node_end;
+					node = walker.nextNode();
+				}
+
+				return segments;
+			}
+
+			function wrapReaderHighlightRange(range) {
+				const span = document.createElement("span");
+				span.className = "reader-highlight-text";
+				try {
+					range.surroundContents(span);
+				}
+				catch (error) {
+					const fragment = range.extractContents();
+					span.appendChild(fragment);
+					range.insertNode(span);
+				}
+			}
+
+			function restoreHighlights(items) {
+				const content = contentElement();
+				if (!content) {
+					return;
+				}
+
+				clearReaderHighlightMarkup(content);
+
+				const ranges = buildMergedOffsetRanges(items);
+				if (ranges.length == 0) {
+					return;
+				}
+
+				const segments = buildReaderHighlightSegments(content, ranges);
+				if (segments.length == 0) {
+					return;
+				}
+
+				segments.sort((a, b) => b.absolute_start - a.absolute_start);
+				segments.forEach((segment) => {
+					if (!segment.node || !segment.node.parentNode) {
+						return;
+					}
+
+					const text_length = segment.node.textContent.length;
+					const start_offset = Math.max(0, Math.min(segment.start_offset, text_length));
+					const end_offset = Math.max(0, Math.min(segment.end_offset, text_length));
+					if (end_offset <= start_offset) {
+						return;
+					}
+
+					const range = document.createRange();
+					range.setStart(segment.node, start_offset);
+					range.setEnd(segment.node, end_offset);
+					wrapReaderHighlightRange(range);
+				});
+			}
+
+			window.inkwellHighlights = {
+				getSelectionPayload: getSelectionPayload,
+				restoreHighlights: restoreHighlights,
+				clearSelection: clearSelection
+			};
+		})();
+	</script>
 </body>
 </html>

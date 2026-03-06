@@ -24,6 +24,7 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 @property (nonatomic, copy) NSArray<MBEntry *> *items;
 @property (nonatomic, copy, nullable) void (^selectionChangedHandler)(MBEntry * _Nullable item);
 @property (nonatomic, copy, nullable) void (^readingRecapHandler)(NSString* html);
+@property (nonatomic, copy, nullable) void (^syncCompletedHandler)(void);
 @property (nonatomic, copy, nullable) NSString* token;
 @property (nonatomic, assign) MBSidebarDateFilter dateFilter;
 @property (nonatomic, copy) NSString* searchQuery;

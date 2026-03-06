@@ -117,29 +117,22 @@ static CGFloat const InkwellHighlightsAvatarSize = 20.0;
 
 - (void) reloadHighlights
 {
-	if (self.entryID <= 0 || self.client == nil || self.token.length == 0) {
+	if (self.entryID <= 0 || self.client == nil) {
 		[self setFetchingState:NO];
 		self.highlights = @[];
 		[self.tableView reloadData];
 		return;
 	}
 
-	if (self.isFetching) {
-		return;
+	[self setFetchingState:NO];
+	NSArray* cached_highlights = [self.client cachedHighlightsForEntryID:self.entryID];
+	if (![cached_highlights isKindOfClass:[NSArray class]]) {
+		self.highlights = @[];
 	}
-
-	[self setFetchingState:YES];
-	[self.client fetchHighlightsForEntryID:self.entryID token:self.token completion:^(NSArray* _Nullable highlights, NSError* _Nullable error) {
-		[self setFetchingState:NO];
-		if (error != nil || ![highlights isKindOfClass:[NSArray class]]) {
-			self.highlights = @[];
-			[self.tableView reloadData];
-			return;
-		}
-
-		self.highlights = [highlights copy];
-		[self.tableView reloadData];
-	}];
+	else {
+		self.highlights = [cached_highlights copy];
+	}
+	[self.tableView reloadData];
 }
 
 - (void) setupWindowIfNeeded

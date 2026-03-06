@@ -27,7 +27,13 @@ extern NSString* const MBClientNetworkingDidStopNotification;
 - (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion;
 - (void) fetchFeedIconsWithToken:(NSString *)token completion:(void (^)(NSDictionary<NSString *, NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion;
 - (void) fetchReadingRecapForEntryIDs:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion;
+- (void) fetchAllHighlightsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion;
 - (void) fetchHighlightsForEntryID:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion;
+- (void) createHighlightForEntryID:(NSInteger)entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end token:(NSString*) token completion:(void (^)(NSString* _Nullable highlight_id, NSError* _Nullable error))completion;
+- (NSArray* _Nullable) cachedHighlightsForEntryID:(NSInteger) entry_id;
+- (void) mergeRemoteHighlightsIntoCache:(NSArray* _Nullable) highlights;
+- (MBHighlight* _Nullable) saveLocalHighlightForEntryID:(NSInteger) entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end;
+- (void) assignRemoteHighlightID:(NSString*) highlight_id toLocalHighlightID:(NSString*) local_id entryID:(NSInteger) entry_id;
 - (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 - (void) markAsUnread:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 

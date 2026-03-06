@@ -12,6 +12,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBHighlight : NSObject
 
 @property (nonatomic, assign) NSInteger entryID;
+@property (nonatomic, copy, nullable) NSString* localID;
+@property (nonatomic, copy, nullable) NSString* highlightID;
 @property (nonatomic, copy, nullable) NSString* selectionText;
 @property (nonatomic, assign) NSInteger selectionStart;
 @property (nonatomic, assign) NSInteger selectionEnd;

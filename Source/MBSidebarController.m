@@ -363,6 +363,10 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 			did_fetch_icons = YES;
 			[self fetchFeedIcons];
 		}
+
+		if (is_finished && self.syncCompletedHandler != nil) {
+			self.syncCompletedHandler();
+		}
 	}];
 }
 

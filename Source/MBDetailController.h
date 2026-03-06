@@ -14,10 +14,14 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBDetailController : NSViewController
 
 @property (nonatomic, copy, nullable) void (^selectionChangedHandler)(BOOL has_selection);
+@property (nonatomic, copy, nullable) NSArray* (^highlightsProvider)(NSInteger entry_id);
 
 - (BOOL) hasSelection;
 - (void) showSidebarItem:(MBEntry * _Nullable)item;
 - (void) showReadingRecapHTML:(NSString*) html;
+- (void) requestSelectionHighlightPayloadWithCompletion:(void (^)(NSDictionary* _Nullable payload)) completion;
+- (void) clearSelection;
+- (void) refreshHighlights;
 
 @end
 
