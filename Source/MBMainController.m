@@ -16,6 +16,7 @@
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
 static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"InkwellToolbarSearch";
 static NSToolbarItemIdentifier const InkwellToolbarHighlightItemIdentifier = @"InkwellToolbarHighlight";
+static NSToolbarItemIdentifier const InkwellToolbarRepliesItemIdentifier = @"InkwellToolbarReplies";
 static NSToolbarItemIdentifier const InkwellToolbarProgressItemIdentifier = @"InkwellToolbarProgress";
 static NSInteger const InkwellFilterTodaySegmentIndex = 0;
 static NSInteger const InkwellFilterRecentSegmentIndex = 1;
@@ -36,6 +37,10 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 @property (copy) NSString *token;
 @property (assign) BOOL isNetworkingInProgress;
 @property (assign) BOOL isSyncingHighlights;
+@property (assign) NSInteger conversationReplyCount;
+@property (copy) NSString* conversationOpenURLString;
+@property (copy) NSString* pendingConversationLookupURLString;
+@property (strong) NSButton* toolbarRepliesButton;
 
 @end
 
@@ -119,6 +124,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 	self.window.toolbar = toolbar;
 	self.window.toolbarStyle = NSWindowToolbarStyleUnified;
+	[self refreshRepliesToolbarItemVisibility];
 }
 
 - (void) buildContentSplitView
@@ -130,6 +136,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	self.sidebarController.selectionChangedHandler = ^(MBEntry * _Nullable item) {
 		[weak_self.detailController showSidebarItem:item];
 		[weak_self.highlightsController updateForSelectedEntry:item];
+		[weak_self updateConversationForSelectedItem:item];
 	};
 	self.sidebarController.syncCompletedHandler = ^{
 		[weak_self syncHighlightsFromServer];
@@ -344,6 +351,239 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	[pasteboard setString:url_string forType:NSPasteboardTypeString];
 }
 
+- (void) updateConversationForSelectedItem:(MBEntry* _Nullable) selected_item
+{
+	self.pendingConversationLookupURLString = @"";
+	self.conversationReplyCount = 0;
+	self.conversationOpenURLString = @"";
+	[self refreshRepliesToolbarItemVisibility];
+
+	if (selected_item == nil || self.client == nil) {
+		return;
+	}
+
+	NSString* selected_url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (selected_url_string.length == 0) {
+		return;
+	}
+
+	self.pendingConversationLookupURLString = selected_url_string;
+
+	__weak typeof(self) weak_self = self;
+	[self.client fetchConversationForURLString:selected_url_string completion:^(NSArray* _Nullable items, NSError* _Nullable error) {
+		#pragma unused(error)
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		NSString* pending_url_string = strong_self.pendingConversationLookupURLString ?: @"";
+		if (![pending_url_string isEqualToString:selected_url_string]) {
+			return;
+		}
+		strong_self.pendingConversationLookupURLString = @"";
+		[strong_self applyConversationItems:items];
+	}];
+}
+
+- (void) applyConversationItems:(NSArray* _Nullable) items
+{
+	if (![items isKindOfClass:[NSArray class]] || items.count == 0) {
+		self.conversationReplyCount = 0;
+		self.conversationOpenURLString = @"";
+		[self refreshRepliesToolbarItemVisibility];
+		return;
+	}
+
+	id first_object = [items firstObject];
+	if (![first_object isKindOfClass:[NSDictionary class]]) {
+		self.conversationReplyCount = 0;
+		self.conversationOpenURLString = @"";
+		[self refreshRepliesToolbarItemVisibility];
+		return;
+	}
+
+	NSDictionary* first_item = (NSDictionary*) first_object;
+	NSString* username_string = [self conversationUsernameFromItem:first_item];
+	NSString* reply_id_string = [self stringValueFromObjectOrNumber:first_item[@"id"]];
+	NSString* open_url_string = [self conversationOpenURLStringForUsername:username_string replyID:reply_id_string];
+	if (open_url_string.length == 0) {
+		self.conversationReplyCount = 0;
+		self.conversationOpenURLString = @"";
+		[self refreshRepliesToolbarItemVisibility];
+		return;
+	}
+
+	self.conversationReplyCount = items.count;
+	self.conversationOpenURLString = open_url_string;
+	[self refreshRepliesToolbarItemVisibility];
+}
+
+- (NSString*) conversationUsernameFromItem:(NSDictionary*) item
+{
+	NSDictionary* author_dictionary = nil;
+	id author_object = item[@"author"];
+	if ([author_object isKindOfClass:[NSDictionary class]]) {
+		author_dictionary = (NSDictionary*) author_object;
+	}
+
+	NSDictionary* microblog_dictionary = nil;
+	id microblog_object = author_dictionary[@"_microblog"];
+	if ([microblog_object isKindOfClass:[NSDictionary class]]) {
+		microblog_dictionary = (NSDictionary*) microblog_object;
+	}
+
+	NSString* username_string = [self stringValueFromObjectOrNumber:microblog_dictionary[@"username"]];
+	NSString* trimmed_username_string = [username_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return trimmed_username_string;
+}
+
+- (NSString*) conversationOpenURLStringForUsername:(NSString*) username_string replyID:(NSString*) reply_id_string
+{
+	NSString* trimmed_username_string = [username_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* trimmed_reply_id_string = [reply_id_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_username_string.length == 0 || trimmed_reply_id_string.length == 0) {
+		return @"";
+	}
+
+	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLPathAllowedCharacterSet] mutableCopy];
+	[allowed_character_set removeCharactersInString:@"/"];
+	NSString* encoded_username_string = [trimmed_username_string stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
+	NSString* encoded_reply_id_string = [trimmed_reply_id_string stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
+	if (encoded_username_string.length == 0 || encoded_reply_id_string.length == 0) {
+		return @"";
+	}
+
+	return [NSString stringWithFormat:@"https://micro.blog/%@/%@", encoded_username_string, encoded_reply_id_string];
+}
+
+- (NSString*) repliesToolbarTitle
+{
+	if (self.conversationReplyCount == 1) {
+		return @"💬 1 reply";
+	}
+
+	return [NSString stringWithFormat:@"💬 %ld replies", (long) self.conversationReplyCount];
+}
+
+- (void) refreshRepliesToolbarItemVisibility
+{
+	NSToolbar* toolbar = self.window.toolbar;
+	if (toolbar == nil) {
+		return;
+	}
+
+	BOOL should_show_item = (self.conversationReplyCount > 0 && self.conversationOpenURLString.length > 0);
+	NSInteger item_index = [self indexOfToolbarItemWithIdentifier:InkwellToolbarRepliesItemIdentifier inToolbar:toolbar];
+	if (!should_show_item) {
+		if (item_index != NSNotFound) {
+			[toolbar removeItemAtIndex:item_index];
+		}
+		self.toolbarRepliesButton = nil;
+		[toolbar validateVisibleItems];
+		return;
+	}
+
+	if (item_index == NSNotFound) {
+		NSInteger insertion_index = [self insertionIndexForRepliesItemInToolbar:toolbar];
+		[toolbar insertItemWithItemIdentifier:InkwellToolbarRepliesItemIdentifier atIndex:insertion_index];
+	}
+
+	[self updateRepliesToolbarPresentation];
+	[toolbar validateVisibleItems];
+}
+
+- (NSInteger) insertionIndexForRepliesItemInToolbar:(NSToolbar*) toolbar
+{
+	NSInteger search_index = [self indexOfToolbarItemWithIdentifier:InkwellToolbarSearchItemIdentifier inToolbar:toolbar];
+	if (search_index != NSNotFound) {
+		return search_index;
+	}
+
+	NSInteger highlight_index = [self indexOfToolbarItemWithIdentifier:InkwellToolbarHighlightItemIdentifier inToolbar:toolbar];
+	if (highlight_index != NSNotFound) {
+		return highlight_index;
+	}
+
+	return toolbar.items.count;
+}
+
+- (NSInteger) indexOfToolbarItemWithIdentifier:(NSToolbarItemIdentifier) item_identifier inToolbar:(NSToolbar*) toolbar
+{
+	NSInteger current_index = 0;
+	for (NSToolbarItem* item in toolbar.items) {
+		if ([item.itemIdentifier isEqualToString:item_identifier]) {
+			return current_index;
+		}
+		current_index += 1;
+	}
+
+	return NSNotFound;
+}
+
+- (NSToolbarItem* _Nullable) toolbarItemWithIdentifier:(NSToolbarItemIdentifier) item_identifier inToolbar:(NSToolbar*) toolbar
+{
+	for (NSToolbarItem* item in toolbar.items) {
+		if ([item.itemIdentifier isEqualToString:item_identifier]) {
+			return item;
+		}
+	}
+
+	return nil;
+}
+
+- (void) updateRepliesToolbarPresentation
+{
+	NSToolbar* toolbar = self.window.toolbar;
+	if (toolbar == nil) {
+		return;
+	}
+
+	NSToolbarItem* replies_item = [self toolbarItemWithIdentifier:InkwellToolbarRepliesItemIdentifier inToolbar:toolbar];
+	if (replies_item == nil) {
+		return;
+	}
+
+	NSString* title_string = [self repliesToolbarTitle];
+	replies_item.label = title_string;
+	replies_item.paletteLabel = @"Replies";
+	replies_item.toolTip = title_string;
+
+	NSButton* replies_button = nil;
+	if ([replies_item.view isKindOfClass:[NSButton class]]) {
+		replies_button = (NSButton*) replies_item.view;
+	}
+	if (replies_button == nil) {
+		return;
+	}
+
+	self.toolbarRepliesButton = replies_button;
+	replies_button.title = title_string;
+	[replies_button sizeToFit];
+
+	NSRect button_frame = replies_button.frame;
+	button_frame.size.width = MAX(72.0, button_frame.size.width + 8.0);
+	button_frame.size.height = MAX(24.0, button_frame.size.height);
+	replies_button.frame = button_frame;
+}
+
+- (IBAction) openConversationReplies:(id) sender
+{
+	#pragma unused(sender)
+
+	NSString* open_url_string = [self.conversationOpenURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (open_url_string.length == 0) {
+		return;
+	}
+
+	NSURL* open_url = [NSURL URLWithString:open_url_string];
+	if (open_url == nil) {
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:open_url];
+}
+
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
 	if (menu_item.action == @selector(newPost:)) {
@@ -371,6 +611,9 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 {
 	if (toolbar_item.action == @selector(highlightSelectedItem:)) {
 		return [self.detailController hasSelection];
+	}
+	if (toolbar_item.action == @selector(openConversationReplies:)) {
+		return (self.conversationReplyCount > 0 && self.conversationOpenURLString.length > 0);
 	}
 
 	return YES;
@@ -539,6 +782,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		NSToolbarSidebarTrackingSeparatorItemIdentifier,
 		InkwellToolbarProgressItemIdentifier,
 		NSToolbarFlexibleSpaceItemIdentifier,
+		InkwellToolbarRepliesItemIdentifier,
 		InkwellToolbarHighlightItemIdentifier,
 		InkwellToolbarSearchItemIdentifier
 	];
@@ -618,6 +862,27 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
 		item.target = self;
 		item.action = @selector(highlightSelectedItem:);
+		return item;
+	}
+
+	if ([item_identifier isEqualToString:InkwellToolbarRepliesItemIdentifier]) {
+		NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
+		NSString* title_string = [self repliesToolbarTitle];
+		item.label = title_string;
+		item.paletteLabel = @"Replies";
+		item.toolTip = title_string;
+
+		NSButton* replies_button = [NSButton buttonWithTitle:title_string target:self action:@selector(openConversationReplies:)];
+		replies_button.bezelStyle = NSBezelStyleRounded;
+		[replies_button sizeToFit];
+
+		NSRect button_frame = replies_button.frame;
+		button_frame.size.width = MAX(72.0, button_frame.size.width + 8.0);
+		button_frame.size.height = MAX(24.0, button_frame.size.height);
+		replies_button.frame = button_frame;
+
+		item.view = replies_button;
+		self.toolbarRepliesButton = replies_button;
 		return item;
 	}
 
