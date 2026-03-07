@@ -1074,15 +1074,24 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 	SEL new_post_selector = NSSelectorFromString(@"newPost:");
+	SEL show_conversation_selector = NSSelectorFromString(@"showConversation:");
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 
 	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post" action:new_post_selector keyEquivalent:@""];
 	new_post_item.target = nil;
 	[menu addItem:new_post_item];
 
+	[menu addItem:[NSMenuItem separatorItem]];
+
+	NSMenuItem* show_conversation_item = [[NSMenuItem alloc] initWithTitle:@"Show Conversation" action:show_conversation_selector keyEquivalent:@""];
+	show_conversation_item.target = nil;
+	[menu addItem:show_conversation_item];
+
 	NSMenuItem* show_highlights_item = [[NSMenuItem alloc] initWithTitle:@"Show Highlights" action:show_highlights_selector keyEquivalent:@""];
 	show_highlights_item.target = nil;
 	[menu addItem:show_highlights_item];
+
+	[menu addItem:[NSMenuItem separatorItem]];
 
 	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:@"Open in Browser" action:@selector(openSelectedItemInBrowserAction:) keyEquivalent:@""];
 	open_item.target = self;
