@@ -36,6 +36,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 
 @property (copy, nullable) BOOL (^openSelectedItemHandler)(void);
 @property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
+@property (copy, nullable) void (^focusChangedHandler)(void);
 
 @end
 
@@ -53,6 +54,26 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	}
 
 	[super keyDown:event];
+}
+
+- (BOOL) becomeFirstResponder
+{
+	BOOL did_become_first_responder = [super becomeFirstResponder];
+	if (did_become_first_responder && self.focusChangedHandler != nil) {
+		self.focusChangedHandler();
+	}
+
+	return did_become_first_responder;
+}
+
+- (BOOL) resignFirstResponder
+{
+	BOOL did_resign_first_responder = [super resignFirstResponder];
+	if (did_resign_first_responder && self.focusChangedHandler != nil) {
+		self.focusChangedHandler();
+	}
+
+	return did_resign_first_responder;
 }
 
 - (NSMenu*) menuForEvent:(NSEvent*) event
@@ -145,11 +166,16 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 @property (strong) NSLayoutConstraint* recapToTableTopConstraint;
 @property (assign) BOOL isRecapFetching;
 @property (assign) NSInteger recapRequestIdentifier;
+@property (weak) NSWindow* observedWindowForSelectionStyling;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 - (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
+- (void) startObservingWindowKeyState;
+- (void) stopObservingWindowKeyState;
+- (void) windowKeyStateDidChange:(NSNotification*) notification;
+- (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) openSelectedItemInBrowser;
 - (void) updateRecapUI;
 - (void) setRecapFetching:(BOOL)is_fetching;
@@ -181,6 +207,24 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		self.items = @[];
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	[self stopObservingWindowKeyState];
+}
+
+- (void) viewDidAppear
+{
+	[super viewDidAppear];
+	[self startObservingWindowKeyState];
+	[self refreshSelectionStylingForSelectedRow:self.tableView.selectedRow];
+}
+
+- (void) viewWillDisappear
+{
+	[self stopObservingWindowKeyState];
+	[super viewWillDisappear];
 }
 
 - (void) loadView
@@ -231,6 +275,17 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	};
 	table_view.contextMenuHandler = ^NSMenu* {
 		return [weak_self sidebarContextMenu];
+	};
+	table_view.focusChangedHandler = ^{
+		dispatch_async(dispatch_get_main_queue(), ^{
+			MBSidebarController* strong_self = weak_self;
+			if (strong_self == nil || strong_self.tableView == nil) {
+				return;
+			}
+
+			NSInteger selected_row = strong_self.tableView.selectedRow;
+			[strong_self refreshSelectionStylingForSelectedRow:selected_row];
+		});
 	};
 
 	NSTableColumn *source_column = [[NSTableColumn alloc] initWithIdentifier:@"SourceColumn"];
@@ -1215,30 +1270,36 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	if (!is_selected_row) {
 		is_selected_row = [tableView isRowSelected:row];
 	}
+	NSColor* title_color = [NSColor labelColor];
+	NSColor* subtitle_color = [NSColor secondaryLabelColor];
+	NSColor* subscription_color = [NSColor secondaryLabelColor];
+	NSColor* date_color = [NSColor tertiaryLabelColor];
+	CGFloat avatar_alpha = 1.0;
+
+	NSLog(@"view for table %d", row);
+	
 	if (is_selected_row) {
-		NSColor* selected_text_color = [NSColor alternateSelectedControlTextColor];
-		title_field.textColor = selected_text_color;
-		subtitle_field.textColor = [selected_text_color colorWithAlphaComponent:0.78];
-		subscription_field.textColor = [selected_text_color colorWithAlphaComponent:0.78];
-		date_field.textColor = [selected_text_color colorWithAlphaComponent:0.55];
-		avatar_view.alphaValue = 1.0;
-		return cell_view;
+		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:tableView];
+		NSColor* selected_text_color = has_emphasized_selection ? [NSColor alternateSelectedControlTextColor] : [NSColor darkGrayColor];
+		title_color = selected_text_color;
+		NSLog(@"is selected %d, %@", has_emphasized_selection, selected_text_color);
+		subtitle_color = [selected_text_color colorWithAlphaComponent:0.78];
+		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
+		date_color = [selected_text_color colorWithAlphaComponent:0.55];
+	}
+	else if (item.isRead) {
+		title_color = [NSColor disabledControlTextColor];
+		subtitle_color = [NSColor disabledControlTextColor];
+		subscription_color = [NSColor disabledControlTextColor];
+		date_color = [NSColor disabledControlTextColor];
+		avatar_alpha = 0.35;
 	}
 
-	if (item.isRead) {
-		title_field.textColor = [NSColor disabledControlTextColor];
-		subtitle_field.textColor = [NSColor disabledControlTextColor];
-		subscription_field.textColor = [NSColor disabledControlTextColor];
-		date_field.textColor = [NSColor disabledControlTextColor];
-		avatar_view.alphaValue = 0.35;
-	}
-	else {
-		title_field.textColor = [NSColor labelColor];
-		subtitle_field.textColor = [NSColor secondaryLabelColor];
-		subscription_field.textColor = [NSColor secondaryLabelColor];
-		date_field.textColor = [NSColor tertiaryLabelColor];
-		avatar_view.alphaValue = 1.0;
-	}
+	title_field.textColor = title_color;
+	subtitle_field.textColor = subtitle_color;
+	subscription_field.textColor = subscription_color;
+	date_field.textColor = date_color;
+	avatar_view.alphaValue = avatar_alpha;
 
 	return cell_view;
 }
@@ -1407,6 +1468,69 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	}
 
 	return [tokens componentsJoinedByString:@" "];
+}
+
+- (void) startObservingWindowKeyState
+{
+	NSWindow* window = self.view.window;
+	if (window == nil) {
+		return;
+	}
+
+	if (self.observedWindowForSelectionStyling == window) {
+		return;
+	}
+
+	[self stopObservingWindowKeyState];
+	self.observedWindowForSelectionStyling = window;
+
+	NSNotificationCenter* notification_center = [NSNotificationCenter defaultCenter];
+	[notification_center addObserver:self selector:@selector(windowKeyStateDidChange:) name:NSWindowDidBecomeKeyNotification object:window];
+	[notification_center addObserver:self selector:@selector(windowKeyStateDidChange:) name:NSWindowDidResignKeyNotification object:window];
+}
+
+- (void) stopObservingWindowKeyState
+{
+	NSWindow* observed_window = self.observedWindowForSelectionStyling;
+	if (observed_window == nil) {
+		return;
+	}
+
+	NSNotificationCenter* notification_center = [NSNotificationCenter defaultCenter];
+	[notification_center removeObserver:self name:NSWindowDidBecomeKeyNotification object:observed_window];
+	[notification_center removeObserver:self name:NSWindowDidResignKeyNotification object:observed_window];
+	self.observedWindowForSelectionStyling = nil;
+}
+
+- (void) windowKeyStateDidChange:(NSNotification*) notification
+{
+	#pragma unused(notification)
+	NSInteger selected_row = self.tableView.selectedRow;
+	[self refreshSelectionStylingForSelectedRow:selected_row];
+}
+
+- (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view
+{
+	NSWindow* window = table_view.window;
+	if (window == nil || !window.isKeyWindow) {
+		return NO;
+	}
+
+	NSResponder* first_responder = window.firstResponder;
+	if (first_responder == table_view) {
+		return YES;
+	}
+
+	if (![first_responder isKindOfClass:[NSView class]]) {
+		return NO;
+	}
+
+	NSView* first_responder_view = (NSView*) first_responder;
+	if ([first_responder_view isDescendantOf:table_view]) {
+		return YES;
+	}
+
+	return NO;
 }
 
 - (void) tableViewSelectionDidChange:(NSNotification *)notification
