@@ -12,6 +12,8 @@
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
 
+static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for your account yet.";
+
 @interface MBAppDelegate ()
 
 @property (strong) IBOutlet NSWindow *window;
@@ -32,7 +34,7 @@
 	self.sessionController = [[MBSessionController alloc] init];
 
 	if ([self.sessionController hasToken]) {
-		[self showMainWindow];
+		[self verifySavedTokenAndContinue];
 		return;
 	}
 
@@ -68,6 +70,28 @@
 - (BOOL) applicationSupportsSecureRestorableState:(NSApplication *)app
 {
 	return YES;
+}
+
+- (void) verifySavedTokenAndContinue
+{
+	NSString* token_value = [self.sessionController token] ?: @"";
+	__weak typeof(self) weak_self = self;
+	[self.client verifyToken:token_value completion:^(BOOL is_valid, NSError * _Nullable verify_error) {
+		MBAppDelegate* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (is_valid && verify_error == nil) {
+			[strong_self showMainWindow];
+			return;
+		}
+
+		[strong_self.sessionController clearToken];
+		[strong_self showWelcomeWindow];
+		NSString* error_message = verify_error.localizedDescription ?: @"Sign in failed.";
+		[strong_self presentSignInError:error_message];
+	}];
 }
 
 - (void) showWelcomeWindow
@@ -121,8 +145,14 @@
 {
 	NSAlert *alert = [[NSAlert alloc] init];
 	alert.alertStyle = NSAlertStyleWarning;
-	alert.messageText = @"Sign In Failed";
-	alert.informativeText = message;
+	if ([message isEqualToString:InkwellUnavailableMessage]) {
+		alert.messageText = InkwellUnavailableMessage;
+		alert.informativeText = @"";
+	}
+	else {
+		alert.messageText = @"Sign In Failed";
+		alert.informativeText = message;
+	}
 	if (self.welcomeController.window != nil) {
 		[alert beginSheetModalForWindow:self.welcomeController.window completionHandler:nil];
 	}

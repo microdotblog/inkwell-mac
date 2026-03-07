@@ -9,6 +9,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+extern NSString* const InkwellTokenDefaultsKey;
+
 @interface MBSessionController : NSObject
 
 - (BOOL) hasToken;

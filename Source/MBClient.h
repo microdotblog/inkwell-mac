@@ -15,6 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString * const MBClientErrorDomain;
 extern NSString* const MBClientNetworkingDidStartNotification;
 extern NSString* const MBClientNetworkingDidStopNotification;
+extern NSString* const InkwellIsPremiumDefaultsKey;
+extern NSString* const InkwellHasInkwellDefaultsKey;
+extern NSString* const InkwellUsernameDefaultsKey;
 
 @interface MBClient : NSObject
 

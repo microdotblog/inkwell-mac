@@ -6,8 +6,9 @@
 //
 
 #import "MBSessionController.h"
+#import "MBClient.h"
 
-static NSString * const InkwellTokenDefaultsKey = @"Token";
+NSString* const InkwellTokenDefaultsKey = @"Token";
 
 @implementation MBSessionController
 
@@ -34,6 +35,9 @@ static NSString * const InkwellTokenDefaultsKey = @"Token";
 - (void) clearToken
 {
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellTokenDefaultsKey];
+	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellIsPremiumDefaultsKey];
+	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellHasInkwellDefaultsKey];
+	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUsernameDefaultsKey];
 }
 
 @end

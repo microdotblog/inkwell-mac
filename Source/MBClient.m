@@ -7,11 +7,15 @@
 
 #import "MBClient.h"
 #import "MBHighlight.h"
+#import "MBSessionController.h"
 #import "MBSubscription.h"
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
 NSString* const MBClientNetworkingDidStartNotification = @"MBClientNetworkingDidStartNotification";
 NSString* const MBClientNetworkingDidStopNotification = @"MBClientNetworkingDidStopNotification";
+NSString* const InkwellIsPremiumDefaultsKey = @"IsPremium";
+NSString* const InkwellHasInkwellDefaultsKey = @"HasInkwell";
+NSString* const InkwellUsernameDefaultsKey = @"Username";
 
 static NSString * const MBClientIdentifierURL = @"https://micro.ink";
 static NSString * const MBRedirectURI = @"inkwell://signin";
@@ -162,6 +166,39 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Token verification failed."];
 			NSError *verify_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
 			[self finishVerify:NO error:verify_error completion:completion];
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if (![payload isKindOfClass:[NSDictionary class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1024 userInfo:@{ NSLocalizedDescriptionKey: @"Token verification response was invalid." }];
+			[self finishVerify:NO error:parse_error completion:completion];
+			return;
+		}
+
+		NSDictionary* dictionary = (NSDictionary*) payload;
+		BOOL is_premium = [self boolValueFromObject:dictionary[@"is_premium"] defaultValue:YES];
+		BOOL has_inkwell = [self boolValueFromObject:dictionary[@"has_inkwell"] defaultValue:YES];
+		NSString* username = [self stringValueFromObject:dictionary[@"username"]];
+		NSString* replacement_token = [self stringValueFromObject:dictionary[@"token"]];
+		NSString* normalized_replacement_token = [replacement_token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+
+		NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+		if (normalized_replacement_token.length > 0) {
+			[defaults setObject:normalized_replacement_token forKey:InkwellTokenDefaultsKey];
+		}
+		[defaults setBool:is_premium forKey:InkwellIsPremiumDefaultsKey];
+		[defaults setBool:has_inkwell forKey:InkwellHasInkwellDefaultsKey];
+		if (username.length > 0) {
+			[defaults setObject:username forKey:InkwellUsernameDefaultsKey];
+		}
+		else {
+			[defaults removeObjectForKey:InkwellUsernameDefaultsKey];
+		}
+
+		if (!has_inkwell) {
+			NSError* inkwell_error = [NSError errorWithDomain:MBClientErrorDomain code:1025 userInfo:@{ NSLocalizedDescriptionKey: @"Inkwell is not enabled for your account yet." }];
+			[self finishVerify:NO error:inkwell_error completion:completion];
 			return;
 		}
 
@@ -1498,6 +1535,26 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 
 	return 0;
+}
+
+- (BOOL) boolValueFromObject:(id) object defaultValue:(BOOL) default_value
+{
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object boolValue];
+	}
+
+	if ([object isKindOfClass:[NSString class]]) {
+		NSString* normalized_value = [[(NSString*) object lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([normalized_value isEqualToString:@"1"] || [normalized_value isEqualToString:@"true"] || [normalized_value isEqualToString:@"yes"]) {
+			return YES;
+		}
+
+		if ([normalized_value isEqualToString:@"0"] || [normalized_value isEqualToString:@"false"] || [normalized_value isEqualToString:@"no"]) {
+			return NO;
+		}
+	}
+
+	return default_value;
 }
 
 - (NSString *) stringValueFromObject:(id)object

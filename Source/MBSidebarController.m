@@ -31,6 +31,7 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
+static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 
 @interface MBSidebarTableView : NSTableView
 
@@ -152,6 +153,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 @property (assign) BOOL isFetching;
 @property (assign) NSInteger selectedRowForStyling;
 @property (strong) NSTableView *tableView;
+@property (strong) NSScrollView* tableScrollView;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
 @property (strong) NSMutableDictionary<NSString *, NSImage *> *iconImageByHost;
@@ -167,6 +169,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 @property (assign) BOOL isRecapFetching;
 @property (assign) NSInteger recapRequestIdentifier;
 @property (weak) NSWindow* observedWindowForSelectionStyling;
+@property (strong) NSView* premiumRequiredView;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -178,14 +181,19 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) openSelectedItemInBrowser;
 - (void) updateRecapUI;
+- (void) updatePremiumRequiredView;
 - (void) setRecapFetching:(BOOL)is_fetching;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
+- (NSAttributedString*) premiumRequiredMessageAttributedString;
+- (BOOL) shouldShowPremiumRequiredView;
+- (BOOL) isPremiumUser;
 - (NSMenu*) sidebarContextMenu;
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
 - (IBAction) readingRecapButtonPressed:(id)sender;
+- (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 
 @end
@@ -299,8 +307,35 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	scroll_view.borderType = NSNoBorder;
 	scroll_view.documentView = table_view;
 
+	NSView* premium_required_view = [[NSView alloc] initWithFrame:NSZeroRect];
+	premium_required_view.translatesAutoresizingMaskIntoConstraints = NO;
+	premium_required_view.hidden = YES;
+
+	NSTextField* premium_required_label = [NSTextField labelWithAttributedString:[self premiumRequiredMessageAttributedString]];
+	premium_required_label.translatesAutoresizingMaskIntoConstraints = NO;
+	premium_required_label.alignment = NSTextAlignmentCenter;
+	premium_required_label.lineBreakMode = NSLineBreakByWordWrapping;
+	premium_required_label.maximumNumberOfLines = 0;
+
+	NSButton* plans_button = [NSButton buttonWithTitle:@"Micro.blog Plans" target:self action:@selector(openPlansAction:)];
+	plans_button.translatesAutoresizingMaskIntoConstraints = NO;
+	plans_button.bezelStyle = NSBezelStyleRounded;
+	plans_button.controlSize = NSControlSizeRegular;
+	NSImage* micro_icon = [NSImage imageNamed:@"icon_micro"];
+	if (micro_icon != nil) {
+		NSImage* button_icon = [micro_icon copy];
+		button_icon.size = NSMakeSize(16.0, 16.0);
+		plans_button.image = button_icon;
+		plans_button.imagePosition = NSImageLeading;
+		plans_button.imageHugsTitle = YES;
+	}
+
+	[premium_required_view addSubview:premium_required_label];
+	[premium_required_view addSubview:plans_button];
+
 	[container_view addSubview:recap_box];
 	[container_view addSubview:scroll_view];
+	[container_view addSubview:premium_required_view];
 	NSLayoutConstraint* recap_height_constraint = [recap_box.heightAnchor constraintEqualToConstant:0.0];
 	NSLayoutConstraint* recap_to_table_top_constraint = [scroll_view.topAnchor constraintEqualToAnchor:recap_box.bottomAnchor constant:0.0];
 	[NSLayoutConstraint activateConstraints:@[
@@ -316,7 +351,17 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		recap_to_table_top_constraint,
 		[scroll_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
-		[scroll_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor]
+		[scroll_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
+		[premium_required_view.topAnchor constraintEqualToAnchor:container_view.safeAreaLayoutGuide.topAnchor constant:18.0],
+		[premium_required_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
+		[premium_required_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
+		[premium_required_label.topAnchor constraintEqualToAnchor:premium_required_view.topAnchor],
+		[premium_required_label.leadingAnchor constraintEqualToAnchor:premium_required_view.leadingAnchor constant:20.0],
+		[premium_required_label.trailingAnchor constraintEqualToAnchor:premium_required_view.trailingAnchor constant:-20.0],
+		[plans_button.topAnchor constraintEqualToAnchor:premium_required_label.bottomAnchor constant:16.0],
+		[plans_button.leadingAnchor constraintEqualToAnchor:premium_required_label.leadingAnchor],
+		[plans_button.heightAnchor constraintGreaterThanOrEqualToConstant:36.0],
+		[plans_button.bottomAnchor constraintEqualToAnchor:premium_required_view.bottomAnchor]
 	]];
 
 	self.recapBoxView = recap_box;
@@ -325,8 +370,11 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	self.recapBoxHeightConstraint = recap_height_constraint;
 	self.recapToTableTopConstraint = recap_to_table_top_constraint;
 	self.tableView = table_view;
+	self.tableScrollView = scroll_view;
+	self.premiumRequiredView = premium_required_view;
 	self.view = container_view;
 	[self updateRecapUI];
+	[self updatePremiumRequiredView];
 }
 
 - (void) reloadData
@@ -344,6 +392,10 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 - (void) focusAndSelectFirstItem
 {
 	if (self.tableView == nil) {
+		return;
+	}
+
+	if ([self shouldShowPremiumRequiredView]) {
 		return;
 	}
 
@@ -640,19 +692,20 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 
 	[self reloadTable];
 	[self updateRecapUI];
+	[self updatePremiumRequiredView];
 }
 
 - (void) updateRecapUI
 {
-	BOOL is_fading_filter = (self.dateFilter == MBSidebarDateFilterFading);
+	BOOL should_show_recap = (self.dateFilter == MBSidebarDateFilterFading) && ![self shouldShowPremiumRequiredView];
 	if (self.recapBoxView != nil) {
-		self.recapBoxView.hidden = !is_fading_filter;
+		self.recapBoxView.hidden = !should_show_recap;
 	}
 	if (self.recapBoxHeightConstraint != nil) {
-		self.recapBoxHeightConstraint.constant = is_fading_filter ? InkwellSidebarRecapBoxHeight : 0.0;
+		self.recapBoxHeightConstraint.constant = should_show_recap ? InkwellSidebarRecapBoxHeight : 0.0;
 	}
 	if (self.recapToTableTopConstraint != nil) {
-		self.recapToTableTopConstraint.constant = is_fading_filter ? 8.0 : 0.0;
+		self.recapToTableTopConstraint.constant = should_show_recap ? 8.0 : 0.0;
 	}
 
 	NSInteger fading_count = [self fadingItems].count;
@@ -660,7 +713,18 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 		self.recapCountLabel.stringValue = [self recapCountStringForPostsCount:fading_count];
 	}
 	if (self.recapButton != nil) {
-		self.recapButton.enabled = is_fading_filter && !self.isRecapFetching && (fading_count > 0);
+		self.recapButton.enabled = should_show_recap && !self.isRecapFetching && (fading_count > 0);
+	}
+}
+
+- (void) updatePremiumRequiredView
+{
+	BOOL should_show_premium_required_view = [self shouldShowPremiumRequiredView];
+	if (self.tableScrollView != nil) {
+		self.tableScrollView.hidden = should_show_premium_required_view;
+	}
+	if (self.premiumRequiredView != nil) {
+		self.premiumRequiredView.hidden = !should_show_premium_required_view;
 	}
 }
 
@@ -701,9 +765,51 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	return [NSString stringWithFormat:@"%ld older posts, grouped", (long) post_count];
 }
 
+- (NSAttributedString*) premiumRequiredMessageAttributedString
+{
+	NSString* text = @"The Fading tab and Reading Recap feature are only available to Micro.blog Premium subscribers.";
+	NSFont* regular_font = [NSFont systemFontOfSize:13.0];
+	NSFont* bold_font = [NSFont boldSystemFontOfSize:13.0];
+	NSMutableAttributedString* attributed_text = [[NSMutableAttributedString alloc] initWithString:text attributes:@{
+		NSFontAttributeName: regular_font,
+		NSForegroundColorAttributeName: [NSColor secondaryLabelColor]
+	}];
+
+	NSRange fading_range = [text rangeOfString:@"Fading"];
+	if (fading_range.location != NSNotFound) {
+		[attributed_text addAttribute:NSFontAttributeName value:bold_font range:fading_range];
+	}
+
+	NSRange reading_recap_range = [text rangeOfString:@"Reading Recap"];
+	if (reading_recap_range.location != NSNotFound) {
+		[attributed_text addAttribute:NSFontAttributeName value:bold_font range:reading_recap_range];
+	}
+
+	return [attributed_text copy];
+}
+
+- (BOOL) shouldShowPremiumRequiredView
+{
+	return (self.dateFilter == MBSidebarDateFilterFading) && ![self isPremiumUser];
+}
+
+- (BOOL) isPremiumUser
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	if ([defaults objectForKey:InkwellIsPremiumDefaultsKey] == nil) {
+		return YES;
+	}
+
+	return [defaults boolForKey:InkwellIsPremiumDefaultsKey];
+}
+
 - (IBAction) readingRecapButtonPressed:(id)sender
 {
 	#pragma unused(sender)
+	if ([self shouldShowPremiumRequiredView]) {
+		return;
+	}
+
 	if (self.client == nil || self.token.length == 0) {
 		return;
 	}
@@ -717,6 +823,17 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	NSInteger request_identifier = self.recapRequestIdentifier;
 	[self setRecapFetching:YES];
 	[self pollReadingRecapForEntryIDs:entry_ids attempt:1 requestIdentifier:request_identifier];
+}
+
+- (IBAction) openPlansAction:(id)sender
+{
+	#pragma unused(sender)
+	NSURL* plans_url = [NSURL URLWithString:InkwellPlansURLString];
+	if (plans_url == nil) {
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:plans_url];
 }
 
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier
@@ -1275,14 +1392,11 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 	NSColor* subscription_color = [NSColor secondaryLabelColor];
 	NSColor* date_color = [NSColor tertiaryLabelColor];
 	CGFloat avatar_alpha = 1.0;
-
-	NSLog(@"view for table %d", row);
 	
 	if (is_selected_row) {
 		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:tableView];
 		NSColor* selected_text_color = has_emphasized_selection ? [NSColor alternateSelectedControlTextColor] : [NSColor darkGrayColor];
 		title_color = selected_text_color;
-		NSLog(@"is selected %d, %@", has_emphasized_selection, selected_text_color);
 		subtitle_color = [selected_text_color colorWithAlphaComponent:0.78];
 		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
 		date_color = [selected_text_color colorWithAlphaComponent:0.55];
