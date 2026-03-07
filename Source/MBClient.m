@@ -19,16 +19,17 @@ NSString* const InkwellUsernameDefaultsKey = @"Username";
 
 static NSString * const MBClientIdentifierURL = @"https://micro.ink";
 static NSString * const MBRedirectURI = @"inkwell://signin";
-static NSString * const MBAuthorizationEndpoint = @"https://micro.blog/indieauth/auth";
-static NSString * const MBTokenEndpoint = @"https://micro.blog/indieauth/token";
-static NSString * const MBVerifyEndpoint = @"https://micro.blog/account/verify";
-static NSString * const MBFeedSubscriptionsEndpoint = @"https://micro.blog/feeds/v2/subscriptions.json";
-static NSString * const MBFeedEntriesEndpoint = @"https://micro.blog/feeds/v2/entries.json";
-static NSString * const MBFeedUnreadEntriesEndpoint = @"https://micro.blog/feeds/v2/unread_entries.json";
-static NSString * const MBFeedIconsEndpoint = @"https://micro.blog/feeds/v2/icons.json";
-static NSString* const MBFeedHighlightsEndpoint = @"https://micro.blog/feeds/highlights";
-static NSString* const MBFeedsEndpointBase = @"https://micro.blog/feeds";
-static NSString* const MBFeedsRecapEndpoint = @"https://micro.blog/feeds/recap";
+#define MBMicroBlogBaseURL @"https://micro.blog"
+static NSString * const MBAuthorizationEndpoint = MBMicroBlogBaseURL @"/indieauth/auth";
+static NSString * const MBTokenEndpoint = MBMicroBlogBaseURL @"/indieauth/token";
+static NSString * const MBVerifyEndpoint = MBMicroBlogBaseURL @"/account/verify";
+static NSString * const MBFeedSubscriptionsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/subscriptions.json";
+static NSString * const MBFeedEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/entries.json";
+static NSString * const MBFeedUnreadEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/unread_entries.json";
+static NSString * const MBFeedIconsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/icons.json";
+static NSString* const MBFeedHighlightsEndpoint = MBMicroBlogBaseURL @"/feeds/highlights";
+static NSString* const MBFeedsEndpointBase = MBMicroBlogBaseURL @"/feeds";
+static NSString* const MBFeedsRecapEndpoint = MBMicroBlogBaseURL @"/feeds/recap";
 static NSInteger const MBFeedEntriesPageSize = 200;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
