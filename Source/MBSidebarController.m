@@ -180,6 +180,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) windowKeyStateDidChange:(NSNotification*) notification;
 - (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) openSelectedItemInBrowser;
+- (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (void) updateRecapUI;
 - (void) updatePremiumRequiredView;
 - (void) setRecapFetching:(BOOL)is_fetching;
@@ -190,6 +191,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) isPremiumUser;
 - (NSMenu*) sidebarContextMenu;
+- (IBAction) toggleSelectedItemReadStateAction:(id)sender;
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
 - (IBAction) readingRecapButtonPressed:(id)sender;
@@ -1074,12 +1076,17 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 	SEL new_post_selector = NSSelectorFromString(@"newPost:");
+	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
 	SEL show_conversation_selector = NSSelectorFromString(@"showConversation:");
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 
-	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post" action:new_post_selector keyEquivalent:@""];
+	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:new_post_selector keyEquivalent:@""];
 	new_post_item.target = nil;
 	[menu addItem:new_post_item];
+
+	NSMenuItem* toggle_read_item = [[NSMenuItem alloc] initWithTitle:@"Mark as Read" action:toggle_read_selector keyEquivalent:@""];
+	toggle_read_item.target = self;
+	[menu addItem:toggle_read_item];
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
@@ -1111,6 +1118,56 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	[self openSelectedItemInBrowser];
 }
 
+- (IBAction) toggleSelectedItemReadStateAction:(id)sender
+{
+	#pragma unused(sender)
+
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil || selected_item.entryID <= 0) {
+		return;
+	}
+
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	BOOL should_mark_as_unread = selected_item.isRead;
+	NSInteger entry_id = selected_item.entryID;
+	NSInteger selected_row = self.tableView.selectedRow;
+	__weak typeof(self) weak_self = self;
+	void (^completion_handler)(NSError* _Nullable) = ^(NSError* _Nullable error) {
+		if (error != nil) {
+			return;
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			MBSidebarController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			[strong_self updateCachedReadState:!should_mark_as_unread forEntryID:entry_id];
+			[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
+		});
+	};
+
+	if (should_mark_as_unread) {
+		[self.client markAsUnread:entry_id token:self.token completion:completion_handler];
+	}
+	else {
+		[self.client markAsRead:entry_id token:self.token completion:completion_handler];
+	}
+}
+
+- (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item
+{
+	if (selected_item != nil && selected_item.isRead) {
+		return @"Mark as Unread";
+	}
+
+	return @"Mark as Read";
+}
+
 - (IBAction) copySelectedItemLinkAction:(id)sender
 {
 	#pragma unused(sender)
@@ -1133,6 +1190,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 {
 	if (menu_item.action == NSSelectorFromString(@"newPost:")) {
 		return ([self selectedItem] != nil);
+	}
+	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {
+		MBEntry* selected_item = [self selectedItem];
+		menu_item.title = [self readToggleMenuTitleForSelectedItem:selected_item];
+		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
 	}
 	if (menu_item.action == NSSelectorFromString(@"showHighlights:")) {
 		MBEntry* selected_item = [self selectedItem];
