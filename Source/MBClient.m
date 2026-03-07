@@ -16,6 +16,10 @@ NSString* const MBClientNetworkingDidStopNotification = @"MBClientNetworkingDidS
 NSString* const InkwellIsPremiumDefaultsKey = @"IsPremium";
 NSString* const InkwellHasInkwellDefaultsKey = @"HasInkwell";
 NSString* const InkwellUsernameDefaultsKey = @"Username";
+NSString* const InkwellUserAvatarURLDefaultsKey = @"UserAvatarURL";
+NSString* const InkwellTextBackgroundColorDefaultsKey = @"TextBackgroundColor";
+NSString* const InkwellTextFontNameDefaultsKey = @"TextFontName";
+NSString* const InkwellTextSizeNameDefaultsKey = @"TextSizeName";
 
 static NSString * const MBClientIdentifierURL = @"https://micro.ink";
 static NSString * const MBRedirectURI = @"inkwell://signin";
@@ -181,6 +185,10 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		BOOL is_premium = [self boolValueFromObject:dictionary[@"is_premium"] defaultValue:YES];
 		BOOL has_inkwell = [self boolValueFromObject:dictionary[@"has_inkwell"] defaultValue:YES];
 		NSString* username = [self stringValueFromObject:dictionary[@"username"]];
+		NSString* avatar_url = [self stringValueFromObject:dictionary[@"avatar"]];
+		if (avatar_url.length == 0) {
+			avatar_url = [self stringValueFromObject:dictionary[@"photo"]];
+		}
 		NSString* replacement_token = [self stringValueFromObject:dictionary[@"token"]];
 		NSString* normalized_replacement_token = [replacement_token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 
@@ -195,6 +203,14 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		}
 		else {
 			[defaults removeObjectForKey:InkwellUsernameDefaultsKey];
+		}
+
+		NSString* normalized_avatar_url = [avatar_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (normalized_avatar_url.length > 0) {
+			[defaults setObject:normalized_avatar_url forKey:InkwellUserAvatarURLDefaultsKey];
+		}
+		else {
+			[defaults removeObjectForKey:InkwellUserAvatarURLDefaultsKey];
 		}
 
 		if (!has_inkwell) {

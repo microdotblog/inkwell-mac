@@ -43,6 +43,8 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 
 - (void) application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls
 {
+	#pragma unused(application)
+
 	for (NSURL *url in urls) {
 		BOOL was_handled = [self.authController handleCallbackURL:url completion:^(NSString * _Nullable token, NSError * _Nullable error) {
 			if (error != nil || token.length == 0) {
@@ -52,8 +54,7 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 			}
 
 			[self.sessionController saveToken:token];
-			[self closeWelcomeWindow];
-			[self showMainWindow];
+			[self verifySavedTokenAndContinue];
 		}];
 
 		if (was_handled) {
@@ -83,6 +84,7 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 		}
 
 		if (is_valid && verify_error == nil) {
+			[strong_self closeWelcomeWindow];
 			[strong_self showMainWindow];
 			return;
 		}
@@ -130,6 +132,22 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 {
 	#pragma unused(sender)
 	[self showMainWindow];
+}
+
+- (IBAction) showPreferences:(id) sender
+{
+	#pragma unused(sender)
+	[self.mainController showPreferences:self];
+}
+
+- (IBAction) signOut:(id) sender
+{
+	#pragma unused(sender)
+
+	[self.sessionController clearToken];
+	[self.mainController close];
+	self.mainController = nil;
+	[self showWelcomeWindow];
 }
 
 - (void) beginSignIn

@@ -22,6 +22,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) requestSelectionHighlightPayloadWithCompletion:(void (^)(NSDictionary* _Nullable payload)) completion;
 - (void) clearSelection;
 - (void) refreshHighlights;
+- (void) applyPreferredTextSettings;
 
 @end
 

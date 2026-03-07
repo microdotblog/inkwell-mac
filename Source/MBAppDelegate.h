@@ -9,5 +9,8 @@
 
 @interface MBAppDelegate : NSObject <NSApplicationDelegate>
 
+- (IBAction) showMainWindowAction:(id) sender;
+- (IBAction) showPreferences:(id) sender;
+- (IBAction) signOut:(id) sender;
 
 @end

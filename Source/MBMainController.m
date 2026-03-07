@@ -12,6 +12,7 @@
 #import "MBEntry.h"
 #import "MBHighlight.h"
 #import "MBHighlightsController.h"
+#import "MBPreferencesController.h"
 #import "MBSidebarController.h"
 
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
@@ -36,6 +37,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 @property (strong) MBDetailController *detailController;
 @property (strong) MBHighlightsController *highlightsController;
 @property (strong) MBConversationController* conversationController;
+@property (strong) MBPreferencesController* preferencesController;
 @property (copy) NSString *token;
 @property (assign) BOOL isNetworkingInProgress;
 @property (assign) BOOL isSyncingHighlights;
@@ -69,6 +71,14 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 - (void) dealloc
 {
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void) close
+{
+	[self.preferencesController close];
+	[self.conversationController close];
+	[self.highlightsController close];
+	[super close];
 }
 
 - (void) showWindow:(id)sender
@@ -552,6 +562,38 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 	[self.conversationController updateWithConversationPayload:self.lastConversationPayload];
 	[self.conversationController showWindow:nil];
+}
+
+- (IBAction) showPreferences:(id) sender
+{
+	#pragma unused(sender)
+
+	if (self.preferencesController == nil) {
+		self.preferencesController = [[MBPreferencesController alloc] init];
+
+		__weak typeof(self) weak_self = self;
+		self.preferencesController.textSettingsChangedHandler = ^{
+			MBMainController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			[strong_self.detailController applyPreferredTextSettings];
+		};
+		self.preferencesController.signOutHandler = ^{
+			MBMainController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			[strong_self.preferencesController close];
+			SEL sign_out_selector = NSSelectorFromString(@"signOut:");
+			[NSApp sendAction:sign_out_selector to:nil from:strong_self];
+		};
+	}
+
+	[self.preferencesController reloadFromDefaults];
+	[self.preferencesController showWindow:nil];
 }
 
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item

@@ -6,6 +6,7 @@
 //
 
 #import "MBDetailController.h"
+#import "MBClient.h"
 #import "MBEntry.h"
 #import "MBHighlight.h"
 #import <WebKit/WebKit.h>
@@ -17,6 +18,9 @@ static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
 static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
+static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
+static NSString* const InkwellDefaultTextFontName = @"San Francisco";
+static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
 @interface MBWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
@@ -125,6 +129,7 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 	#pragma unused(web_view)
 	#pragma unused(navigation)
 	[self refreshHighlights];
+	[self applyPreferredTextSettings];
 }
 
 - (void) showSidebarItem:(MBEntry * _Nullable)item
@@ -258,6 +263,78 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
+- (void) applyPreferredTextSettings
+{
+	if (self.webView == nil) {
+		return;
+	}
+
+	NSString* background_hex = [self preferredTextBackgroundHex];
+	NSString* font_css = [self preferredTextFontCSS];
+	CGFloat content_font_size = [self preferredTextPointSize];
+	CGFloat title_font_size = MAX(content_font_size + 12.0, content_font_size * 1.7);
+	BOOL is_dark_background = [self isDarkColorHexString:background_hex];
+	NSString* text_color = is_dark_background ? @"#f2f3f5" : @"#1d1d1f";
+	NSString* link_color = is_dark_background ? @"#9ec5ff" : @"#0b57d0";
+	NSString* quote_color = is_dark_background ? @"#b8c0cc" : @"#4d4d4f";
+	NSString* quote_border_color = is_dark_background ? @"#4f5b73" : @"#d2d2d7";
+
+	NSString* escaped_background_hex = [self escapedJavaScriptString:background_hex];
+	NSString* escaped_font_css = [self escapedJavaScriptString:font_css];
+	NSString* escaped_text_color = [self escapedJavaScriptString:text_color];
+	NSString* escaped_link_color = [self escapedJavaScriptString:link_color];
+	NSString* escaped_quote_color = [self escapedJavaScriptString:quote_color];
+	NSString* escaped_quote_border_color = [self escapedJavaScriptString:quote_border_color];
+
+	NSString* script = [NSString stringWithFormat:@"(function(){"
+		"var bg='%@';"
+		"var font='%@';"
+		"var text='%@';"
+		"var link='%@';"
+		"var quote='%@';"
+		"var quoteBorder='%@';"
+		"var contentSize=%0.2f;"
+		"var titleSize=%0.2f;"
+		"var body=document.body;"
+		"if(!body){return;}"
+		"body.style.backgroundColor=bg;"
+		"body.style.color=text;"
+		"body.style.fontFamily=font;"
+		"body.style.fontSize=contentSize+'px';"
+		"var content=document.querySelector('.content');"
+		"if(content){content.style.fontFamily=font;content.style.fontSize=contentSize+'px';}"
+		"var titleNodes=document.querySelectorAll('.post-title');"
+		"for(var t=0;t<titleNodes.length;t++){"
+			"titleNodes[t].style.fontFamily=font;"
+			"titleNodes[t].style.fontSize=titleSize+'px';"
+			"titleNodes[t].style.color=text;"
+		"}"
+		"var nodes=document.querySelectorAll('.post-content,p,li,td,th,pre,blockquote');"
+		"for(var i=0;i<nodes.length;i++){"
+			"nodes[i].style.fontFamily=font;"
+			"nodes[i].style.fontSize=contentSize+'px';"
+			"nodes[i].style.color=text;"
+		"}"
+		"var links=document.querySelectorAll('a');"
+		"for(var j=0;j<links.length;j++){links[j].style.color=link;}"
+		"var quotes=document.querySelectorAll('blockquote');"
+		"for(var k=0;k<quotes.length;k++){"
+			"quotes[k].style.color=quote;"
+			"quotes[k].style.borderLeftColor=quoteBorder;"
+		"}"
+		"})();",
+		escaped_background_hex,
+		escaped_font_css,
+		escaped_text_color,
+		escaped_link_color,
+		escaped_quote_color,
+		escaped_quote_border_color,
+		content_font_size,
+		title_font_size];
+
+	[self.webView evaluateJavaScript:script completionHandler:nil];
+}
+
 - (NSString*) processedReadingRecapHTML:(NSString*) html
 {
 	// Placeholder for future recap-specific HTML processing (e.g. JS/CSS transforms).
@@ -359,6 +436,110 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 	if (self.selectionChangedHandler != nil) {
 		self.selectionChangedHandler(has_selection);
 	}
+}
+
+- (NSString*) preferredTextBackgroundHex
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	NSString* stored_hex = [defaults stringForKey:InkwellTextBackgroundColorDefaultsKey] ?: @"";
+	NSString* normalized_hex = [stored_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if ([self isValidHexColorString:normalized_hex]) {
+		return normalized_hex;
+	}
+
+	return InkwellDefaultTextBackgroundHex;
+}
+
+- (NSString*) preferredTextFontCSS
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	NSString* font_name = [defaults stringForKey:InkwellTextFontNameDefaultsKey] ?: @"";
+	NSString* normalized_font_name = [font_name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_font_name.length == 0) {
+		normalized_font_name = InkwellDefaultTextFontName;
+	}
+
+	if ([normalized_font_name isEqualToString:@"Avenir Next"]) {
+		return @"'Avenir Next', 'Avenir', sans-serif";
+	}
+	if ([normalized_font_name isEqualToString:@"Times New Roman"]) {
+		return @"'Times New Roman', 'Times', serif";
+	}
+
+	return @"-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
+}
+
+- (CGFloat) preferredTextPointSize
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	NSString* size_name = [defaults stringForKey:InkwellTextSizeNameDefaultsKey] ?: @"";
+	NSString* normalized_size_name = [size_name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_size_name.length == 0) {
+		normalized_size_name = InkwellDefaultTextSizeName;
+	}
+
+	if ([normalized_size_name isEqualToString:@"Tiny"]) {
+		return 13.0;
+	}
+	if ([normalized_size_name isEqualToString:@"Small"]) {
+		return 15.0;
+	}
+	if ([normalized_size_name isEqualToString:@"Large"]) {
+		return 19.0;
+	}
+	if ([normalized_size_name isEqualToString:@"Huge"]) {
+		return 22.0;
+	}
+
+	return 17.0;
+}
+
+- (BOOL) isValidHexColorString:(NSString*) color_hex
+{
+	NSString* normalized_hex = [[color_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+	if ([normalized_hex hasPrefix:@"#"]) {
+		normalized_hex = [normalized_hex substringFromIndex:1];
+	}
+	if (normalized_hex.length != 6) {
+		return NO;
+	}
+
+	NSScanner* scanner = [NSScanner scannerWithString:normalized_hex];
+	unsigned int rgb_value = 0;
+	return [scanner scanHexInt:&rgb_value];
+}
+
+- (BOOL) isDarkColorHexString:(NSString*) color_hex
+{
+	NSString* normalized_hex = [[color_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+	if ([normalized_hex hasPrefix:@"#"]) {
+		normalized_hex = [normalized_hex substringFromIndex:1];
+	}
+	if (normalized_hex.length != 6) {
+		return NO;
+	}
+
+	unsigned int rgb_value = 0;
+	NSScanner* scanner = [NSScanner scannerWithString:normalized_hex];
+	BOOL did_scan = [scanner scanHexInt:&rgb_value];
+	if (!did_scan) {
+		return NO;
+	}
+
+	CGFloat red = ((rgb_value >> 16) & 0xFF) / 255.0;
+	CGFloat green = ((rgb_value >> 8) & 0xFF) / 255.0;
+	CGFloat blue = (rgb_value & 0xFF) / 255.0;
+	CGFloat luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+	return (luminance < 0.45);
+}
+
+- (NSString*) escapedJavaScriptString:(NSString*) string
+{
+	NSString* escaped_string = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
+	escaped_string = [escaped_string stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
+	escaped_string = [escaped_string stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+	escaped_string = [escaped_string stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+	return escaped_string ?: @"";
 }
 
 - (NSString *) escapedHTMLString:(NSString *)string

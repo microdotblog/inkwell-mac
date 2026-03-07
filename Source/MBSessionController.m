@@ -38,6 +38,7 @@ NSString* const InkwellTokenDefaultsKey = @"Token";
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellIsPremiumDefaultsKey];
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellHasInkwellDefaultsKey];
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUsernameDefaultsKey];
+	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUserAvatarURLDefaultsKey];
 }
 
 @end

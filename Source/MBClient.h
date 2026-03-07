@@ -18,6 +18,10 @@ extern NSString* const MBClientNetworkingDidStopNotification;
 extern NSString* const InkwellIsPremiumDefaultsKey;
 extern NSString* const InkwellHasInkwellDefaultsKey;
 extern NSString* const InkwellUsernameDefaultsKey;
+extern NSString* const InkwellUserAvatarURLDefaultsKey;
+extern NSString* const InkwellTextBackgroundColorDefaultsKey;
+extern NSString* const InkwellTextFontNameDefaultsKey;
+extern NSString* const InkwellTextSizeNameDefaultsKey;
 
 @interface MBClient : NSObject
 
