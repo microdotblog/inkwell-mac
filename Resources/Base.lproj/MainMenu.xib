@@ -363,6 +363,12 @@
                                     <action selector="showMainWindowAction:" target="Voe-Tx-rLC" id="vXe-eW-7K7"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Conversation" keyEquivalent="k" id="9Yh-BE-zp4">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="showConversation:" target="-1" id="gkQ-FR-0kM"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Highlights" keyEquivalent="L" id="nvn-Xl-jU7">
                                 <connections>
                                     <action selector="showHighlights:" target="-1" id="5I2-SV-GDp"/>

@@ -486,19 +486,19 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[task resume];
 }
 
-- (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion
+- (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion
 {
 	NSString* trimmed_url_string = [url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (trimmed_url_string.length == 0) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1026 userInfo:@{ NSLocalizedDescriptionKey: @"Missing URL for conversation request." }];
-		[self finishWithConversationItems:nil error:error completion:completion];
+		[self finishWithConversationPayload:nil error:error completion:completion];
 		return;
 	}
 
 	NSURLComponents* components = [NSURLComponents componentsWithString:(MBMicroBlogBaseURL @"/conversation.js")];
 	if (components == nil) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1027 userInfo:@{ NSLocalizedDescriptionKey: @"Conversation endpoint URL was invalid." }];
-		[self finishWithConversationItems:nil error:error completion:completion];
+		[self finishWithConversationPayload:nil error:error completion:completion];
 		return;
 	}
 
@@ -510,7 +510,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	NSURL* conversation_url = components.URL;
 	if (conversation_url == nil) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1027 userInfo:@{ NSLocalizedDescriptionKey: @"Conversation endpoint URL was invalid." }];
-		[self finishWithConversationItems:nil error:error completion:completion];
+		[self finishWithConversationPayload:nil error:error completion:completion];
 		return;
 	}
 
@@ -520,7 +520,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
-			[self finishWithConversationItems:nil error:error completion:completion];
+			[self finishWithConversationPayload:nil error:error completion:completion];
 			return;
 		}
 
@@ -528,26 +528,18 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Conversation request failed."];
 			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithConversationItems:nil error:request_error completion:completion];
+			[self finishWithConversationPayload:nil error:request_error completion:completion];
 			return;
 		}
 
 		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 		if (![payload isKindOfClass:[NSDictionary class]]) {
 			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1028 userInfo:@{ NSLocalizedDescriptionKey: @"Conversation response was invalid." }];
-			[self finishWithConversationItems:nil error:parse_error completion:completion];
+			[self finishWithConversationPayload:nil error:parse_error completion:completion];
 			return;
 		}
 
-		NSDictionary* dictionary = (NSDictionary*) payload;
-		id items_object = dictionary[@"items"];
-		if (![items_object isKindOfClass:[NSArray class]]) {
-			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1028 userInfo:@{ NSLocalizedDescriptionKey: @"Conversation response was invalid." }];
-			[self finishWithConversationItems:nil error:parse_error completion:completion];
-			return;
-		}
-
-		[self finishWithConversationItems:(NSArray*) items_object error:nil completion:completion];
+		[self finishWithConversationPayload:(NSDictionary*) payload error:nil completion:completion];
 	}];
 	[task resume];
 }
@@ -1873,14 +1865,14 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	});
 }
 
-- (void) finishWithConversationItems:(NSArray* _Nullable)items error:(NSError* _Nullable)error completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion
+- (void) finishWithConversationPayload:(NSDictionary* _Nullable)conversation_payload error:(NSError* _Nullable)error completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion
 {
 	if (completion == nil) {
 		return;
 	}
 
 	dispatch_async(dispatch_get_main_queue(), ^{
-		completion(items, error);
+		completion(conversation_payload, error);
 	});
 }
 
