@@ -368,7 +368,7 @@
                                 </connections>
                             </menuItem>
                             <menuItem title="Conversation" keyEquivalent="k" id="9Yh-BE-zp4">
-                                <modifierMask key="keyEquivalentModifierMask" command="YES" shift="YES"/>
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
                                 <connections>
                                     <action selector="showConversation:" target="-1" id="gkQ-FR-0kM"/>
                                 </connections>
@@ -403,7 +403,7 @@
             </items>
             <point key="canvasLocation" x="200" y="121"/>
         </menu>
-        <window title="Inkwell" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" frameAutosaveName="InkwellWindow" animationBehavior="default" id="QvC-M9-y7g">
+        <window title="Inkwell" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" frameAutosaveName="InkwellWindow" animationBehavior="default" id="QvC-M9-y7g">
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
             <rect key="contentRect" x="335" y="390" width="480" height="360"/>
@@ -415,7 +415,7 @@
             <connections>
                 <outlet property="delegate" destination="Voe-Tx-rLC" id="top-28-M4D"/>
             </connections>
-            <point key="canvasLocation" x="200" y="400"/>
+            <point key="canvasLocation" x="208" y="498"/>
         </window>
     </objects>
 </document>
