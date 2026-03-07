@@ -349,6 +349,10 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	if (menu_item.action == @selector(newPost:)) {
 		return ([self.sidebarController selectedItem] != nil);
 	}
+	if (menu_item.action == @selector(showHighlights:)) {
+		MBEntry* selected_item = [self.sidebarController selectedItem];
+		return (selected_item != nil && selected_item.entryID > 0);
+	}
 
 	if (menu_item.action == @selector(copyLink:)) {
 		MBEntry* selected_item = [self.sidebarController selectedItem];
