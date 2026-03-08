@@ -12,8 +12,39 @@
 #import "MBHighlightCellView.h"
 
 static NSUserInterfaceItemIdentifier const InkwellHighlightsCellIdentifier = @"InkwellHighlightsCell";
+static NSUserInterfaceItemIdentifier const InkwellHighlightsRowIdentifier = @"InkwellHighlightsRow";
 static CGFloat const InkwellHighlightsTopBarHeight = 44.0;
 static CGFloat const InkwellHighlightsAvatarSize = 20.0;
+static CGFloat const InkwellHighlightsRowSpacing = 5.0;
+static CGFloat const InkwellHighlightsRowBackgroundHorizontalInset = 10.0;
+static CGFloat const InkwellHighlightsRowBackgroundVerticalInset = 2.5;
+static CGFloat const InkwellHighlightsRowCornerRadius = 10.0;
+static NSString* const InkwellHighlightColorName = @"color_highlight";
+
+@interface MBHighlightsRowView : NSTableRowView
+@end
+
+@implementation MBHighlightsRowView
+
+- (void) drawBackgroundInRect:(NSRect) dirty_rect
+{
+	[super drawBackgroundInRect:dirty_rect];
+	if (self.isSelected) {
+		return;
+	}
+
+	NSColor* background_color = [NSColor colorNamed:InkwellHighlightColorName];
+	if (background_color == nil) {
+		background_color = [NSColor colorWithCalibratedRed:1.0 green:0.95 blue:0.56 alpha:1.0];
+	}
+
+	NSRect fill_rect = NSInsetRect(self.bounds, InkwellHighlightsRowBackgroundHorizontalInset, InkwellHighlightsRowBackgroundVerticalInset);
+	NSBezierPath* path = [NSBezierPath bezierPathWithRoundedRect:fill_rect xRadius:InkwellHighlightsRowCornerRadius yRadius:InkwellHighlightsRowCornerRadius];
+	[background_color setFill];
+	[path fill];
+}
+
+@end
 
 @interface MBHighlightsController () <NSTableViewDataSource, NSTableViewDelegate>
 
@@ -206,7 +237,9 @@ static CGFloat const InkwellHighlightsAvatarSize = 20.0;
 	table_view.dataSource = self;
 	table_view.headerView = nil;
 	table_view.rowHeight = 62.0;
-	table_view.intercellSpacing = NSMakeSize(0.0, 6.0);
+	table_view.intercellSpacing = NSMakeSize(0.0, InkwellHighlightsRowSpacing);
+	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
+	table_view.backgroundColor = NSColor.clearColor;
 	table_view.usesAutomaticRowHeights = NO;
 	table_view.allowsMultipleSelection = NO;
 	table_view.allowsEmptySelection = YES;
@@ -276,6 +309,18 @@ static CGFloat const InkwellHighlightsAvatarSize = 20.0;
 	MBHighlight* highlight = self.highlights[row];
 	[cell_view configureWithHighlight:highlight];
 	return cell_view;
+}
+
+- (NSTableRowView*) tableView:(NSTableView*) tableView rowViewForRow:(NSInteger) row
+{
+	#pragma unused(row)
+	MBHighlightsRowView* row_view = [tableView makeViewWithIdentifier:InkwellHighlightsRowIdentifier owner:self];
+	if (row_view == nil) {
+		row_view = [[MBHighlightsRowView alloc] initWithFrame:NSZeroRect];
+		row_view.identifier = InkwellHighlightsRowIdentifier;
+		row_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
+	}
+	return row_view;
 }
 
 - (void) updateHeaderForEntry:(MBEntry*) entry

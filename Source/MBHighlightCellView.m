@@ -12,8 +12,6 @@ static CGFloat const InkwellHighlightCellTopInset = 8.0;
 static CGFloat const InkwellHighlightCellBottomInset = 8.0;
 static CGFloat const InkwellHighlightCellLeadingInset = 10.0;
 static CGFloat const InkwellHighlightCellTrailingInset = 10.0;
-static NSString* const InkwellHighlightColorName = @"color_highlight";
-
 @interface MBHighlightCellView ()
 
 @property (nonatomic, strong) NSDateFormatter* dateFormatter;
@@ -124,14 +122,15 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	[self applyCellBackgroundColor];
 }
 
+- (void) setBackgroundStyle:(NSBackgroundStyle) background_style
+{
+	[super setBackgroundStyle:background_style];
+	[self applyCellBackgroundColor];
+}
+
 - (void) applyCellBackgroundColor
 {
-	NSColor* background_color = [NSColor colorNamed:InkwellHighlightColorName];
-	if (background_color == nil) {
-		background_color = [NSColor colorWithCalibratedRed:1.0 green:0.95 blue:0.56 alpha:1.0];
-	}
-
-	self.layer.backgroundColor = background_color.CGColor;
+	self.layer.backgroundColor = NSColor.clearColor.CGColor;
 }
 
 @end
