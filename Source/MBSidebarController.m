@@ -18,6 +18,7 @@ static NSInteger const InkwellSidebarTitleTag = 1001;
 static NSInteger const InkwellSidebarSubtitleTag = 1002;
 static NSInteger const InkwellSidebarSubscriptionTag = 1003;
 static NSInteger const InkwellSidebarDateTag = 1004;
+static NSInteger const InkwellSidebarBookmarkTag = 1005;
 static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarAvatarInset = 3.0;
 static CGFloat const InkwellSidebarTextInset = 10.0;
@@ -181,6 +182,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
+- (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 - (NSInteger) preferredSelectionEntryIDForReload;
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
@@ -195,6 +197,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) openSelectedItemInBrowser;
 - (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
+- (NSString*) bookmarkToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (void) updateRecapUI;
 - (void) updatePremiumRequiredView;
 - (void) setRecapFetching:(BOOL)is_fetching;
@@ -206,6 +209,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (BOOL) isPremiumUser;
 - (NSMenu*) sidebarContextMenu;
 - (IBAction) toggleSelectedItemReadStateAction:(id)sender;
+- (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender;
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
 - (IBAction) readingRecapButtonPressed:(id)sender;
@@ -449,6 +453,38 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	return [window makeFirstResponder:self.tableView];
+}
+
+- (BOOL) canToggleSelectedItemReadState
+{
+	MBEntry* selected_item = [self selectedItem];
+	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+}
+
+- (BOOL) canToggleSelectedItemBookmarkedState
+{
+	MBEntry* selected_item = [self selectedItem];
+	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+}
+
+- (NSString*) readToggleMenuTitle
+{
+	return [self readToggleMenuTitleForSelectedItem:[self selectedItem]];
+}
+
+- (NSString*) bookmarkToggleMenuTitle
+{
+	return [self bookmarkToggleMenuTitleForSelectedItem:[self selectedItem]];
+}
+
+- (void) toggleSelectedItemReadState
+{
+	[self toggleSelectedItemReadStateAction:nil];
+}
+
+- (void) toggleSelectedItemBookmarkedState
+{
+	[self toggleSelectedItemBookmarkedStateAction:nil];
 }
 
 - (MBEntry* _Nullable) selectedItem
@@ -1134,6 +1170,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		NSInteger entry_id_value = [self integerValueFromObject:entry[@"id"]];
 		id read_object = entry[@"is_read"] ?: entry[@"read"];
 		BOOL is_read_value = [self boolValueFromObject:read_object];
+		id bookmarked_object = entry[@"is_bookmarked"] ?: entry[@"is_starred"];
+		if (bookmarked_object == nil) {
+			bookmarked_object = entry[@"bookmarked"] ?: entry[@"starred"];
+		}
+		BOOL is_bookmarked_value = [self boolValueFromObject:bookmarked_object];
 		if (unread_entry_ids != nil && entry_id_value > 0) {
 			is_read_value = ![unread_entry_ids containsObject:@(entry_id_value)];
 		}
@@ -1161,6 +1202,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		sidebar_entry.feedHost = feed_host;
 		sidebar_entry.date = entry_date;
 		sidebar_entry.isRead = is_read_value;
+		sidebar_entry.isBookmarked = is_bookmarked_value;
 
 		[sidebar_items addObject:sidebar_entry];
 	}
@@ -1301,6 +1343,47 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 }
 
+- (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender
+{
+	#pragma unused(sender)
+
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil || selected_item.entryID <= 0) {
+		return;
+	}
+
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	BOOL should_unbookmark = selected_item.isBookmarked;
+	NSInteger entry_id = selected_item.entryID;
+	NSInteger selected_row = self.tableView.selectedRow;
+	__weak typeof(self) weak_self = self;
+	void (^completion_handler)(NSError* _Nullable) = ^(NSError* _Nullable error) {
+		if (error != nil) {
+			return;
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			MBSidebarController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			[strong_self updateCachedBookmarkedState:!should_unbookmark forEntryID:entry_id];
+			[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
+		});
+	};
+
+	if (should_unbookmark) {
+		[self.client unbookmarkEntry:entry_id token:self.token completion:completion_handler];
+	}
+	else {
+		[self.client bookmarkEntry:entry_id token:self.token completion:completion_handler];
+	}
+}
+
 - (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item
 {
 	if (selected_item != nil && selected_item.isRead) {
@@ -1308,6 +1391,15 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	return @"Mark as Read";
+}
+
+- (NSString*) bookmarkToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item
+{
+	if (selected_item != nil && selected_item.isBookmarked) {
+		return @"Unbookmark";
+	}
+
+	return @"Bookmark";
 }
 
 - (IBAction) copySelectedItemLinkAction:(id)sender
@@ -1336,6 +1428,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];
 		menu_item.title = [self readToggleMenuTitleForSelectedItem:selected_item];
+		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+	}
+	if (menu_item.action == @selector(toggleSelectedItemBookmarkedStateAction:)) {
+		MBEntry* selected_item = [self selectedItem];
+		menu_item.title = [self bookmarkToggleMenuTitleForSelectedItem:selected_item];
 		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
 	}
 	if (menu_item.action == NSSelectorFromString(@"showHighlights:")) {
@@ -1409,6 +1506,25 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	for (MBEntry *cached_entry in self.items) {
 		if (cached_entry.entryID == entry_id) {
 			cached_entry.isRead = is_read;
+		}
+	}
+}
+
+- (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id
+{
+	if (entry_id <= 0) {
+		return;
+	}
+
+	for (MBEntry *cached_entry in self.allItems) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isBookmarked = is_bookmarked;
+		}
+	}
+
+	for (MBEntry *cached_entry in self.items) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isBookmarked = is_bookmarked;
 		}
 	}
 }
@@ -1528,11 +1644,22 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		date_field.lineBreakMode = NSLineBreakByTruncatingTail;
 		date_field.maximumNumberOfLines = 1;
 
+		NSTextField* bookmark_field = [NSTextField labelWithString:@""];
+		bookmark_field.translatesAutoresizingMaskIntoConstraints = NO;
+		bookmark_field.tag = InkwellSidebarBookmarkTag;
+		bookmark_field.font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
+		bookmark_field.textColor = [NSColor tertiaryLabelColor];
+		bookmark_field.lineBreakMode = NSLineBreakByTruncatingTail;
+		bookmark_field.maximumNumberOfLines = 1;
+		bookmark_field.hidden = YES;
+		[bookmark_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+
 		[cell_view addSubview:avatar_view];
 		[cell_view addSubview:title_field];
 		[cell_view addSubview:subtitle_field];
 		[cell_view addSubview:subscription_field];
 		[cell_view addSubview:date_field];
+		[cell_view addSubview:bookmark_field];
 
 		NSLayoutConstraint* bottom_constraint = [date_field.bottomAnchor constraintLessThanOrEqualToAnchor:cell_view.bottomAnchor constant:-8.0];
 		bottom_constraint.priority = NSLayoutPriorityDefaultHigh;
@@ -1555,7 +1682,9 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 			[subscription_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[subscription_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
-			[date_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
+			[date_field.trailingAnchor constraintLessThanOrEqualToAnchor:bookmark_field.leadingAnchor constant:-8.0],
+			[bookmark_field.centerYAnchor constraintEqualToAnchor:date_field.centerYAnchor],
+			[bookmark_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			bottom_constraint
 		]];
 
@@ -1571,6 +1700,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	NSTextField* subtitle_field = [cell_view viewWithTag:InkwellSidebarSubtitleTag];
 	NSTextField* subscription_field = [cell_view viewWithTag:InkwellSidebarSubscriptionTag];
 	NSTextField* date_field = [cell_view viewWithTag:InkwellSidebarDateTag];
+	NSTextField* bookmark_field = [cell_view viewWithTag:InkwellSidebarBookmarkTag];
 
 	NSString* subtitle_value = item.summary;
 	if (subtitle_value.length == 0) {
@@ -1593,6 +1723,8 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	subscription_field.stringValue = subscription_value;
 	subscription_field.hidden = !should_show_subscription;
 	date_field.stringValue = date_value;
+	bookmark_field.hidden = !item.isBookmarked;
+	bookmark_field.stringValue = item.isBookmarked ? @"★ Bookmarked" : @"";
 	avatar_view.image = [self avatarImageForEntry:item];
 
 	NSLayoutConstraint* date_top_with_subscription_constraint = cell_view.dateTopWithSubscriptionConstraint;
@@ -1635,6 +1767,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	subtitle_field.textColor = subtitle_color;
 	subscription_field.textColor = subscription_color;
 	date_field.textColor = date_color;
+	bookmark_field.textColor = date_color;
 	avatar_view.alphaValue = avatar_alpha;
 
 	return cell_view;

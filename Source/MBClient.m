@@ -31,6 +31,7 @@ static NSString * const MBVerifyEndpoint = MBMicroBlogBaseURL @"/account/verify"
 static NSString * const MBFeedSubscriptionsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/subscriptions.json";
 static NSString * const MBFeedEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/entries.json";
 static NSString * const MBFeedUnreadEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/unread_entries.json";
+static NSString * const MBFeedStarredEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/starred_entries.json";
 static NSString * const MBFeedIconsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/icons.json";
 static NSString* const MBFeedHighlightsEndpoint = MBMicroBlogBaseURL @"/feeds/highlights";
 static NSString* const MBFeedsEndpointBase = MBMicroBlogBaseURL @"/feeds";
@@ -933,6 +934,16 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:YES completion:completion];
 }
 
+- (void) bookmarkEntry:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
+{
+	[self updateBookmarkedStateForEntryID:entry_id token:token should_unbookmark:NO completion:completion];
+}
+
+- (void) unbookmarkEntry:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
+{
+	[self updateBookmarkedStateForEntryID:entry_id token:token should_unbookmark:YES completion:completion];
+}
+
 - (void) updateUnreadStateForEntryID:(NSInteger)entry_id token:(NSString*) token should_mark_unread:(BOOL)should_mark_unread completion:(void (^)(NSError * _Nullable error))completion
 {
 	if (entry_id <= 0) {
@@ -975,6 +986,52 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 			NSString *default_message = should_mark_unread ? @"Mark unread request failed." : @"Mark read request failed.";
 			NSString *description = [self responseDescriptionForData:data defaultMessage:default_message];
 			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
+	}];
+	[task resume];
+}
+
+- (void) updateBookmarkedStateForEntryID:(NSInteger)entry_id token:(NSString*) token should_unbookmark:(BOOL)should_unbookmark completion:(void (^)(NSError * _Nullable error))completion
+{
+	if (entry_id <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1012 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry ID for bookmark update." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1013 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for bookmark update." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedStarredEntriesEndpoint]];
+	request.HTTPMethod = should_unbookmark ? @"DELETE" : @"POST";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSDictionary* payload = @{ @"starred_entries": @[ @(entry_id) ] };
+	NSData* body_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+	request.HTTPBody = body_data;
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* default_message = should_unbookmark ? @"Unbookmark request failed." : @"Bookmark request failed.";
+			NSString* description = [self responseDescriptionForData:data defaultMessage:default_message];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
 			[self finishWithSimpleError:request_error completion:completion];
 			return;
 		}

@@ -22,6 +22,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *feedHost;
 @property (nonatomic, strong, nullable) NSDate *date;
 @property (nonatomic, assign) BOOL isRead;
+@property (nonatomic, assign) BOOL isBookmarked;
 
 @end
 

@@ -78,6 +78,19 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="m54-Is-iLE"/>
+                            <menuItem title="Mark as Read" keyEquivalent="U" id="7gX-9d-ZY6">
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
+                                <connections>
+                                    <action selector="toggleSelectedItemReadState:" target="-1" id="2eF-EH-Hdb"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Bookmark" keyEquivalent="B" id="P9A-M2-2bL">
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
+                                <connections>
+                                    <action selector="toggleSelectedItemBookmarkedState:" target="-1" id="fso-Hs-jD6"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="hmA-Sa-V55"/>
                             <menuItem title="Close" keyEquivalent="w" id="DVo-aG-piG">
                                 <connections>
                                     <action selector="performClose:" target="-1" id="HmO-Ls-i7Q"/>

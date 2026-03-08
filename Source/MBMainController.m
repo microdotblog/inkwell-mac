@@ -588,6 +588,18 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	[self.conversationController showWindow:nil];
 }
 
+- (IBAction) toggleSelectedItemReadState:(id) sender
+{
+	#pragma unused(sender)
+	[self.sidebarController toggleSelectedItemReadState];
+}
+
+- (IBAction) toggleSelectedItemBookmarkedState:(id) sender
+{
+	#pragma unused(sender)
+	[self.sidebarController toggleSelectedItemBookmarkedState];
+}
+
 - (IBAction) showPreferences:(id) sender
 {
 	#pragma unused(sender)
@@ -628,6 +640,14 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	if (menu_item.action == @selector(showHighlights:)) {
 		MBEntry* selected_item = [self.sidebarController selectedItem];
 		return (selected_item != nil && selected_item.entryID > 0);
+	}
+	if (menu_item.action == @selector(toggleSelectedItemReadState:)) {
+		menu_item.title = [self.sidebarController readToggleMenuTitle];
+		return [self.sidebarController canToggleSelectedItemReadState];
+	}
+	if (menu_item.action == @selector(toggleSelectedItemBookmarkedState:)) {
+		menu_item.title = [self.sidebarController bookmarkToggleMenuTitle];
+		return [self.sidebarController canToggleSelectedItemBookmarkedState];
 	}
 
 	if (menu_item.action == @selector(copyLink:)) {
