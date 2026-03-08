@@ -22,6 +22,7 @@ extern NSString* const InkwellUserAvatarURLDefaultsKey;
 extern NSString* const InkwellTextBackgroundColorDefaultsKey;
 extern NSString* const InkwellTextFontNameDefaultsKey;
 extern NSString* const InkwellTextSizeNameDefaultsKey;
+extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 
 @interface MBClient : NSObject
 

@@ -182,6 +182,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
+- (NSInteger) preferredSelectionEntryIDForReload;
+- (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
+- (NSInteger) rowForEntryID:(NSInteger)entry_id;
+- (NSInteger) savedSelectedEntryID;
+- (void) saveSelectedEntryIDForCurrentSelection;
+- (void) scrollTableToTop;
 - (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
 - (void) startObservingWindowKeyState;
 - (void) stopObservingWindowKeyState;
@@ -696,6 +702,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		[self setRecapFetching:NO];
 	}
 	[self applyFiltersAndReload];
+	[self scrollTableToTop];
 }
 
 - (void) setSearchQuery:(NSString*) search_query
@@ -715,6 +722,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 - (void) applyFiltersAndReload
 {
+	NSInteger preferred_entry_id = [self preferredSelectionEntryIDForReload];
 	if (self.searchQuery.length > 0) {
 		self.items = [self filteredItemsForSearchQuery:self.searchQuery];
 	}
@@ -723,8 +731,112 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	[self reloadTable];
+	BOOL did_restore_selection = [self restoreSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
+	if (!did_restore_selection && preferred_entry_id > 0 && self.tableView.selectedRow >= 0) {
+		[self.tableView deselectAll:nil];
+	}
 	[self updateRecapUI];
 	[self updatePremiumRequiredView];
+}
+
+- (NSInteger) preferredSelectionEntryIDForReload
+{
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row >= 0 && selected_row < self.items.count) {
+		MBEntry* selected_item = self.items[(NSUInteger) selected_row];
+		if ([selected_item isKindOfClass:[MBEntry class]] && selected_item.entryID > 0) {
+			return selected_item.entryID;
+		}
+	}
+
+	return [self savedSelectedEntryID];
+}
+
+- (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged
+{
+	if (entry_id <= 0 || self.tableView == nil || self.items.count == 0) {
+		return NO;
+	}
+
+	NSInteger row = [self rowForEntryID:entry_id];
+	if (row < 0 || row >= self.items.count) {
+		return NO;
+	}
+
+	NSInteger previous_selected_row = self.tableView.selectedRow;
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+	self.selectedRowForStyling = row;
+	[self.tableView scrollRowToVisible:row];
+
+	if (notify_if_unchanged && previous_selected_row == row) {
+		[self notifySelectionChanged];
+	}
+
+	return YES;
+}
+
+- (NSInteger) rowForEntryID:(NSInteger)entry_id
+{
+	if (entry_id <= 0 || self.items.count == 0) {
+		return -1;
+	}
+
+	NSUInteger item_count = self.items.count;
+	for (NSUInteger i = 0; i < item_count; i++) {
+		MBEntry* item = self.items[i];
+		if (item.entryID == entry_id) {
+			return (NSInteger) i;
+		}
+	}
+
+	return -1;
+}
+
+- (NSInteger) savedSelectedEntryID
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	if ([defaults objectForKey:InkwellSidebarSelectedEntryIDDefaultsKey] == nil) {
+		return 0;
+	}
+
+	return [defaults integerForKey:InkwellSidebarSelectedEntryIDDefaultsKey];
+}
+
+- (void) saveSelectedEntryIDForCurrentSelection
+{
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.items.count) {
+		return;
+	}
+
+	MBEntry* selected_item = self.items[(NSUInteger) selected_row];
+	if (![selected_item isKindOfClass:[MBEntry class]] || selected_item.entryID <= 0) {
+		return;
+	}
+
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	[defaults setInteger:selected_item.entryID forKey:InkwellSidebarSelectedEntryIDDefaultsKey];
+}
+
+- (void) scrollTableToTop
+{
+	if (self.tableView == nil) {
+		return;
+	}
+
+	if (self.tableView.numberOfRows > 0) {
+		[self.tableView scrollRowToVisible:0];
+		return;
+	}
+
+	if (self.tableScrollView == nil) {
+		return;
+	}
+
+	NSClipView* content_view = self.tableScrollView.contentView;
+	[content_view scrollToPoint:NSMakePoint(0.0, 0.0)];
+	[self.tableScrollView reflectScrolledClipView:content_view];
 }
 
 - (void) updateRecapUI
@@ -1762,6 +1874,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	#pragma unused(notification)
 	NSInteger current_selected_row = self.tableView.selectedRow;
 	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+	[self saveSelectedEntryIDForCurrentSelection];
 	[self notifySelectionChanged];
 }
 
