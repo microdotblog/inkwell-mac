@@ -6,21 +6,37 @@
 //
 
 #import "MBConversationController.h"
+#import "MBClient.h"
 #import "MBConversationCellView.h"
+#import "MBEntry.h"
 #import "MBMention.h"
 
 static NSUserInterfaceItemIdentifier const InkwellConversationCellIdentifier = @"InkwellConversationCell";
+static CGFloat const InkwellConversationTopBarHeight = 44.0;
+static CGFloat const InkwellConversationHeaderAvatarSize = 20.0;
 static CGFloat const InkwellConversationRowHeight = 96.0;
 static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 @interface MBConversationController () <NSTableViewDataSource, NSTableViewDelegate>
 
+@property (nonatomic, strong) MBClient* client;
+@property (nonatomic, copy) NSString* token;
 @property (nonatomic, copy) NSDictionary* conversationPayload;
 @property (nonatomic, copy) NSArray* mentions;
 @property (nonatomic, strong) NSTableView* tableView;
+@property (nonatomic, strong) NSImageView* headerAvatarImageView;
+@property (nonatomic, strong) NSTextField* headerTitleTextField;
 @property (nonatomic, strong) NSURLSession* imageSession;
 @property (nonatomic, strong) NSMutableDictionary* avatarImageByURL;
 @property (nonatomic, strong) NSMutableSet* pendingAvatarURLStrings;
+@property (nonatomic, copy) NSString* headerTitle;
+@property (nonatomic, strong) NSImage* headerAvatarImage;
+@property (nonatomic, copy) NSString* headerFeedHost;
+@property (nonatomic, copy) NSDictionary* iconURLByHost;
+@property (nonatomic, strong) NSMutableDictionary* iconImageByHost;
+@property (nonatomic, strong) NSMutableSet* hostsWithPendingImageRequests;
+@property (nonatomic, assign) BOOL hasLoadedFeedIcons;
+@property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, strong) NSDateFormatter* dateFormatter;
 @property (nonatomic, assign) BOOL didSetupContent;
 
@@ -30,10 +46,23 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 - (instancetype) init
 {
+	return [self initWithClient:nil token:nil];
+}
+
+- (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token
+{
 	self = [super initWithWindow:nil];
 	if (self) {
+		self.client = client;
+		self.token = token ?: @"";
 		self.conversationPayload = @{};
 		self.mentions = @[];
+		self.headerTitle = @"Conversation";
+		self.headerAvatarImage = [self defaultHeaderAvatarImage];
+		self.headerFeedHost = @"";
+		self.iconURLByHost = @{};
+		self.iconImageByHost = [NSMutableDictionary dictionary];
+		self.hostsWithPendingImageRequests = [NSMutableSet set];
 		self.avatarImageByURL = [NSMutableDictionary dictionary];
 		self.pendingAvatarURLStrings = [NSMutableSet set];
 		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
@@ -61,6 +90,31 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	self.mentions = [self mentionsFromConversationPayload:self.conversationPayload];
 	[self updateWindowTitleState];
 	[self.tableView reloadData];
+}
+
+- (void) updateForSelectedEntry:(MBEntry* _Nullable) entry
+{
+	if (entry == nil) {
+		self.headerTitle = @"Conversation";
+		self.headerFeedHost = @"";
+		self.headerAvatarImage = [self defaultHeaderAvatarImage];
+		[self applyHeaderIfNeeded];
+		return;
+	}
+
+	NSString* title_string = [entry.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title_string.length == 0) {
+		title_string = [entry.subscriptionTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+	if (title_string.length == 0) {
+		title_string = @"Conversation";
+	}
+
+	self.headerTitle = title_string;
+	self.headerFeedHost = [self normalizedHostString:entry.feedHost ?: @""];
+	self.headerAvatarImage = [self headerAvatarImageForHost:self.headerFeedHost];
+	[self applyHeaderIfNeeded];
+	[self fetchFeedIconsIfNeeded];
 }
 
 - (void) setupWindowIfNeeded
@@ -94,6 +148,30 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		return;
 	}
 
+	NSView* top_container_view = [[NSView alloc] initWithFrame:NSZeroRect];
+	top_container_view.translatesAutoresizingMaskIntoConstraints = NO;
+	top_container_view.wantsLayer = YES;
+	top_container_view.layer.backgroundColor = NSColor.secondarySystemFillColor.CGColor;
+
+	NSImageView* avatar_image_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
+	avatar_image_view.translatesAutoresizingMaskIntoConstraints = NO;
+	avatar_image_view.imageScaling = NSImageScaleAxesIndependently;
+	avatar_image_view.wantsLayer = YES;
+	avatar_image_view.layer.cornerRadius = (InkwellConversationHeaderAvatarSize / 2.0);
+	avatar_image_view.layer.masksToBounds = YES;
+
+	NSTextField* title_text_field = [NSTextField labelWithString:@""];
+	title_text_field.translatesAutoresizingMaskIntoConstraints = NO;
+	title_text_field.lineBreakMode = NSLineBreakByTruncatingTail;
+	title_text_field.maximumNumberOfLines = 1;
+	title_text_field.usesSingleLineMode = YES;
+	title_text_field.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	[title_text_field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[title_text_field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+	[top_container_view addSubview:avatar_image_view];
+	[top_container_view addSubview:title_text_field];
+
 	NSTableView* table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
@@ -117,17 +195,32 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	scroll_view.borderType = NSNoBorder;
 	scroll_view.documentView = table_view;
 
+	[content_view addSubview:top_container_view];
 	[content_view addSubview:scroll_view];
 	[NSLayoutConstraint activateConstraints:@[
-		[scroll_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
+		[top_container_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
+		[top_container_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
+		[top_container_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
+		[top_container_view.heightAnchor constraintEqualToConstant:InkwellConversationTopBarHeight],
+		[avatar_image_view.leadingAnchor constraintEqualToAnchor:top_container_view.leadingAnchor constant:10.0],
+		[avatar_image_view.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
+		[avatar_image_view.widthAnchor constraintEqualToConstant:InkwellConversationHeaderAvatarSize],
+		[avatar_image_view.heightAnchor constraintEqualToConstant:InkwellConversationHeaderAvatarSize],
+		[title_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:8.0],
+		[title_text_field.trailingAnchor constraintEqualToAnchor:top_container_view.trailingAnchor constant:-10.0],
+		[title_text_field.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
+		[scroll_view.topAnchor constraintEqualToAnchor:top_container_view.bottomAnchor],
 		[scroll_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
 		[scroll_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor]
 	]];
 
 	self.tableView = table_view;
+	self.headerAvatarImageView = avatar_image_view;
+	self.headerTitleTextField = title_text_field;
 	self.didSetupContent = YES;
 	[self updateWindowTitleState];
+	[self applyHeaderIfNeeded];
 }
 
 - (NSInteger) numberOfRowsInTableView:(NSTableView*) tableView
@@ -167,6 +260,145 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	self.window.title = title_string;
+}
+
+- (void) applyHeaderIfNeeded
+{
+	if (self.headerTitleTextField != nil) {
+		self.headerTitleTextField.stringValue = self.headerTitle ?: @"Conversation";
+	}
+
+	if (self.headerAvatarImageView != nil) {
+		self.headerAvatarImageView.image = self.headerAvatarImage ?: [self defaultHeaderAvatarImage];
+	}
+}
+
+- (void) fetchFeedIconsIfNeeded
+{
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	if (self.hasLoadedFeedIcons || self.isFetchingFeedIcons) {
+		return;
+	}
+
+	self.isFetchingFeedIcons = YES;
+	[self.client fetchFeedIconsWithToken:self.token completion:^(NSDictionary* _Nullable icons_by_host, NSError* _Nullable error) {
+		self.isFetchingFeedIcons = NO;
+		if (error != nil) {
+			return;
+		}
+
+		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
+		self.hasLoadedFeedIcons = YES;
+		[self updateHeaderAvatarImage];
+	}];
+}
+
+- (void) updateHeaderAvatarImage
+{
+	self.headerAvatarImage = [self headerAvatarImageForHost:self.headerFeedHost];
+	[self applyHeaderIfNeeded];
+}
+
+- (NSDictionary*) normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host
+{
+	if (icons_by_host.count == 0) {
+		return @{};
+	}
+
+	NSMutableDictionary* normalized_icons_by_host = [NSMutableDictionary dictionary];
+	for (NSString* host_value in icons_by_host) {
+		NSString* normalized_host = [self normalizedHostString:host_value];
+		if (normalized_host.length == 0) {
+			continue;
+		}
+
+		NSString* url_value = [self stringValueFromObject:icons_by_host[host_value]];
+		if (url_value.length == 0) {
+			continue;
+		}
+
+		normalized_icons_by_host[normalized_host] = url_value;
+	}
+
+	return [normalized_icons_by_host copy];
+}
+
+- (NSString*) normalizedHostString:(NSString*) host_string
+{
+	if (host_string.length == 0) {
+		return @"";
+	}
+
+	NSString* normalized_host = [[host_string lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if ([normalized_host hasPrefix:@"www."]) {
+		normalized_host = [normalized_host substringFromIndex:4];
+	}
+	if ([normalized_host hasSuffix:@"."]) {
+		normalized_host = [normalized_host substringToIndex:(normalized_host.length - 1)];
+	}
+
+	return normalized_host;
+}
+
+- (NSImage*) headerAvatarImageForHost:(NSString*) host_value
+{
+	if (host_value.length == 0) {
+		return [self defaultHeaderAvatarImage];
+	}
+
+	NSImage* cached_image = self.iconImageByHost[host_value];
+	if (cached_image != nil) {
+		return cached_image;
+	}
+
+	NSString* icon_url_string = [self stringValueFromObject:self.iconURLByHost[host_value]];
+	if (icon_url_string.length > 0) {
+		[self requestHeaderAvatarImageForHost:host_value urlString:icon_url_string];
+	}
+
+	return [self defaultHeaderAvatarImage];
+}
+
+- (void) requestHeaderAvatarImageForHost:(NSString*) host_value urlString:(NSString*) url_string
+{
+	if (host_value.length == 0 || url_string.length == 0) {
+		return;
+	}
+
+	if (self.iconImageByHost[host_value] != nil || [self.hostsWithPendingImageRequests containsObject:host_value]) {
+		return;
+	}
+
+	NSURL* image_url = [NSURL URLWithString:url_string];
+	if (image_url == nil) {
+		return;
+	}
+
+	[self.hostsWithPendingImageRequests addObject:host_value];
+
+	NSURLSessionDataTask* task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		#pragma unused(response)
+		NSImage* image_value = nil;
+		if (error == nil && data.length > 0) {
+			image_value = [[NSImage alloc] initWithData:data];
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self.hostsWithPendingImageRequests removeObject:host_value];
+			if (image_value == nil) {
+				return;
+			}
+
+			self.iconImageByHost[host_value] = image_value;
+			if ([self.headerFeedHost isEqualToString:host_value]) {
+				[self updateHeaderAvatarImage];
+			}
+		});
+	}];
+	[task resume];
 }
 
 - (NSArray*) mentionsFromConversationPayload:(NSDictionary*) conversation_payload
@@ -374,6 +606,26 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 		NSBezierPath* circle_path = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0.0, 0.0, image_size.width, image_size.height)];
 		[[NSColor colorWithWhite:0.82 alpha:1.0] setFill];
+		[circle_path fill];
+		[fallback_image unlockFocus];
+	});
+
+	return fallback_image;
+}
+
+- (NSImage*) defaultHeaderAvatarImage
+{
+	static NSImage* fallback_image;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		NSSize image_size = NSMakeSize(InkwellConversationHeaderAvatarSize, InkwellConversationHeaderAvatarSize);
+		fallback_image = [[NSImage alloc] initWithSize:image_size];
+		[fallback_image lockFocus];
+		[[NSColor clearColor] setFill];
+		NSRectFill(NSMakeRect(0.0, 0.0, image_size.width, image_size.height));
+
+		NSBezierPath* circle_path = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0.0, 0.0, image_size.width, image_size.height)];
+		[[NSColor colorWithWhite:0.78 alpha:1.0] setFill];
 		[circle_path fill];
 		[fallback_image unlockFocus];
 	});

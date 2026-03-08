@@ -7,10 +7,15 @@
 
 #import <Cocoa/Cocoa.h>
 
+@class MBClient;
+@class MBEntry;
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface MBConversationController : NSWindowController
 
+- (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token;
+- (void) updateForSelectedEntry:(MBEntry* _Nullable) entry;
 - (void) updateWithConversationPayload:(NSDictionary* _Nullable) conversation_payload;
 
 @end

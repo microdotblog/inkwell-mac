@@ -392,6 +392,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	self.lastConversationPayload = @{};
 	[self refreshRepliesToolbarItemVisibility];
 	[self.conversationController updateWithConversationPayload:nil];
+	[self.conversationController updateForSelectedEntry:selected_item];
 
 	if (selected_item == nil || self.client == nil) {
 		return;
@@ -579,9 +580,10 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	#pragma unused(sender)
 
 	if (self.conversationController == nil) {
-		self.conversationController = [[MBConversationController alloc] init];
+		self.conversationController = [[MBConversationController alloc] initWithClient:self.client token:self.token];
 	}
 
+	[self.conversationController updateForSelectedEntry:[self.sidebarController selectedItem]];
 	[self.conversationController updateWithConversationPayload:self.lastConversationPayload];
 	[self.conversationController showWindow:nil];
 }
