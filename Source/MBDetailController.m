@@ -22,6 +22,32 @@ static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
+@interface MBDetailWebView : WKWebView
+
+@property (copy, nullable) BOOL (^focusSidebarHandler)(void);
+
+@end
+
+@implementation MBDetailWebView
+
+- (void) keyDown:(NSEvent*) event
+{
+	NSString* characters = event.charactersIgnoringModifiers ?: @"";
+	if (characters.length > 0) {
+		unichar key_code = [characters characterAtIndex:0];
+		NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+		BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
+		BOOL is_left_arrow_key = (key_code == NSLeftArrowFunctionKey);
+		if (!has_disallowed_modifiers && is_left_arrow_key && self.focusSidebarHandler != nil && self.focusSidebarHandler()) {
+			return;
+		}
+	}
+
+	[super keyDown:event];
+}
+
+@end
+
 @interface MBWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
@@ -50,7 +76,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
 @interface MBDetailController () <WKNavigationDelegate, WKScriptMessageHandler>
 
-@property (strong) WKWebView* webView;
+@property (strong) MBDetailWebView* webView;
 @property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
 @property (assign) BOOL hasTextSelection;
 @property (assign) NSInteger currentEntryID;
@@ -80,9 +106,18 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
 	configuration.userContentController = user_content_controller;
 
-	WKWebView* web_view = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
+	MBDetailWebView* web_view = [[MBDetailWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
 	web_view.navigationDelegate = self;
+	__weak typeof(self) weak_self = self;
+	web_view.focusSidebarHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil || strong_self.focusSidebarHandler == nil) {
+			return NO;
+		}
+
+		return strong_self.focusSidebarHandler();
+	};
 	[root_view addSubview:web_view];
 	[root_view addSubview:top_bar_view];
 	[NSLayoutConstraint activateConstraints:@[
@@ -108,6 +143,20 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 - (BOOL) hasSelection
 {
 	return self.hasTextSelection;
+}
+
+- (BOOL) focusDetailPane
+{
+	if (self.webView == nil) {
+		return NO;
+	}
+
+	NSWindow* window = self.view.window ?: self.webView.window;
+	if (window == nil) {
+		return NO;
+	}
+
+	return [window makeFirstResponder:self.webView];
 }
 
 - (void) webView:(WKWebView *)web_view decidePolicyForNavigationAction:(WKNavigationAction *)navigation_action decisionHandler:(void (^)(WKNavigationActionPolicy))decision_handler

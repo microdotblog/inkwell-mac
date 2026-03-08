@@ -15,8 +15,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, copy, nullable) void (^selectionChangedHandler)(BOOL has_selection);
 @property (nonatomic, copy, nullable) NSArray* (^highlightsProvider)(NSInteger entry_id);
+@property (nonatomic, copy, nullable) BOOL (^focusSidebarHandler)(void);
 
 - (BOOL) hasSelection;
+- (BOOL) focusDetailPane;
 - (void) showSidebarItem:(MBEntry * _Nullable)item;
 - (void) showReadingRecapHTML:(NSString*) html;
 - (void) requestSelectionHighlightPayloadWithCompletion:(void (^)(NSDictionary* _Nullable payload)) completion;

@@ -36,6 +36,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 @interface MBSidebarTableView : NSTableView
 
 @property (copy, nullable) BOOL (^openSelectedItemHandler)(void);
+@property (copy, nullable) BOOL (^focusDetailHandler)(void);
 @property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
 @property (copy, nullable) void (^focusChangedHandler)(void);
 
@@ -48,8 +49,15 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	NSString* characters = event.charactersIgnoringModifiers ?: @"";
 	if (characters.length > 0) {
 		unichar key_code = [characters characterAtIndex:0];
+		NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+		BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
 		BOOL is_return_key = (key_code == NSCarriageReturnCharacter || key_code == NSNewlineCharacter || key_code == NSEnterCharacter);
 		if (is_return_key && self.openSelectedItemHandler != nil && self.openSelectedItemHandler()) {
+			return;
+		}
+
+		BOOL is_right_arrow_key = (key_code == NSRightArrowFunctionKey);
+		if (!has_disallowed_modifiers && is_right_arrow_key && self.focusDetailHandler != nil && self.focusDetailHandler()) {
 			return;
 		}
 	}
@@ -283,6 +291,14 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	table_view.openSelectedItemHandler = ^BOOL {
 		return [weak_self openSelectedItemInBrowser];
 	};
+	table_view.focusDetailHandler = ^BOOL {
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil || strong_self.focusDetailHandler == nil) {
+			return NO;
+		}
+
+		return strong_self.focusDetailHandler();
+	};
 	table_view.contextMenuHandler = ^NSMenu* {
 		return [weak_self sidebarContextMenu];
 	};
@@ -412,7 +428,21 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		self.selectedRowForStyling = -1;
 	}
 
-	[self.view.window makeFirstResponder:self.tableView];
+	[self focusSidebar];
+}
+
+- (BOOL) focusSidebar
+{
+	if (self.tableView == nil) {
+		return NO;
+	}
+
+	NSWindow* window = self.view.window;
+	if (window == nil) {
+		return NO;
+	}
+
+	return [window makeFirstResponder:self.tableView];
 }
 
 - (MBEntry* _Nullable) selectedItem

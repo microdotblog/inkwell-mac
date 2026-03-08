@@ -46,6 +46,9 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 @property (copy) NSString* pendingConversationLookupURLString;
 @property (strong) NSButton* toolbarRepliesButton;
 
+- (BOOL) focusSidebarPane;
+- (BOOL) focusDetailPane;
+
 @end
 
 @implementation MBMainController
@@ -135,12 +138,28 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		[weak_self.highlightsController updateForSelectedEntry:item];
 		[weak_self updateConversationForSelectedItem:item];
 	};
+	self.sidebarController.focusDetailHandler = ^BOOL {
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self focusDetailPane];
+	};
 	self.sidebarController.syncCompletedHandler = ^{
 		[weak_self syncHighlightsFromServer];
 	};
 	self.detailController.selectionChangedHandler = ^(BOOL has_selection) {
 		#pragma unused(has_selection)
 		[weak_self.window.toolbar validateVisibleItems];
+	};
+	self.detailController.focusSidebarHandler = ^BOOL {
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self focusSidebarPane];
 	};
 	self.detailController.highlightsProvider = ^NSArray* (NSInteger entry_id) {
 		return [weak_self.client cachedHighlightsForEntryID:entry_id];
@@ -173,6 +192,24 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 	self.window.contentViewController = split_view_controller;
 	[self.sidebarController reloadData];
+}
+
+- (BOOL) focusSidebarPane
+{
+	if (self.sidebarController == nil) {
+		return NO;
+	}
+
+	return [self.sidebarController focusSidebar];
+}
+
+- (BOOL) focusDetailPane
+{
+	if (self.detailController == nil) {
+		return NO;
+	}
+
+	return [self.detailController focusDetailPane];
 }
 
 - (void) clientNetworkingDidStart:(NSNotification *)notification
