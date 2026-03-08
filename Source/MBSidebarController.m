@@ -1261,6 +1261,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 	SEL new_post_selector = NSSelectorFromString(@"newPost:");
 	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
+	SEL toggle_bookmark_selector = NSSelectorFromString(@"toggleSelectedItemBookmarkedState:");
 	SEL show_conversation_selector = NSSelectorFromString(@"showConversation:");
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 
@@ -1271,6 +1272,10 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	NSMenuItem* toggle_read_item = [[NSMenuItem alloc] initWithTitle:@"Mark as Read" action:toggle_read_selector keyEquivalent:@""];
 	toggle_read_item.target = self;
 	[menu addItem:toggle_read_item];
+
+	NSMenuItem* toggle_bookmark_item = [[NSMenuItem alloc] initWithTitle:@"Bookmark" action:toggle_bookmark_selector keyEquivalent:@""];
+	toggle_bookmark_item.target = nil;
+	[menu addItem:toggle_bookmark_item];
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
