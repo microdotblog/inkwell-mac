@@ -104,21 +104,6 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 - (void) setupWindowIfNeeded
 {
-	if (self.window == nil) {
-		NSRect frame = NSMakeRect(180.0, 180.0, 1040.0, 680.0);
-		NSUInteger style_mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
-		self.window = [[NSWindow alloc] initWithContentRect:frame styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
-	}
-
-	NSSize minimum_window_size = NSMakeSize(900.0, 620.0);
-	self.window.minSize = minimum_window_size;
-	NSRect current_frame = self.window.frame;
-	if (current_frame.size.width < minimum_window_size.width || current_frame.size.height < minimum_window_size.height) {
-		current_frame.size.width = MAX(current_frame.size.width, minimum_window_size.width);
-		current_frame.size.height = MAX(current_frame.size.height, minimum_window_size.height);
-		[self.window setFrame:current_frame display:NO];
-	}
-
 	self.window.title = @"Inkwell";
 	self.window.styleMask |= NSWindowStyleMaskFullSizeContentView;
 	self.window.titlebarAppearsTransparent = YES;
