@@ -217,6 +217,21 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (void) reloadHighlights
 {
+	NSString* search_query = [self activeSearchQuery];
+	if (search_query.length > 0) {
+		if (self.client == nil) {
+			[self setFetchingState:NO];
+			self.highlights = @[];
+			[self.tableView reloadData];
+			return;
+		}
+
+		NSArray* all_highlights = [self.client cachedAllHighlights];
+		self.highlights = [self filteredHighlights:all_highlights matchingQuery:search_query];
+		[self.tableView reloadData];
+		return;
+	}
+
 	if (self.entryID <= 0 || self.client == nil) {
 		[self setFetchingState:NO];
 		self.highlights = @[];
@@ -455,7 +470,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (void) applyHeaderIfNeeded
 {
-	BOOL shows_entry_header = (self.entryID > 0);
+	BOOL shows_entry_header = (self.entryID > 0 && ![self hasActiveSearchQuery]);
 
 	if (self.titleTextField != nil) {
 		self.titleTextField.hidden = !shows_entry_header;
@@ -523,6 +538,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 - (void) updateHighlightSearchWithText:(NSString*) search_text
 {
 	#pragma unused(search_text)
+	[self applyHeaderIfNeeded];
+	[self reloadHighlights];
 }
 
 - (IBAction) performFindPanelAction:(id) sender
@@ -541,6 +558,48 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	[self.searchField selectText:nil];
+}
+
+- (NSString*) activeSearchQuery
+{
+	NSString* query_string = [self.searchField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return query_string;
+}
+
+- (BOOL) hasActiveSearchQuery
+{
+	return ([self activeSearchQuery].length > 0);
+}
+
+- (NSArray*) filteredHighlights:(NSArray*) highlights matchingQuery:(NSString*) query_string
+{
+	NSString* trimmed_query = [query_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_query.length == 0 || ![highlights isKindOfClass:[NSArray class]]) {
+		return @[];
+	}
+
+	NSMutableArray* matching_highlights = [NSMutableArray array];
+	NSStringCompareOptions compare_options = (NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch);
+	for (id object in highlights) {
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* highlight = (MBHighlight*) object;
+		NSString* selection_text = [highlight.selectionText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (selection_text.length == 0) {
+			continue;
+		}
+
+		NSRange match_range = [selection_text rangeOfString:trimmed_query options:compare_options];
+		if (match_range.location == NSNotFound) {
+			continue;
+		}
+
+		[matching_highlights addObject:highlight];
+	}
+
+	return [matching_highlights copy];
 }
 
 - (NSDictionary<NSString*, NSString*>*) normalizedIconURLByHostFromMap:(NSDictionary<NSString*, NSString*>*) icons_by_host
@@ -644,6 +703,10 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (BOOL) canCreatePostFromSelectedHighlight
 {
+	if ([self hasActiveSearchQuery]) {
+		return NO;
+	}
+
 	if (self.entryURLString.length == 0 || self.entryTitleForPost.length == 0) {
 		return NO;
 	}

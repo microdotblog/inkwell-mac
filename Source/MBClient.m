@@ -872,6 +872,23 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 }
 
+- (NSArray*) cachedAllHighlights
+{
+	@synchronized (self) {
+		NSMutableArray* copied_highlights = [NSMutableArray array];
+		for (id object in self.cachedHighlights ?: @[]) {
+			if (![object isKindOfClass:[MBHighlight class]]) {
+				continue;
+			}
+
+			[copied_highlights addObject:[self highlightCopy:(MBHighlight*) object]];
+		}
+
+		NSArray* sorted_highlights = [self sortedHighlightsFromHighlights:copied_highlights];
+		return sorted_highlights ?: @[];
+	}
+}
+
 - (void) mergeRemoteHighlightsIntoCache:(NSArray*) highlights
 {
 	if (![highlights isKindOfClass:[NSArray class]] || highlights.count == 0) {

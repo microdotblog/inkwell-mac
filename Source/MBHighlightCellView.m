@@ -92,9 +92,13 @@ static CGFloat const InkwellHighlightCellTrailingInset = 10.0;
 
 - (NSDictionary*) secondaryTextAttributes
 {
+	NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
+	paragraph_style.paragraphSpacingBefore = 3.0;
+
 	return @{
 		NSFontAttributeName: [NSFont systemFontOfSize:11.0],
-		NSForegroundColorAttributeName: NSColor.secondaryLabelColor
+		NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+		NSParagraphStyleAttributeName: paragraph_style
 	};
 }
 

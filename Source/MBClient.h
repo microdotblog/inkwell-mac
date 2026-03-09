@@ -40,6 +40,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (void) fetchHighlightsForEntryID:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion;
 - (void) createHighlightForEntryID:(NSInteger)entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end token:(NSString*) token completion:(void (^)(NSString* _Nullable highlight_id, NSError* _Nullable error))completion;
 - (void) deleteHighlight:(MBHighlight*) highlight token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion;
+- (NSArray* _Nullable) cachedAllHighlights;
 - (NSArray* _Nullable) cachedHighlightsForEntryID:(NSInteger) entry_id;
 - (void) mergeRemoteHighlightsIntoCache:(NSArray* _Nullable) highlights;
 - (MBHighlight* _Nullable) saveLocalHighlightForEntryID:(NSInteger) entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end;
