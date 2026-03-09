@@ -558,7 +558,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	CGFloat target_alpha = is_scrolled_down ? 1.0 : 0.0;
 
 	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
-		context.duration = 0.18;
+		context.duration = 0.3;
 		self.topBarView.animator.alphaValue = target_alpha;
 	} completionHandler:^{
 		if (animation_id != self.topBarAnimationID) {
