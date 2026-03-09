@@ -108,7 +108,9 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 @property (nonatomic, strong) NSTableView* tableView;
 @property (nonatomic, strong) NSImageView* avatarImageView;
 @property (nonatomic, strong) NSTextField* titleTextField;
+@property (nonatomic, strong) NSSearchField* searchField;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
+@property (nonatomic, strong) NSLayoutConstraint* progressIndicatorWidthConstraint;
 @property (nonatomic, copy) NSString* headerTitle;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
@@ -147,6 +149,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 - (void) dealloc
 {
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:NSControlTextDidChangeNotification object:self.searchField];
 }
 
 - (void) showWindow:(id)sender
@@ -155,11 +158,14 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	[self setupContentIfNeeded];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
+	[self focusHighlightsTable];
 }
 
 - (void) showHighlightsForEntry:(MBEntry*) entry
 {
 	if (entry == nil || entry.entryID <= 0) {
+		[self updateForSelectedEntry:nil];
+		[self showWindow:nil];
 		return;
 	}
 
@@ -281,6 +287,13 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	[title_text_field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 	[title_text_field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 
+	NSSearchField* search_field = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+	search_field.translatesAutoresizingMaskIntoConstraints = NO;
+	search_field.controlSize = NSControlSizeSmall;
+	search_field.placeholderString = @"Search all highlights";
+	[search_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[search_field setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+
 	NSProgressIndicator* progress_indicator = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
 	progress_indicator.translatesAutoresizingMaskIntoConstraints = NO;
 	progress_indicator.style = NSProgressIndicatorStyleSpinning;
@@ -290,8 +303,11 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	progress_indicator.hidden = YES;
 	[progress_indicator setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 
+	NSLayoutConstraint* progress_indicator_width_constraint = [progress_indicator.widthAnchor constraintEqualToConstant:0.0];
+
 	[top_container_view addSubview:avatar_image_view];
 	[top_container_view addSubview:title_text_field];
+	[top_container_view addSubview:search_field];
 	[top_container_view addSubview:progress_indicator];
 
 	MBHighlightsTableView* table_view = [[MBHighlightsTableView alloc] initWithFrame:NSZeroRect];
@@ -346,10 +362,14 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		[avatar_image_view.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
 		[avatar_image_view.widthAnchor constraintEqualToConstant:InkwellHighlightsAvatarSize],
 		[avatar_image_view.heightAnchor constraintEqualToConstant:InkwellHighlightsAvatarSize],
+		[search_field.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
+		[search_field.widthAnchor constraintEqualToConstant:170.0],
+		[search_field.trailingAnchor constraintEqualToAnchor:progress_indicator.leadingAnchor],
+		progress_indicator_width_constraint,
 		[progress_indicator.trailingAnchor constraintEqualToAnchor:top_container_view.trailingAnchor constant:-10.0],
 		[progress_indicator.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
 		[title_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:8.0],
-		[title_text_field.trailingAnchor constraintLessThanOrEqualToAnchor:progress_indicator.leadingAnchor constant:-10.0],
+		[title_text_field.trailingAnchor constraintLessThanOrEqualToAnchor:search_field.leadingAnchor constant:-8.0],
 		[title_text_field.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
 		[scroll_view.topAnchor constraintEqualToAnchor:top_container_view.bottomAnchor],
 		[scroll_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
@@ -360,8 +380,11 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	self.tableView = table_view;
 	self.avatarImageView = avatar_image_view;
 	self.titleTextField = title_text_field;
+	self.searchField = search_field;
 	self.progressIndicator = progress_indicator;
+	self.progressIndicatorWidthConstraint = progress_indicator_width_constraint;
 	self.didSetupContent = YES;
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(searchFieldTextDidChange:) name:NSControlTextDidChangeNotification object:search_field];
 	[self applyHeaderIfNeeded];
 	[self updateProgressIndicator];
 }
@@ -388,6 +411,15 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	MBHighlight* highlight = self.highlights[row];
 	[cell_view configureWithHighlight:highlight];
 	return cell_view;
+}
+
+- (BOOL) focusHighlightsTable
+{
+	if (self.tableView == nil || self.window == nil) {
+		return NO;
+	}
+
+	return [self.window makeFirstResponder:self.tableView];
 }
 
 - (NSTableRowView*) tableView:(NSTableView*) tableView rowViewForRow:(NSInteger) row
@@ -423,12 +455,16 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (void) applyHeaderIfNeeded
 {
+	BOOL shows_entry_header = (self.entryID > 0);
+
 	if (self.titleTextField != nil) {
-		self.titleTextField.stringValue = self.headerTitle ?: @"Highlights";
+		self.titleTextField.hidden = !shows_entry_header;
+		self.titleTextField.stringValue = shows_entry_header ? (self.headerTitle ?: @"Highlights") : @"";
 	}
 
 	if (self.avatarImageView != nil) {
-		self.avatarImageView.image = self.headerAvatarImage ?: [self defaultAvatarImage];
+		self.avatarImageView.hidden = !shows_entry_header;
+		self.avatarImageView.image = shows_entry_header ? (self.headerAvatarImage ?: [self defaultAvatarImage]) : nil;
 	}
 }
 
@@ -472,6 +508,39 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	if ([header_url_string isEqualToString:url_string]) {
 		[self updateHeaderAvatarImage];
 	}
+}
+
+- (void) searchFieldTextDidChange:(NSNotification*) notification
+{
+	NSSearchField* search_field = notification.object;
+	if (![search_field isKindOfClass:[NSSearchField class]]) {
+		return;
+	}
+
+	[self updateHighlightSearchWithText:(search_field.stringValue ?: @"")];
+}
+
+- (void) updateHighlightSearchWithText:(NSString*) search_text
+{
+	#pragma unused(search_text)
+}
+
+- (IBAction) performFindPanelAction:(id) sender
+{
+	if (![sender respondsToSelector:@selector(tag)]) {
+		return;
+	}
+
+	NSInteger action_tag = [(id) sender tag];
+	if (action_tag != NSFindPanelActionShowFindPanel) {
+		return;
+	}
+
+	if (self.searchField == nil) {
+		return;
+	}
+
+	[self.searchField selectText:nil];
 }
 
 - (NSDictionary<NSString*, NSString*>*) normalizedIconURLByHostFromMap:(NSDictionary<NSString*, NSString*>*) icons_by_host
@@ -821,17 +890,19 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (void) updateProgressIndicator
 {
-	if (self.progressIndicator == nil) {
+	if (self.progressIndicator == nil || self.progressIndicatorWidthConstraint == nil) {
 		return;
 	}
 
 	if (self.isFetching) {
+		self.progressIndicatorWidthConstraint.constant = 16.0;
 		self.progressIndicator.hidden = NO;
 		[self.progressIndicator startAnimation:nil];
 	}
 	else {
 		[self.progressIndicator stopAnimation:nil];
 		self.progressIndicator.hidden = YES;
+		self.progressIndicatorWidthConstraint.constant = 0.0;
 	}
 }
 

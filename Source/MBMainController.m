@@ -310,15 +310,11 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 {
 	#pragma unused(sender)
 
-	MBEntry* selected_item = [self.sidebarController selectedItem];
-	if (selected_item == nil || selected_item.entryID <= 0) {
-		return;
-	}
-
 	if (self.highlightsController == nil) {
 		self.highlightsController = [[MBHighlightsController alloc] initWithClient:self.client token:self.token];
 	}
 
+	MBEntry* selected_item = [self.sidebarController selectedItem];
 	[self.highlightsController showHighlightsForEntry:selected_item];
 }
 
@@ -638,8 +634,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 		return ([self.sidebarController selectedItem] != nil);
 	}
 	if (menu_item.action == @selector(showHighlights:)) {
-		MBEntry* selected_item = [self.sidebarController selectedItem];
-		return (selected_item != nil && selected_item.entryID > 0);
+		return YES;
 	}
 	if (menu_item.action == @selector(toggleSelectedItemReadState:)) {
 		menu_item.title = [self.sidebarController readToggleMenuTitle];

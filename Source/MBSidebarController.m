@@ -1441,8 +1441,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
 	}
 	if (menu_item.action == NSSelectorFromString(@"showHighlights:")) {
-		MBEntry* selected_item = [self selectedItem];
-		return (selected_item != nil && selected_item.entryID > 0);
+		return YES;
 	}
 
 	if (menu_item.action != @selector(openSelectedItemInBrowserAction:) && menu_item.action != @selector(copySelectedItemLinkAction:)) {
