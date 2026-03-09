@@ -14,8 +14,6 @@ static CGFloat const InkwellHighlightCellLeadingInset = 10.0;
 static CGFloat const InkwellHighlightCellTrailingInset = 10.0;
 @interface MBHighlightCellView ()
 
-@property (nonatomic, strong) NSDateFormatter* dateFormatter;
-
 @end
 
 @implementation MBHighlightCellView
@@ -106,14 +104,7 @@ static CGFloat const InkwellHighlightCellTrailingInset = 10.0;
 		return @"";
 	}
 
-	if (self.dateFormatter == nil) {
-		NSDateFormatter* date_formatter = [[NSDateFormatter alloc] init];
-		date_formatter.dateStyle = NSDateFormatterMediumStyle;
-		date_formatter.timeStyle = NSDateFormatterShortStyle;
-		self.dateFormatter = date_formatter;
-	}
-
-	return [self.dateFormatter stringFromDate:date_value] ?: @"";
+	return [NSDateFormatter localizedStringFromDate:date_value dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle] ?: @"";
 }
 
 - (void) viewDidChangeEffectiveAppearance

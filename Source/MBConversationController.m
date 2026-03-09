@@ -34,7 +34,6 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
 @property (nonatomic, assign) BOOL hasLoadedFeedIcons;
 @property (nonatomic, assign) BOOL isFetchingFeedIcons;
-@property (nonatomic, strong) NSDateFormatter* dateFormatter;
 @property (nonatomic, assign) BOOL didSetupContent;
 
 @end
@@ -507,14 +506,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		return @"";
 	}
 
-	if (self.dateFormatter == nil) {
-		NSDateFormatter* date_formatter = [[NSDateFormatter alloc] init];
-		date_formatter.dateStyle = NSDateFormatterMediumStyle;
-		date_formatter.timeStyle = NSDateFormatterShortStyle;
-		self.dateFormatter = date_formatter;
-	}
-
-	return [self.dateFormatter stringFromDate:date_value] ?: @"";
+	return [NSDateFormatter localizedStringFromDate:date_value dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle] ?: @"";
 }
 
 - (NSImage*) avatarImageForMention:(MBMention*) mention
