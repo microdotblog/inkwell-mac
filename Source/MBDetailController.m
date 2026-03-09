@@ -49,6 +49,18 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
 @end
 
+@interface MBDetailTopBarView : NSVisualEffectView
+@end
+
+@implementation MBDetailTopBarView
+
+- (BOOL) mouseDownCanMoveWindow
+{
+	return YES;
+}
+
+@end
+
 @interface MBWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
@@ -95,13 +107,12 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	NSView *root_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 780.0, 600.0)];
 	root_view.translatesAutoresizingMaskIntoConstraints = NO;
 
-	NSVisualEffectView *top_bar_view = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
+	MBDetailTopBarView* top_bar_view = [[MBDetailTopBarView alloc] initWithFrame:NSZeroRect];
 	top_bar_view.translatesAutoresizingMaskIntoConstraints = NO;
 	top_bar_view.blendingMode = NSVisualEffectBlendingModeWithinWindow;
 	top_bar_view.material = NSVisualEffectMaterialHeaderView;
 	top_bar_view.state = NSVisualEffectStateActive;
 	top_bar_view.alphaValue = 0.0;
-	top_bar_view.hidden = YES;
 
 	WKUserContentController* user_content_controller = [[WKUserContentController alloc] init];
 	self.selectionScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
@@ -546,7 +557,6 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	NSInteger animation_id = self.topBarAnimationID;
 	CGFloat target_alpha = is_scrolled_down ? 1.0 : 0.0;
 
-	self.topBarView.hidden = NO;
 	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
 		context.duration = 0.18;
 		self.topBarView.animator.alphaValue = target_alpha;
@@ -555,7 +565,6 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 			return;
 		}
 
-		self.topBarView.hidden = !self.isTopBarMaterialVisible;
 		self.topBarView.alphaValue = self.isTopBarMaterialVisible ? 1.0 : 0.0;
 	}];
 }
