@@ -18,6 +18,7 @@ static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
 static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
+static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -78,7 +79,11 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
 @property (strong) MBDetailWebView* webView;
 @property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
+@property (strong) MBWeakScriptMessageHandler* scrollScriptMessageHandler;
+@property (strong) NSVisualEffectView* topBarView;
 @property (assign) BOOL hasTextSelection;
+@property (assign) BOOL isTopBarMaterialVisible;
+@property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
 
 @end
@@ -95,13 +100,19 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	top_bar_view.blendingMode = NSVisualEffectBlendingModeWithinWindow;
 	top_bar_view.material = NSVisualEffectMaterialHeaderView;
 	top_bar_view.state = NSVisualEffectStateActive;
+	top_bar_view.alphaValue = 0.0;
+	top_bar_view.hidden = YES;
 
 	WKUserContentController* user_content_controller = [[WKUserContentController alloc] init];
 	self.selectionScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
+	self.scrollScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	[user_content_controller addScriptMessageHandler:self.selectionScriptMessageHandler name:InkwellSelectionChangedScriptMessageName];
+	[user_content_controller addScriptMessageHandler:self.scrollScriptMessageHandler name:InkwellScrollChangedScriptMessageName];
 
 	WKUserScript* selection_script = [[WKUserScript alloc] initWithSource:[self selectionObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:selection_script];
+	WKUserScript* scroll_script = [[WKUserScript alloc] initWithSource:[self scrollObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
+	[user_content_controller addUserScript:scroll_script];
 
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
 	configuration.userContentController = user_content_controller;
@@ -132,12 +143,14 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	]];
 
 	self.webView = web_view;
+	self.topBarView = top_bar_view;
 	self.view = root_view;
 }
 
 - (void) dealloc
 {
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellSelectionChangedScriptMessageName];
+	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellScrollChangedScriptMessageName];
 }
 
 - (BOOL) hasSelection
@@ -179,11 +192,13 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	#pragma unused(navigation)
 	[self refreshHighlights];
 	[self applyPreferredTextSettings];
+	[self updateTopBarMaterialForScrolledDown:NO];
 }
 
 - (void) showSidebarItem:(MBEntry * _Nullable)item
 {
 	[self updateSelectionState:NO];
+	[self updateTopBarMaterialForScrolledDown:NO];
 
 	if (item == nil) {
 		self.currentEntryID = 0;
@@ -219,6 +234,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 - (void) showReadingRecapHTML:(NSString*) html
 {
 	[self updateSelectionState:NO];
+	[self updateTopBarMaterialForScrolledDown:NO];
 	self.currentEntryID = 0;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
@@ -231,6 +247,14 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	#pragma unused(user_content_controller)
 
 	if (![script_message.name isEqualToString:InkwellSelectionChangedScriptMessageName]) {
+		if ([script_message.name isEqualToString:InkwellScrollChangedScriptMessageName]) {
+			BOOL is_scrolled_down = NO;
+			if ([script_message.body respondsToSelector:@selector(boolValue)]) {
+				is_scrolled_down = [(id) script_message.body boolValue];
+			}
+
+			[self updateTopBarMaterialForScrolledDown:is_scrolled_down];
+		}
 		return;
 	}
 
@@ -475,6 +499,26 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		"})();";
 }
 
+- (NSString*) scrollObserverScript
+{
+	return @"(function() {"
+		"if (window.__inkwellScrollObserverInstalled) { return; }"
+		"window.__inkwellScrollObserverInstalled = true;"
+		"function currentScrollTop() {"
+			"if (typeof window.scrollY === 'number') { return window.scrollY; }"
+			"if (document.documentElement && typeof document.documentElement.scrollTop === 'number') { return document.documentElement.scrollTop; }"
+			"if (document.body && typeof document.body.scrollTop === 'number') { return document.body.scrollTop; }"
+			"return 0;"
+		"}"
+		"function postScrollState() {"
+			"window.webkit.messageHandlers.scrollChanged.postMessage(currentScrollTop() > 1);"
+		"}"
+		"window.addEventListener('scroll', postScrollState, { passive: true });"
+		"window.addEventListener('load', postScrollState);"
+		"postScrollState();"
+		"})();";
+}
+
 - (void) updateSelectionState:(BOOL) has_selection
 {
 	if (self.hasTextSelection == has_selection) {
@@ -485,6 +529,35 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	if (self.selectionChangedHandler != nil) {
 		self.selectionChangedHandler(has_selection);
 	}
+}
+
+- (void) updateTopBarMaterialForScrolledDown:(BOOL) is_scrolled_down
+{
+	if (self.topBarView == nil) {
+		return;
+	}
+	
+	if (self.isTopBarMaterialVisible == is_scrolled_down) {
+		return;
+	}
+
+	self.isTopBarMaterialVisible = is_scrolled_down;
+	self.topBarAnimationID += 1;
+	NSInteger animation_id = self.topBarAnimationID;
+	CGFloat target_alpha = is_scrolled_down ? 1.0 : 0.0;
+
+	self.topBarView.hidden = NO;
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.18;
+		self.topBarView.animator.alphaValue = target_alpha;
+	} completionHandler:^{
+		if (animation_id != self.topBarAnimationID) {
+			return;
+		}
+
+		self.topBarView.hidden = !self.isTopBarMaterialVisible;
+		self.topBarView.alphaValue = self.isTopBarMaterialVisible ? 1.0 : 0.0;
+	}];
 }
 
 - (NSString*) preferredTextBackgroundHex
