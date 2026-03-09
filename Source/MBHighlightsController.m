@@ -6,6 +6,7 @@
 //
 
 #import "MBHighlightsController.h"
+#import "MBAvatarLoader.h"
 #import "MBClient.h"
 #import "MBEntry.h"
 #import "MBHighlight.h"
@@ -20,6 +21,58 @@ static CGFloat const InkwellHighlightsRowBackgroundHorizontalInset = 10.0;
 static CGFloat const InkwellHighlightsRowBackgroundVerticalInset = 2.5;
 static CGFloat const InkwellHighlightsRowCornerRadius = 10.0;
 static NSString* const InkwellHighlightColorName = @"color_highlight";
+
+@interface MBHighlightsTableView : NSTableView
+
+@property (copy, nullable) BOOL (^deleteSelectedHighlightHandler)(void);
+@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
+
+@end
+
+@implementation MBHighlightsTableView
+
+- (void) keyDown:(NSEvent*) event
+{
+	NSString* characters = event.charactersIgnoringModifiers ?: @"";
+	if (characters.length > 0) {
+		unichar key_code = [characters characterAtIndex:0];
+		NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+		BOOL has_command_modifier = ((modifier_flags & NSEventModifierFlagCommand) != 0);
+		BOOL has_other_modifiers = ((modifier_flags & (NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
+		BOOL is_delete_key = (key_code == NSDeleteCharacter || key_code == NSBackspaceCharacter || key_code == NSDeleteFunctionKey);
+		if (has_command_modifier && !has_other_modifiers && is_delete_key && self.deleteSelectedHighlightHandler != nil && self.deleteSelectedHighlightHandler()) {
+			return;
+		}
+	}
+
+	[super keyDown:event];
+}
+
+- (NSMenu*) menuForEvent:(NSEvent*) event
+{
+	if (self.contextMenuHandler == nil) {
+		return [super menuForEvent:event];
+	}
+
+	NSPoint point_in_window = event.locationInWindow;
+	NSPoint point_in_table = [self convertPoint:point_in_window fromView:nil];
+	NSInteger row = [self rowAtPoint:point_in_table];
+	if (row < 0 || row >= self.numberOfRows) {
+		return nil;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+	[self selectRowIndexes:index_set byExtendingSelection:NO];
+
+	NSMenu* menu = self.contextMenuHandler();
+	if (menu != nil) {
+		return menu;
+	}
+
+	return [super menuForEvent:event];
+}
+
+@end
 
 @interface MBHighlightsRowView : NSTableRowView
 @end
@@ -46,7 +99,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 @end
 
-@interface MBHighlightsController () <NSTableViewDataSource, NSTableViewDelegate>
+@interface MBHighlightsController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
 @property (nonatomic, strong) MBClient* client;
 @property (nonatomic, copy) NSString* token;
@@ -59,10 +112,10 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 @property (nonatomic, copy) NSString* headerTitle;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
+@property (nonatomic, copy) NSString* entryTitleForPost;
+@property (nonatomic, copy) NSString* entryURLString;
 @property (nonatomic, copy) NSDictionary<NSString*, NSString*>* iconURLByHost;
-@property (nonatomic, strong) NSMutableDictionary<NSString*, NSImage*>* iconImageByHost;
-@property (nonatomic, strong) NSMutableSet<NSString*>* hostsWithPendingImageRequests;
-@property (nonatomic, strong) NSURLSession* imageSession;
+@property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, assign) BOOL hasLoadedFeedIcons;
 @property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, assign) BOOL didSetupContent;
@@ -79,15 +132,21 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		self.client = client;
 		self.token = token ?: @"";
 		self.highlights = @[];
+		self.avatarLoader = [MBAvatarLoader sharedLoader];
 		self.headerTitle = @"Highlights";
 		self.headerAvatarImage = [self defaultAvatarImage];
 		self.headerFeedHost = @"";
+		self.entryTitleForPost = @"";
+		self.entryURLString = @"";
 		self.iconURLByHost = @{};
-		self.iconImageByHost = [NSMutableDictionary dictionary];
-		self.hostsWithPendingImageRequests = [NSMutableSet set];
-		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 }
 
 - (void) showWindow:(id)sender
@@ -119,6 +178,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	self.headerTitle = [NSString stringWithFormat:@"Post %ld", (long) entry_id];
 	self.headerFeedHost = @"";
 	self.headerAvatarImage = [self defaultAvatarImage];
+	self.entryTitleForPost = @"";
+	self.entryURLString = @"";
 	[self showWindow:nil];
 	[self applyHeaderIfNeeded];
 	[self reloadHighlights];
@@ -131,6 +192,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		self.headerTitle = @"Highlights";
 		self.headerFeedHost = @"";
 		self.headerAvatarImage = [self defaultAvatarImage];
+		self.entryTitleForPost = @"";
+		self.entryURLString = @"";
 		[self setFetchingState:NO];
 		self.highlights = @[];
 		[self applyHeaderIfNeeded];
@@ -231,7 +294,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	[top_container_view addSubview:title_text_field];
 	[top_container_view addSubview:progress_indicator];
 
-	NSTableView* table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
+	MBHighlightsTableView* table_view = [[MBHighlightsTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
 	table_view.dataSource = self;
@@ -243,6 +306,22 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	table_view.usesAutomaticRowHeights = NO;
 	table_view.allowsMultipleSelection = NO;
 	table_view.allowsEmptySelection = YES;
+
+	__weak typeof(self) weak_self = self;
+	table_view.deleteSelectedHighlightHandler = ^BOOL {
+		MBHighlightsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+		return [strong_self handleDeleteShortcut];
+	};
+	table_view.contextMenuHandler = ^NSMenu* {
+		MBHighlightsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return nil;
+		}
+		return [strong_self highlightContextMenu];
+	};
 
 	NSTableColumn* content_column = [[NSTableColumn alloc] initWithIdentifier:@"HighlightsColumn"];
 	content_column.resizingMask = NSTableColumnAutoresizingMask;
@@ -336,6 +415,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	self.headerTitle = title_string;
 	self.headerFeedHost = [self normalizedHostString:entry.feedHost ?: @""];
 	self.headerAvatarImage = [self avatarImageForHost:self.headerFeedHost];
+	self.entryTitleForPost = title_string;
+	self.entryURLString = [entry.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	[self applyHeaderIfNeeded];
 	[self fetchFeedIconsIfNeeded];
 }
@@ -380,6 +461,19 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	[self applyHeaderIfNeeded];
 }
 
+- (void) avatarImageDidLoad:(NSNotification*) notification
+{
+	NSString* url_string = notification.userInfo[MBAvatarLoaderURLStringUserInfoKey];
+	if (![url_string isKindOfClass:[NSString class]] || url_string.length == 0) {
+		return;
+	}
+
+	NSString* header_url_string = [self avatarURLStringForHost:self.headerFeedHost];
+	if ([header_url_string isEqualToString:url_string]) {
+		[self updateHeaderAvatarImage];
+	}
+}
+
 - (NSDictionary<NSString*, NSString*>*) normalizedIconURLByHostFromMap:(NSDictionary<NSString*, NSString*>*) icons_by_host
 {
 	if (icons_by_host.count == 0) {
@@ -404,6 +498,262 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	return [normalized_icons_by_host copy];
 }
 
+- (BOOL) handleDeleteShortcut
+{
+	if (![self canDeleteSelectedHighlight]) {
+		return NO;
+	}
+
+	[self promptToDeleteSelectedHighlight:nil];
+	return YES;
+}
+
+- (NSMenu*) highlightContextMenu
+{
+	NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Highlights"];
+
+	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:@selector(newPostFromSelectedHighlight:) keyEquivalent:@""];
+	new_post_item.target = self;
+	[menu addItem:new_post_item];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+
+	NSMenuItem* delete_item = [[NSMenuItem alloc] initWithTitle:@"Delete" action:@selector(promptToDeleteSelectedHighlight:) keyEquivalent:@""];
+	delete_item.target = self;
+	[menu addItem:delete_item];
+
+	NSMenuItem* copy_item = [[NSMenuItem alloc] initWithTitle:@"Copy Text" action:@selector(copySelectedHighlight:) keyEquivalent:@""];
+	copy_item.target = self;
+	[menu addItem:copy_item];
+
+	return menu;
+}
+
+- (MBHighlight* _Nullable) selectedHighlight
+{
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.highlights.count) {
+		return nil;
+	}
+
+	id object = self.highlights[selected_row];
+	if (![object isKindOfClass:[MBHighlight class]]) {
+		return nil;
+	}
+
+	return (MBHighlight*) object;
+}
+
+- (BOOL) canDeleteSelectedHighlight
+{
+	return [self canDeleteHighlight:[self selectedHighlight]];
+}
+
+- (BOOL) canDeleteHighlight:(MBHighlight*) highlight
+{
+	if (self.isFetching || self.client == nil || self.token.length == 0) {
+		return NO;
+	}
+	if (![highlight isKindOfClass:[MBHighlight class]] || highlight.entryID <= 0) {
+		return NO;
+	}
+
+	NSString* highlight_id = [highlight.highlightID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (highlight_id.length > 0);
+}
+
+- (BOOL) canCopySelectedHighlight
+{
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return NO;
+	}
+
+	NSString* selection_text = highlight.selectionText ?: @"";
+	return (selection_text.length > 0);
+}
+
+- (BOOL) canCreatePostFromSelectedHighlight
+{
+	if (self.entryURLString.length == 0 || self.entryTitleForPost.length == 0) {
+		return NO;
+	}
+
+	return [self canCopySelectedHighlight];
+}
+
+- (IBAction) newPostFromSelectedHighlight:(id) sender
+{
+	#pragma unused(sender)
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return;
+	}
+
+	NSString* markdown_text = [self markdownTextForNewPostFromHighlight:highlight];
+	if (markdown_text.length == 0) {
+		return;
+	}
+
+	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+	[allowed_character_set removeCharactersInString:@":#[]@!$&'()*+,;=/?"];
+	NSString* encoded_text = [markdown_text stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
+	if (encoded_text.length == 0) {
+		return;
+	}
+
+	BOOL has_microblog_app = ([[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"blog.micro.mac"] != nil);
+	NSString* open_url_string = nil;
+	if (has_microblog_app) {
+		open_url_string = [NSString stringWithFormat:@"microblog://post?text=%@", encoded_text];
+	}
+	else {
+		open_url_string = [NSString stringWithFormat:@"https://micro.blog/post?text=%@", encoded_text];
+	}
+
+	NSURL* open_url = [NSURL URLWithString:open_url_string];
+	if (open_url == nil) {
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:open_url];
+}
+
+- (IBAction) promptToDeleteSelectedHighlight:(id) sender
+{
+	#pragma unused(sender)
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![self canDeleteHighlight:highlight] || self.window == nil) {
+		return;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Delete Highlight?";
+	alert.informativeText = @"This will delete the selected highlight from the server.";
+	[alert addButtonWithTitle:@"Delete"];
+	[alert addButtonWithTitle:@"Cancel"];
+
+	__weak typeof(self) weak_self = self;
+	[alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse return_code) {
+		if (return_code != NSAlertFirstButtonReturn) {
+			return;
+		}
+
+		MBHighlightsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self deleteHighlight:highlight];
+	}];
+}
+
+- (IBAction) copySelectedHighlight:(id) sender
+{
+	#pragma unused(sender)
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return;
+	}
+
+	NSString* selection_text = highlight.selectionText ?: @"";
+	if (selection_text.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:selection_text forType:NSPasteboardTypeString];
+}
+
+- (void) deleteHighlight:(MBHighlight*) highlight
+{
+	if (![self canDeleteHighlight:highlight]) {
+		return;
+	}
+
+	[self setFetchingState:YES];
+
+	__weak typeof(self) weak_self = self;
+	[self.client deleteHighlight:highlight token:self.token completion:^(NSError* _Nullable error) {
+		MBHighlightsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self setFetchingState:NO];
+		if (error != nil) {
+			[strong_self presentDeleteError:error];
+			return;
+		}
+
+		[strong_self reloadHighlights];
+	}];
+}
+
+- (void) presentDeleteError:(NSError*) error
+{
+	if (error == nil || self.window == nil) {
+		return;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Delete Failed";
+	alert.informativeText = error.localizedDescription ?: @"The highlight could not be deleted.";
+	[alert beginSheetModalForWindow:self.window completionHandler:nil];
+}
+
+- (NSString*) markdownTextForNewPostFromHighlight:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return @"";
+	}
+
+	NSString* title_string = [self.entryTitleForPost stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* url_string = [self.entryURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* selection_text = highlight.selectionText ?: @"";
+	NSString* blockquote_text = [self blockquoteMarkdownFromText:selection_text];
+	if (title_string.length == 0 || url_string.length == 0 || blockquote_text.length == 0) {
+		return @"";
+	}
+
+	return [NSString stringWithFormat:@"[%@](%@):\n\n%@", title_string, url_string, blockquote_text];
+}
+
+- (NSString*) blockquoteMarkdownFromText:(NSString*) text_string
+{
+	NSString* normalized_text = [text_string stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"] ?: @"";
+	normalized_text = [normalized_text stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"] ?: @"";
+	if (normalized_text.length == 0) {
+		return @"";
+	}
+
+	NSArray* lines = [normalized_text componentsSeparatedByString:@"\n"];
+	NSMutableArray* quoted_lines = [NSMutableArray array];
+	for (NSString* line in lines) {
+		[quoted_lines addObject:[NSString stringWithFormat:@"> %@", line ?: @""]];
+	}
+
+	return [quoted_lines componentsJoinedByString:@"\n"] ?: @"";
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	if (menu_item.action == @selector(newPostFromSelectedHighlight:)) {
+		return [self canCreatePostFromSelectedHighlight];
+	}
+	if (menu_item.action == @selector(promptToDeleteSelectedHighlight:)) {
+		return [self canDeleteSelectedHighlight];
+	}
+	if (menu_item.action == @selector(copySelectedHighlight:)) {
+		return [self canCopySelectedHighlight];
+	}
+
+	return YES;
+}
+
 - (NSString*) normalizedHostString:(NSString*) host_string
 {
 	if (host_string.length == 0) {
@@ -423,60 +773,24 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (NSImage*) avatarImageForHost:(NSString*) host_value
 {
-	if (host_value.length == 0) {
+	NSString* icon_url_string = [self avatarURLStringForHost:host_value];
+	if (icon_url_string.length == 0) {
 		return [self defaultAvatarImage];
 	}
 
-	NSImage* cached_image = self.iconImageByHost[host_value];
+	NSImage* cached_image = [self.avatarLoader cachedImageForURLString:icon_url_string];
 	if (cached_image != nil) {
 		return cached_image;
 	}
 
-	NSString* icon_url_string = self.iconURLByHost[host_value];
-	if (icon_url_string.length > 0) {
-		[self requestAvatarImageForHost:host_value urlString:icon_url_string];
-	}
-
+	[self.avatarLoader loadImageForURLString:icon_url_string];
 	return [self defaultAvatarImage];
 }
 
-- (void) requestAvatarImageForHost:(NSString*) host_value urlString:(NSString*) url_string
+- (NSString*) avatarURLStringForHost:(NSString*) host_value
 {
-	if (host_value.length == 0 || url_string.length == 0) {
-		return;
-	}
-
-	if (self.iconImageByHost[host_value] != nil || [self.hostsWithPendingImageRequests containsObject:host_value]) {
-		return;
-	}
-
-	NSURL* image_url = [NSURL URLWithString:url_string];
-	if (image_url == nil) {
-		return;
-	}
-
-	[self.hostsWithPendingImageRequests addObject:host_value];
-
-	NSURLSessionDataTask* task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		#pragma unused(response)
-		NSImage* image_value = nil;
-		if (error == nil && data.length > 0) {
-			image_value = [[NSImage alloc] initWithData:data];
-		}
-
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[self.hostsWithPendingImageRequests removeObject:host_value];
-			if (image_value == nil) {
-				return;
-			}
-
-			self.iconImageByHost[host_value] = image_value;
-			if ([self.headerFeedHost isEqualToString:host_value]) {
-				[self updateHeaderAvatarImage];
-			}
-		});
-	}];
-	[task resume];
+	NSString* icon_url_string = self.iconURLByHost[host_value] ?: @"";
+	return [icon_url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 }
 
 - (NSImage*) defaultAvatarImage

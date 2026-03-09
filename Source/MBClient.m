@@ -796,6 +796,56 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[task resume];
 }
 
+- (void) deleteHighlight:(MBHighlight*) highlight token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion
+{
+	if (![highlight isKindOfClass:[MBHighlight class]] || highlight.entryID <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1030 userInfo:@{ NSLocalizedDescriptionKey: @"Missing highlight for delete request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* highlight_id = [self normalizedRemoteHighlightIDForHighlight:highlight];
+	if (highlight_id.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1031 userInfo:@{ NSLocalizedDescriptionKey: @"This highlight has not been synced yet, so it can't be deleted from the server." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1032 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for delete highlight request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* encoded_highlight_id = [self urlEncodedString:highlight_id];
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/highlights/%@", MBFeedsEndpointBase, (long) highlight.entryID, encoded_highlight_id];
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
+	request.HTTPMethod = @"DELETE";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Delete highlight request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self removeHighlightFromCache:highlight];
+		[self finishWithSimpleError:nil completion:completion];
+	}];
+	[task resume];
+}
+
 - (NSArray*) cachedHighlightsForEntryID:(NSInteger) entry_id
 {
 	if (entry_id <= 0) {
@@ -916,6 +966,34 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 			}
 			updated_highlights[i] = updated_highlight;
 			break;
+		}
+
+		NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:updated_highlights];
+		self.cachedHighlights = normalized_highlights ?: @[];
+		[self cacheHighlights:self.cachedHighlights];
+	}
+}
+
+- (void) removeHighlightFromCache:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return;
+	}
+
+	@synchronized (self) {
+		NSMutableArray* updated_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
+		for (NSInteger i = ((NSInteger) updated_highlights.count - 1); i >= 0; i--) {
+			id object = updated_highlights[i];
+			if (![object isKindOfClass:[MBHighlight class]]) {
+				continue;
+			}
+
+			MBHighlight* cached_highlight = (MBHighlight*) object;
+			if (![self isSameStoredHighlight:cached_highlight other:highlight]) {
+				continue;
+			}
+
+			[updated_highlights removeObjectAtIndex:i];
 		}
 
 		NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:updated_highlights];

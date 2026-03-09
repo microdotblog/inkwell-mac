@@ -67,7 +67,7 @@ static CGFloat const InkwellHighlightCellTrailingInset = 10.0;
 	text_field.lineBreakMode = NSLineBreakByWordWrapping;
 	text_field.maximumNumberOfLines = 3;
 	text_field.usesSingleLineMode = NO;
-	text_field.selectable = YES;
+	text_field.selectable = NO;
 	[self addSubview:text_field];
 
 	[NSLayoutConstraint activateConstraints:@[

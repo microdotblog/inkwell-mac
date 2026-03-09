@@ -6,6 +6,7 @@
 //
 
 #import "MBConversationController.h"
+#import "MBAvatarLoader.h"
 #import "MBClient.h"
 #import "MBConversationCellView.h"
 #import "MBEntry.h"
@@ -26,15 +27,11 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, strong) NSTableView* tableView;
 @property (nonatomic, strong) NSImageView* headerAvatarImageView;
 @property (nonatomic, strong) NSTextField* headerTitleTextField;
-@property (nonatomic, strong) NSURLSession* imageSession;
-@property (nonatomic, strong) NSMutableDictionary* avatarImageByURL;
-@property (nonatomic, strong) NSMutableSet* pendingAvatarURLStrings;
+@property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, copy) NSString* headerTitle;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
-@property (nonatomic, strong) NSMutableDictionary* iconImageByHost;
-@property (nonatomic, strong) NSMutableSet* hostsWithPendingImageRequests;
 @property (nonatomic, assign) BOOL hasLoadedFeedIcons;
 @property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, strong) NSDateFormatter* dateFormatter;
@@ -57,17 +54,19 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.token = token ?: @"";
 		self.conversationPayload = @{};
 		self.mentions = @[];
+		self.avatarLoader = [MBAvatarLoader sharedLoader];
 		self.headerTitle = @"Conversation";
 		self.headerAvatarImage = [self defaultHeaderAvatarImage];
 		self.headerFeedHost = @"";
 		self.iconURLByHost = @{};
-		self.iconImageByHost = [NSMutableDictionary dictionary];
-		self.hostsWithPendingImageRequests = [NSMutableSet set];
-		self.avatarImageByURL = [NSMutableDictionary dictionary];
-		self.pendingAvatarURLStrings = [NSMutableSet set];
-		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 }
 
 - (void) showWindow:(id)sender
@@ -302,6 +301,27 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	[self applyHeaderIfNeeded];
 }
 
+- (void) avatarImageDidLoad:(NSNotification*) notification
+{
+	NSString* url_string = [self stringValueFromObject:notification.userInfo[MBAvatarLoaderURLStringUserInfoKey]];
+	if (url_string.length == 0) {
+		return;
+	}
+
+	NSString* header_url_string = [self headerAvatarURLStringForHost:self.headerFeedHost];
+	if ([header_url_string isEqualToString:url_string]) {
+		[self updateHeaderAvatarImage];
+	}
+
+	for (MBMention* mention in self.mentions) {
+		NSString* mention_avatar_url = [mention.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([mention_avatar_url isEqualToString:url_string]) {
+			[self.tableView reloadData];
+			break;
+		}
+	}
+}
+
 - (NSDictionary*) normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host
 {
 	if (icons_by_host.count == 0) {
@@ -345,60 +365,24 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 - (NSImage*) headerAvatarImageForHost:(NSString*) host_value
 {
-	if (host_value.length == 0) {
+	NSString* icon_url_string = [self headerAvatarURLStringForHost:host_value];
+	if (icon_url_string.length == 0) {
 		return [self defaultHeaderAvatarImage];
 	}
 
-	NSImage* cached_image = self.iconImageByHost[host_value];
+	NSImage* cached_image = [self.avatarLoader cachedImageForURLString:icon_url_string];
 	if (cached_image != nil) {
 		return cached_image;
 	}
 
-	NSString* icon_url_string = [self stringValueFromObject:self.iconURLByHost[host_value]];
-	if (icon_url_string.length > 0) {
-		[self requestHeaderAvatarImageForHost:host_value urlString:icon_url_string];
-	}
-
+	[self.avatarLoader loadImageForURLString:icon_url_string];
 	return [self defaultHeaderAvatarImage];
 }
 
-- (void) requestHeaderAvatarImageForHost:(NSString*) host_value urlString:(NSString*) url_string
+- (NSString*) headerAvatarURLStringForHost:(NSString*) host_value
 {
-	if (host_value.length == 0 || url_string.length == 0) {
-		return;
-	}
-
-	if (self.iconImageByHost[host_value] != nil || [self.hostsWithPendingImageRequests containsObject:host_value]) {
-		return;
-	}
-
-	NSURL* image_url = [NSURL URLWithString:url_string];
-	if (image_url == nil) {
-		return;
-	}
-
-	[self.hostsWithPendingImageRequests addObject:host_value];
-
-	NSURLSessionDataTask* task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		#pragma unused(response)
-		NSImage* image_value = nil;
-		if (error == nil && data.length > 0) {
-			image_value = [[NSImage alloc] initWithData:data];
-		}
-
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[self.hostsWithPendingImageRequests removeObject:host_value];
-			if (image_value == nil) {
-				return;
-			}
-
-			self.iconImageByHost[host_value] = image_value;
-			if ([self.headerFeedHost isEqualToString:host_value]) {
-				[self updateHeaderAvatarImage];
-			}
-		});
-	}];
-	[task resume];
+	NSString* icon_url_string = [self stringValueFromObject:self.iconURLByHost[host_value]];
+	return [icon_url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 }
 
 - (NSArray*) mentionsFromConversationPayload:(NSDictionary*) conversation_payload
@@ -540,57 +524,13 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		return [self defaultAvatarImage];
 	}
 
-	NSImage* cached_image = self.avatarImageByURL[avatar_url];
+	NSImage* cached_image = [self.avatarLoader cachedImageForURLString:avatar_url];
 	if (cached_image != nil) {
 		return cached_image;
 	}
 
-	[self requestAvatarImageForURLString:avatar_url];
+	[self.avatarLoader loadImageForURLString:avatar_url];
 	return [self defaultAvatarImage];
-}
-
-- (void) requestAvatarImageForURLString:(NSString*) avatar_url
-{
-	if (avatar_url.length == 0) {
-		return;
-	}
-	if (self.avatarImageByURL[avatar_url] != nil) {
-		return;
-	}
-	if ([self.pendingAvatarURLStrings containsObject:avatar_url]) {
-		return;
-	}
-
-	NSURL* image_url = [NSURL URLWithString:avatar_url];
-	if (image_url == nil) {
-		return;
-	}
-
-	[self.pendingAvatarURLStrings addObject:avatar_url];
-	__weak typeof(self) weak_self = self;
-	NSURLSessionDataTask* task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		#pragma unused(response)
-		MBConversationController* strong_self = weak_self;
-		if (strong_self == nil) {
-			return;
-		}
-
-		NSImage* image_value = nil;
-		if (error == nil && data.length > 0) {
-			image_value = [[NSImage alloc] initWithData:data];
-		}
-
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[strong_self.pendingAvatarURLStrings removeObject:avatar_url];
-			if (image_value == nil) {
-				return;
-			}
-
-			strong_self.avatarImageByURL[avatar_url] = image_value;
-			[strong_self.tableView reloadData];
-		});
-	}];
-	[task resume];
 }
 
 - (NSImage*) defaultAvatarImage
