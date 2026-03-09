@@ -16,6 +16,7 @@ static CGFloat const InkwellPreferencesSettingsLabelFontSize = 15.0;
 static CGFloat const InkwellPreferencesSectionLeadingInset = 33.0;
 static CGFloat const InkwellPreferencesSectionTopSpacing = 19.0;
 static CGFloat const InkwellPreferencesRowSpacing = 16.0;
+static CGFloat const InkwellPreferencesWindowHeight = 235.0;
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -54,6 +55,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 {
 	[self setupWindowIfNeeded];
 	[self setupContentIfNeeded];
+	[self applyWindowHeightIfNeeded];
 	[self reloadFromDefaults];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
@@ -65,14 +67,28 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		return;
 	}
 
-	NSRect frame = NSMakeRect(250.0, 250.0, 430.0, 390.0);
+	NSRect frame = NSMakeRect(250.0, 250.0, 430.0, InkwellPreferencesWindowHeight);
 	NSUInteger style_mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
 	NSWindow* window = [[NSWindow alloc] initWithContentRect:frame styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
 	window.title = @"Preferences";
 	window.releasedWhenClosed = NO;
-	window.minSize = NSMakeSize(390.0, 360.0);
+	window.minSize = NSMakeSize(390.0, InkwellPreferencesWindowHeight);
 	[window setFrameAutosaveName:@"PreferencesWindow"];
 	self.window = window;
+}
+
+- (void) applyWindowHeightIfNeeded
+{
+	if (self.window == nil || self.window.contentView == nil) {
+		return;
+	}
+
+	NSSize content_size = self.window.contentView.frame.size;
+	if (fabs(content_size.height - InkwellPreferencesWindowHeight) < 0.5) {
+		return;
+	}
+
+	[self.window setContentSize:NSMakeSize(content_size.width, InkwellPreferencesWindowHeight)];
 }
 
 - (void) setupContentIfNeeded
