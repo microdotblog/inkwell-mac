@@ -587,12 +587,12 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 		MBHighlight* highlight = (MBHighlight*) object;
 		NSString* selection_text = [highlight.selectionText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-		if (selection_text.length == 0) {
-			continue;
-		}
-
-		NSRange match_range = [selection_text rangeOfString:trimmed_query options:compare_options];
-		if (match_range.location == NSNotFound) {
+		NSString* post_title = [highlight.postTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		NSString* post_url = [highlight.postURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		BOOL matches_selection_text = (selection_text.length > 0 && [selection_text rangeOfString:trimmed_query options:compare_options].location != NSNotFound);
+		BOOL matches_post_title = (post_title.length > 0 && [post_title rangeOfString:trimmed_query options:compare_options].location != NSNotFound);
+		BOOL matches_post_url = (post_url.length > 0 && [post_url rangeOfString:trimmed_query options:compare_options].location != NSNotFound);
+		if (!matches_selection_text && !matches_post_title && !matches_post_url) {
 			continue;
 		}
 
@@ -703,15 +703,14 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (BOOL) canCreatePostFromSelectedHighlight
 {
-	if ([self hasActiveSearchQuery]) {
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
 		return NO;
 	}
 
-	if (self.entryURLString.length == 0 || self.entryTitleForPost.length == 0) {
-		return NO;
-	}
-
-	return [self canCopySelectedHighlight];
+	NSString* title_string = [self titleForHighlight:highlight];
+	NSString* url_string = [self URLStringForHighlight:highlight];
+	return (title_string.length > 0 && url_string.length > 0 && [self canCopySelectedHighlight]);
 }
 
 - (IBAction) newPostFromSelectedHighlight:(id) sender
@@ -843,8 +842,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		return @"";
 	}
 
-	NSString* title_string = [self.entryTitleForPost stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	NSString* url_string = [self.entryURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* title_string = [self titleForHighlight:highlight];
+	NSString* url_string = [self URLStringForHighlight:highlight];
 	NSString* selection_text = highlight.selectionText ?: @"";
 	NSString* blockquote_text = [self blockquoteMarkdownFromText:selection_text];
 	if (title_string.length == 0 || url_string.length == 0 || blockquote_text.length == 0) {
@@ -852,6 +851,34 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	return [NSString stringWithFormat:@"[%@](%@):\n\n%@", title_string, url_string, blockquote_text];
+}
+
+- (NSString*) titleForHighlight:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return @"";
+	}
+
+	NSString* title_string = [highlight.postTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title_string.length == 0 && highlight.entryID == self.entryID) {
+		title_string = [self.entryTitleForPost stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	return title_string;
+}
+
+- (NSString*) URLStringForHighlight:(MBHighlight*) highlight
+{
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return @"";
+	}
+
+	NSString* url_string = [highlight.postURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0 && highlight.entryID == self.entryID) {
+		url_string = [self.entryURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	return url_string;
 }
 
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string

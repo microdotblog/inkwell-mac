@@ -735,7 +735,12 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 			return;
 		}
 
-		MBHighlight* local_highlight = [weak_self.client saveLocalHighlightForEntryID:selected_entry_id selectionText:trimmed_selection_text selectionStart:selection_start selectionEnd:selection_end];
+		NSString* post_title = [selected_item.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (post_title.length == 0) {
+			post_title = [selected_item.subscriptionTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		}
+		NSString* post_url = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		MBHighlight* local_highlight = [weak_self.client saveLocalHighlightForEntryID:selected_entry_id postTitle:post_title postURL:post_url selectionText:trimmed_selection_text selectionStart:selection_start selectionEnd:selection_end];
 		if (local_highlight == nil) {
 			return;
 		}

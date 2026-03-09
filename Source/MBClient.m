@@ -919,13 +919,15 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 }
 
-- (MBHighlight*) saveLocalHighlightForEntryID:(NSInteger) entry_id selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end
+- (MBHighlight*) saveLocalHighlightForEntryID:(NSInteger) entry_id postTitle:(NSString*) post_title postURL:(NSString*) post_url selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end
 {
 	if (entry_id <= 0) {
 		return nil;
 	}
 
 	NSString* trimmed_selection_text = [selection_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* trimmed_post_title = [post_title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* trimmed_post_url = [post_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (trimmed_selection_text.length == 0) {
 		return nil;
 	}
@@ -935,6 +937,8 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	local_highlight.localID = [self generatedLocalHighlightID];
 	local_highlight.highlightID = @"";
 	local_highlight.selectionText = trimmed_selection_text;
+	local_highlight.postTitle = trimmed_post_title;
+	local_highlight.postURL = trimmed_post_url;
 	local_highlight.selectionStart = MAX(0, selection_start);
 	local_highlight.selectionEnd = MAX(local_highlight.selectionStart + 1, selection_end);
 	local_highlight.updatedDate = [NSDate date];
@@ -1322,7 +1326,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 
 	NSDictionary* payload = @{
-		@"version": @1,
+		@"version": @2,
 		@"items": serialized_highlights
 	};
 	NSData* data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
@@ -1363,6 +1367,14 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		selection_text = [self stringValueFromObject:dictionary[@"text"]];
 	}
 	highlight.selectionText = selection_text ?: @"";
+	highlight.postTitle = [self stringValueFromObject:dictionary[@"title"]];
+	if (highlight.postTitle.length == 0) {
+		highlight.postTitle = [self stringValueFromObject:dictionary[@"post_title"]];
+	}
+	highlight.postURL = [self stringValueFromObject:dictionary[@"url"]];
+	if (highlight.postURL.length == 0) {
+		highlight.postURL = [self stringValueFromObject:dictionary[@"post_url"]];
+	}
 
 	NSInteger selection_start = [self integerValueFromObject:dictionary[@"selection_start"]];
 	NSInteger selection_end = [self integerValueFromObject:dictionary[@"selection_end"]];
@@ -1417,6 +1429,12 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	dictionary[@"selection_text"] = highlight.selectionText ?: @"";
 	dictionary[@"selection_start"] = @(MAX(0, highlight.selectionStart));
 	dictionary[@"selection_end"] = @(MAX(MAX(0, highlight.selectionStart) + 1, highlight.selectionEnd));
+	if (highlight.postTitle.length > 0) {
+		dictionary[@"title"] = highlight.postTitle;
+	}
+	if (highlight.postURL.length > 0) {
+		dictionary[@"url"] = highlight.postURL;
+	}
 
 	if (highlight.updatedDate != nil) {
 		dictionary[@"updated_at"] = [[self iso8601Formatter] stringFromDate:highlight.updatedDate] ?: @"";
@@ -1455,6 +1473,8 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	copied_highlight.localID = highlight.localID ?: @"";
 	copied_highlight.highlightID = highlight.highlightID ?: @"";
 	copied_highlight.selectionText = highlight.selectionText ?: @"";
+	copied_highlight.postTitle = highlight.postTitle ?: @"";
+	copied_highlight.postURL = highlight.postURL ?: @"";
 	copied_highlight.selectionStart = highlight.selectionStart;
 	copied_highlight.selectionEnd = highlight.selectionEnd;
 	copied_highlight.updatedDate = highlight.updatedDate;
@@ -1564,6 +1584,14 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	NSString* incoming_text = incoming_highlight.selectionText ?: @"";
 	if (incoming_text.length > 0) {
 		merged_highlight.selectionText = incoming_text;
+	}
+	NSString* incoming_title = incoming_highlight.postTitle ?: @"";
+	if (incoming_title.length > 0) {
+		merged_highlight.postTitle = incoming_title;
+	}
+	NSString* incoming_url_string = incoming_highlight.postURL ?: @"";
+	if (incoming_url_string.length > 0) {
+		merged_highlight.postURL = incoming_url_string;
 	}
 
 	NSInteger incoming_start = MAX(0, incoming_highlight.selectionStart);
@@ -1714,6 +1742,8 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		highlight.localID = [self stringValueFromObjectOrNumber:item[@"id"]];
 		highlight.highlightID = highlight.localID;
 		highlight.selectionText = [self stringValueFromObject:item[@"content_text"]];
+		highlight.postTitle = [self stringValueFromObject:item[@"title"]];
+		highlight.postURL = [self stringValueFromObject:item[@"url"]];
 		highlight.selectionStart = [self integerValueFromObject:microblog_dictionary[@"selection_start"]];
 		highlight.selectionEnd = [self integerValueFromObject:microblog_dictionary[@"selection_end"]];
 

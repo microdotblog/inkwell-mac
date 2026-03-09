@@ -15,6 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString* localID;
 @property (nonatomic, copy, nullable) NSString* highlightID;
 @property (nonatomic, copy, nullable) NSString* selectionText;
+@property (nonatomic, copy, nullable) NSString* postTitle;
+@property (nonatomic, copy, nullable) NSString* postURL;
 @property (nonatomic, assign) NSInteger selectionStart;
 @property (nonatomic, assign) NSInteger selectionEnd;
 @property (nonatomic, strong, nullable) NSDate* updatedDate;
