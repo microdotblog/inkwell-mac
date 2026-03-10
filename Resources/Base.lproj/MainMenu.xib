@@ -18,6 +18,7 @@
             </connections>
         </customObject>
         <customObject id="YLy-65-1bz" customClass="NSFontManager"/>
+        <customObject id="ZU2-zB-BSq" customClass="SPUStandardUpdaterController"/>
         <menu title="Main Menu" systemMenu="main" id="AYu-sK-qS6">
             <items>
                 <menuItem title="Inkwell" id="1Xt-HY-uBw">
@@ -28,6 +29,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="orderFrontStandardAboutPanel:" target="-1" id="Exp-CZ-Vem"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Check for Updates..." image="arrow.clockwise" catalog="system" id="sIR-lA-T5b">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="checkForUpdates:" target="ZU2-zB-BSq" id="Mgm-5H-6YA"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="VOq-y0-SEH"/>
@@ -437,4 +444,7 @@
             <point key="canvasLocation" x="208" y="498"/>
         </window>
     </objects>
+    <resources>
+        <image name="arrow.clockwise" catalog="system" width="14" height="16"/>
+    </resources>
 </document>

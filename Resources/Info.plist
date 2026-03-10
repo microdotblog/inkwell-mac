@@ -37,5 +37,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://s3.amazonaws.com/micro.blog/mac/inkwell.xml</string>
 </dict>
 </plist>

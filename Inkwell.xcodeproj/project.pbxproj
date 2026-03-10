@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4B300D032F606D6A005D6703 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 4B300D022F606D6A005D6703 /* Sparkle */; };
 		4BFA465A2F57970F008BD8A3 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BFA46592F57970F008BD8A3 /* WebKit.framework */; };
 /* End PBXBuildFile section */
 
@@ -35,6 +36,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4BFA465A2F57970F008BD8A3 /* WebKit.framework in Frameworks */,
+				4B300D032F606D6A005D6703 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +91,7 @@
 			);
 			name = Inkwell;
 			packageProductDependencies = (
+				4B300D022F606D6A005D6703 /* Sparkle */,
 			);
 			productName = Inkwell;
 			productReference = 4BFA46232F575DBC008BD8A3 /* Inkwell.app */;
@@ -117,6 +120,9 @@
 			);
 			mainGroup = 4BFA461A2F575DBC008BD8A3;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4B300D012F606D6A005D6703 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4BFA46242F575DBC008BD8A3 /* Products */;
 			projectDirPath = "";
@@ -377,6 +383,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4B300D012F606D6A005D6703 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4B300D022F606D6A005D6703 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4B300D012F606D6A005D6703 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4BFA461B2F575DBC008BD8A3 /* Project object */;
 }
