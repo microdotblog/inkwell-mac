@@ -21,7 +21,7 @@
 				</ul>
  			]]></description>
 			<pubDate>Fri, 06 Mar 2026 09:35:00 -0600</pubDate>
-			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b1.zip" sparkle:shortVersionString="1.0b1" sparkle:version="2" length="4522790" type="application/octet-stream" />
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b1.zip" sparkle:shortVersionString="1.0b1" sparkle:version="1" length="4522790" type="application/octet-stream" />
 			<sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>
 		</item>
 	</channel>
