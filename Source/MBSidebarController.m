@@ -203,6 +203,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) updateRecapUI;
 - (void) updatePremiumRequiredView;
 - (void) setRecapFetching:(BOOL)is_fetching;
+- (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
@@ -753,7 +754,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	_dateFilter = date_filter;
 	if (_dateFilter != MBSidebarDateFilterFading && self.isRecapFetching) {
 		self.recapRequestIdentifier += 1;
-		[self setRecapFetching:NO];
+		[self finishReadingRecapPollingForRequestIdentifier:self.recapRequestIdentifier];
 	}
 	[self applyFiltersAndReload];
 	[self scrollTableToTop];
@@ -1034,6 +1035,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	self.recapRequestIdentifier += 1;
 	NSInteger request_identifier = self.recapRequestIdentifier;
 	[self setRecapFetching:YES];
+	[self.client beginManualNetworkingActivity];
 	[self pollReadingRecapForEntryIDs:entry_ids attempt:1 requestIdentifier:request_identifier];
 }
 
@@ -1048,6 +1050,16 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	[[NSWorkspace sharedWorkspace] openURL:plans_url];
 }
 
+- (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier
+{
+	if (request_identifier != self.recapRequestIdentifier || !self.isRecapFetching) {
+		return;
+	}
+
+	[self.client endManualNetworkingActivity];
+	[self setRecapFetching:NO];
+}
+
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier
 {
 	if (request_identifier != self.recapRequestIdentifier) {
@@ -1055,7 +1067,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	if (attempt > InkwellSidebarRecapMaxAttempts) {
-		[self setRecapFetching:NO];
+		[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 		return;
 	}
 
@@ -1065,12 +1077,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		}
 
 		if (error != nil) {
-			[self setRecapFetching:NO];
+			[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 			return;
 		}
 
 		if (status_code == 200) {
-			[self setRecapFetching:NO];
+			[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 			if (self.readingRecapHandler != nil) {
 				self.readingRecapHandler(html ?: @"");
 			}
@@ -1078,12 +1090,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		}
 
 		if (status_code != 202) {
-			[self setRecapFetching:NO];
+			[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 			return;
 		}
 
 		if (attempt >= InkwellSidebarRecapMaxAttempts) {
-			[self setRecapFetching:NO];
+			[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 			return;
 		}
 

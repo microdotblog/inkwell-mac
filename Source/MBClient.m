@@ -641,6 +641,16 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[task resume];
 }
 
+- (void) beginManualNetworkingActivity
+{
+	[self beginNetworkingActivity];
+}
+
+- (void) endManualNetworkingActivity
+{
+	[self endNetworkingActivity];
+}
+
 - (void) fetchHighlightsForEntryID:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion
 {
 	if (entry_id <= 0) {
