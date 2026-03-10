@@ -78,7 +78,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 
 	NSTextField* name_text_field = [NSTextField labelWithString:@""];
 	name_text_field.translatesAutoresizingMaskIntoConstraints = NO;
-	name_text_field.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	name_text_field.font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightSemibold];
 	name_text_field.lineBreakMode = NSLineBreakByTruncatingTail;
 	name_text_field.maximumNumberOfLines = 1;
 	name_text_field.usesSingleLineMode = YES;
@@ -86,7 +86,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 
 	NSTextField* body_text_field = [NSTextField labelWithString:@""];
 	body_text_field.translatesAutoresizingMaskIntoConstraints = NO;
-	body_text_field.font = [NSFont systemFontOfSize:12.0];
+	body_text_field.font = [NSFont systemFontOfSize:15.0];
 	body_text_field.lineBreakMode = NSLineBreakByWordWrapping;
 	body_text_field.maximumNumberOfLines = 0;
 	body_text_field.usesSingleLineMode = NO;
@@ -105,7 +105,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 
 	NSTextField* date_text_field = [NSTextField labelWithString:@""];
 	date_text_field.translatesAutoresizingMaskIntoConstraints = NO;
-	date_text_field.font = [NSFont systemFontOfSize:11.0];
+	date_text_field.font = [NSFont systemFontOfSize:14.0];
 	date_text_field.textColor = NSColor.secondaryLabelColor;
 	date_text_field.lineBreakMode = NSLineBreakByTruncatingTail;
 	date_text_field.maximumNumberOfLines = 1;
