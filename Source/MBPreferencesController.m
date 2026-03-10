@@ -9,7 +9,7 @@
 #import "MBClient.h"
 #import "MBFeedsController.h"
 
-static CGFloat const InkwellPreferencesAvatarSize = 44.0;
+static CGFloat const InkwellPreferencesAvatarSize = 32.0;
 static CGFloat const InkwellPreferencesColorSwatchSize = 30.0;
 static CGFloat const InkwellPreferencesPopupMinWidth = 180.0;
 static CGFloat const InkwellPreferencesPopupMaxWidth = 240.0;
@@ -73,6 +73,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	[self.feedsController reloadFeeds];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
+	[self.window makeFirstResponder:nil];
 }
 
 - (void) dealloc
@@ -91,7 +92,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	NSRect frame = NSMakeRect(250.0, 250.0, 430.0, InkwellPreferencesWindowHeight);
 	NSUInteger style_mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
 	NSWindow* window = [[NSWindow alloc] initWithContentRect:frame styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
-	window.title = @"Preferences";
+	window.title = @"Settings";
 	window.releasedWhenClosed = NO;
 	window.minSize = NSMakeSize(390.0, InkwellPreferencesWindowHeight);
 	[window setFrameAutosaveName:@"PreferencesWindow"];
@@ -233,7 +234,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	[content_view addSubview:feeds_view];
 
 	[NSLayoutConstraint activateConstraints:@[
-		[avatar_image_view.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:16.0],
+		[avatar_image_view.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:14.0],
 		[avatar_image_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
 		[avatar_image_view.widthAnchor constraintEqualToConstant:InkwellPreferencesAvatarSize],
 		[avatar_image_view.heightAnchor constraintEqualToConstant:InkwellPreferencesAvatarSize],
@@ -245,7 +246,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		[sign_out_button.centerYAnchor constraintEqualToAnchor:avatar_image_view.centerYAnchor],
 		[sign_out_button.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-18.0],
 
-		[separator_line.topAnchor constraintEqualToAnchor:avatar_image_view.bottomAnchor constant:14.0],
+		[separator_line.topAnchor constraintEqualToAnchor:avatar_image_view.bottomAnchor constant:12.0],
 		[separator_line.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
 		[separator_line.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-18.0],
 
@@ -282,7 +283,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		[feeds_label.trailingAnchor constraintLessThanOrEqualToAnchor:feeds_search_field.leadingAnchor constant:-12.0],
 
 		[feeds_search_field.trailingAnchor constraintEqualToAnchor:feeds_separator_line.trailingAnchor],
-		[feeds_search_field.widthAnchor constraintEqualToConstant:200.0],
+		[feeds_search_field.widthAnchor constraintEqualToConstant:150.0],
 
 		[feeds_view.topAnchor constraintEqualToAnchor:feeds_label.bottomAnchor constant:14.0],
 		[feeds_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
@@ -334,6 +335,25 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 
 	[self.feedsController updateSearchQuery:(search_field.stringValue ?: @"")];
+}
+
+- (IBAction) performFindPanelAction:(id) sender
+{
+	if (![sender respondsToSelector:@selector(tag)]) {
+		return;
+	}
+
+	NSInteger action_tag = [(id) sender tag];
+	if (action_tag != NSFindPanelActionShowFindPanel) {
+		return;
+	}
+
+	if (self.window == nil || !self.window.isKeyWindow || self.feedsSearchField == nil) {
+		return;
+	}
+
+	[self.window makeFirstResponder:self.feedsSearchField];
+	[self.feedsSearchField selectText:nil];
 }
 
 - (void) selectBackgroundColor:(id) sender

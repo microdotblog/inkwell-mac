@@ -111,7 +111,7 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	avatar_image_view.translatesAutoresizingMaskIntoConstraints = NO;
 	avatar_image_view.imageScaling = NSImageScaleProportionallyUpOrDown;
 	avatar_image_view.wantsLayer = YES;
-	avatar_image_view.layer.cornerRadius = 4.0;
+	avatar_image_view.layer.cornerRadius = (InkwellFeedsAvatarSize / 2.0);
 	avatar_image_view.layer.masksToBounds = YES;
 	[self addSubview:avatar_image_view];
 

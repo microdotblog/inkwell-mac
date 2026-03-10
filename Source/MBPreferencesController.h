@@ -17,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^signOutHandler)(void);
 
 - (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token;
+- (IBAction) performFindPanelAction:(id) sender;
 - (void) reloadFromDefaults;
 
 @end
