@@ -350,6 +350,11 @@
                                     <action selector="selectFadingView:" target="-1" id="uWO-0z-HAw"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Reading Recap" keyEquivalent="4" id="Etm-8J-B6P">
+                                <connections>
+                                    <action selector="showReadingRecap:" target="-1" id="n8M-jA-X7F"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="0am-8V-GZd"/>
                             <menuItem title="Hide Read Posts" keyEquivalent="H" id="vCL-vz-2uP">
                                 <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>

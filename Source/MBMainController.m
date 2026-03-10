@@ -300,6 +300,12 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 }
 
+- (IBAction) showReadingRecap:(id)sender
+{
+	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
+	[self.sidebarController showReadingRecap:sender];
+}
+
 - (IBAction) refreshView:(id)sender
 {
 	#pragma unused(sender)
@@ -653,6 +659,9 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	if (menu_item.action == @selector(toggleReadPostsVisibility:)) {
 		menu_item.title = [self.sidebarController readPostsVisibilityMenuTitle];
 		return (self.sidebarController != nil);
+	}
+	if (menu_item.action == @selector(showReadingRecap:)) {
+		return [self.sidebarController canShowReadingRecap];
 	}
 
 	if (menu_item.action == @selector(copyLink:)) {

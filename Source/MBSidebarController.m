@@ -216,7 +216,6 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender;
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
-- (IBAction) readingRecapButtonPressed:(id)sender;
 - (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 
@@ -273,7 +272,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	recap_box.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
 	recap_box.hidden = YES;
 
-	NSButton* recap_button = [NSButton buttonWithTitle:@"Reading Recap" target:self action:@selector(readingRecapButtonPressed:)];
+	NSButton* recap_button = [NSButton buttonWithTitle:@"Reading Recap" target:self action:@selector(showReadingRecap:)];
 	recap_button.translatesAutoresizingMaskIntoConstraints = NO;
 	recap_button.bezelStyle = NSBezelStyleRounded;
 	recap_button.controlSize = NSControlSizeSmall;
@@ -925,7 +924,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		self.recapCountLabel.stringValue = [self recapCountStringForPostsCount:fading_count];
 	}
 	if (self.recapButton != nil) {
-		self.recapButton.enabled = should_show_recap && !self.isRecapFetching && (fading_count > 0);
+		self.recapButton.enabled = should_show_recap && [self canShowReadingRecap];
 	}
 }
 
@@ -1001,6 +1000,19 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	return [attributed_text copy];
 }
 
+- (BOOL) canShowReadingRecap
+{
+	if (![self isPremiumUser]) {
+		return NO;
+	}
+
+	if (self.client == nil || self.token.length == 0 || self.isRecapFetching) {
+		return NO;
+	}
+
+	return ([self fadingEntryIDs].count > 0);
+}
+
 - (BOOL) shouldShowPremiumRequiredView
 {
 	return (self.dateFilter == MBSidebarDateFilterFading) && ![self isPremiumUser];
@@ -1016,22 +1028,14 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	return [defaults boolForKey:InkwellIsPremiumDefaultsKey];
 }
 
-- (IBAction) readingRecapButtonPressed:(id)sender
+- (IBAction) showReadingRecap:(id)sender
 {
 	#pragma unused(sender)
-	if ([self shouldShowPremiumRequiredView]) {
-		return;
-	}
-
-	if (self.client == nil || self.token.length == 0) {
+	if (![self canShowReadingRecap]) {
 		return;
 	}
 
 	NSArray* entry_ids = [self fadingEntryIDs];
-	if (entry_ids.count == 0) {
-		return;
-	}
-
 	self.recapRequestIdentifier += 1;
 	NSInteger request_identifier = self.recapRequestIdentifier;
 	[self setRecapFetching:YES];
