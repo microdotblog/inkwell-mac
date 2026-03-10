@@ -8,10 +8,10 @@
 #import "MBConversationCellView.h"
 #import "MBMention.h"
 
-static CGFloat const InkwellConversationCellTopInset = 8.0;
-static CGFloat const InkwellConversationCellBottomInset = 8.0;
-static CGFloat const InkwellConversationCellLeadingInset = 10.0;
-static CGFloat const InkwellConversationCellTrailingInset = 10.0;
+static CGFloat const InkwellConversationCellTopInset = 10.0;
+static CGFloat const InkwellConversationCellBottomInset = 10.0;
+static CGFloat const InkwellConversationCellLeadingInset = 6.0;
+static CGFloat const InkwellConversationCellTrailingInset = 6.0;
 static CGFloat const InkwellConversationAvatarSize = 34.0;
 
 @interface MBConversationCellView ()
@@ -88,8 +88,19 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 	body_text_field.translatesAutoresizingMaskIntoConstraints = NO;
 	body_text_field.font = [NSFont systemFontOfSize:12.0];
 	body_text_field.lineBreakMode = NSLineBreakByWordWrapping;
-	body_text_field.maximumNumberOfLines = 3;
+	body_text_field.maximumNumberOfLines = 0;
 	body_text_field.usesSingleLineMode = NO;
+	[body_text_field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[body_text_field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[body_text_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
+	if ([body_text_field.cell isKindOfClass:[NSTextFieldCell class]]) {
+		NSTextFieldCell* body_text_cell = (NSTextFieldCell*) body_text_field.cell;
+		body_text_cell.wraps = YES;
+		body_text_cell.scrollable = NO;
+		body_text_cell.usesSingleLineMode = NO;
+		body_text_cell.lineBreakMode = NSLineBreakByWordWrapping;
+		body_text_cell.truncatesLastVisibleLine = NO;
+	}
 	[self addSubview:body_text_field];
 
 	NSTextField* date_text_field = [NSTextField labelWithString:@""];
@@ -106,19 +117,20 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 		[avatar_image_view.topAnchor constraintEqualToAnchor:self.topAnchor constant:InkwellConversationCellTopInset],
 		[avatar_image_view.widthAnchor constraintEqualToConstant:InkwellConversationAvatarSize],
 		[avatar_image_view.heightAnchor constraintEqualToConstant:InkwellConversationAvatarSize],
+		[avatar_image_view.bottomAnchor constraintLessThanOrEqualToAnchor:self.bottomAnchor constant:-InkwellConversationCellBottomInset],
 
-		[name_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:8.0],
+		[name_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:12.0],
 		[name_text_field.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-InkwellConversationCellTrailingInset],
 		[name_text_field.topAnchor constraintEqualToAnchor:self.topAnchor constant:InkwellConversationCellTopInset],
 
 		[body_text_field.leadingAnchor constraintEqualToAnchor:name_text_field.leadingAnchor],
 		[body_text_field.trailingAnchor constraintEqualToAnchor:name_text_field.trailingAnchor],
-		[body_text_field.topAnchor constraintEqualToAnchor:name_text_field.bottomAnchor constant:2.0],
+		[body_text_field.topAnchor constraintEqualToAnchor:name_text_field.bottomAnchor constant:3.0],
 
 		[date_text_field.leadingAnchor constraintEqualToAnchor:name_text_field.leadingAnchor],
 		[date_text_field.trailingAnchor constraintEqualToAnchor:name_text_field.trailingAnchor],
-		[date_text_field.topAnchor constraintEqualToAnchor:body_text_field.bottomAnchor constant:4.0],
-		[date_text_field.bottomAnchor constraintLessThanOrEqualToAnchor:self.bottomAnchor constant:-InkwellConversationCellBottomInset]
+		[date_text_field.topAnchor constraintEqualToAnchor:body_text_field.bottomAnchor constant:6.0],
+		[date_text_field.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-InkwellConversationCellBottomInset]
 	]];
 
 	self.avatarImageView = avatar_image_view;

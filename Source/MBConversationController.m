@@ -15,7 +15,7 @@
 static NSUserInterfaceItemIdentifier const InkwellConversationCellIdentifier = @"InkwellConversationCell";
 static CGFloat const InkwellConversationTopBarHeight = 44.0;
 static CGFloat const InkwellConversationHeaderAvatarSize = 20.0;
-static CGFloat const InkwellConversationRowHeight = 96.0;
+static CGFloat const InkwellConversationEstimatedRowHeight = 72.0;
 static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 @interface MBConversationController () <NSTableViewDataSource, NSTableViewDelegate>
@@ -175,9 +175,9 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	table_view.delegate = self;
 	table_view.dataSource = self;
 	table_view.headerView = nil;
-	table_view.rowHeight = InkwellConversationRowHeight;
-	table_view.intercellSpacing = NSMakeSize(0.0, 2.0);
-	table_view.usesAutomaticRowHeights = NO;
+	table_view.rowHeight = InkwellConversationEstimatedRowHeight;
+	table_view.intercellSpacing = NSMakeSize(0.0, 0.0);
+	table_view.usesAutomaticRowHeights = YES;
 	table_view.allowsMultipleSelection = NO;
 	table_view.allowsEmptySelection = YES;
 
@@ -249,15 +249,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 - (void) updateWindowTitleState
 {
-	NSString* title_string = @"Conversation";
-	if (self.mentions.count == 1) {
-		title_string = @"Conversation (1 reply)";
-	}
-	else if (self.mentions.count > 1) {
-		title_string = [NSString stringWithFormat:@"Conversation (%ld replies)", (long) self.mentions.count];
-	}
-
-	self.window.title = title_string;
+	self.window.title = @"Conversation";
 }
 
 - (void) applyHeaderIfNeeded
