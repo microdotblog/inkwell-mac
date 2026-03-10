@@ -179,12 +179,14 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 @property (assign) NSInteger recapRequestIdentifier;
 @property (weak) NSWindow* observedWindowForSelectionStyling;
 @property (strong) NSView* premiumRequiredView;
+@property (assign) BOOL hideReadPosts;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 - (NSInteger) preferredSelectionEntryIDForReload;
+- (NSInteger) currentSelectedEntryID;
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
 - (NSInteger) rowForEntryID:(NSInteger)entry_id;
 - (NSInteger) savedSelectedEntryID;
@@ -203,6 +205,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) setRecapFetching:(BOOL)is_fetching;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
+- (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
 - (NSAttributedString*) premiumRequiredMessageAttributedString;
 - (BOOL) shouldShowPremiumRequiredView;
@@ -477,6 +480,15 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	return [self bookmarkToggleMenuTitleForSelectedItem:[self selectedItem]];
 }
 
+- (NSString*) readPostsVisibilityMenuTitle
+{
+	if (self.hideReadPosts) {
+		return @"Show Read Posts";
+	}
+
+	return @"Hide Read Posts";
+}
+
 - (void) toggleSelectedItemReadState
 {
 	[self toggleSelectedItemReadStateAction:nil];
@@ -485,6 +497,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) toggleSelectedItemBookmarkedState
 {
 	[self toggleSelectedItemBookmarkedStateAction:nil];
+}
+
+- (void) toggleReadPostsVisibility
+{
+	self.hideReadPosts = !self.hideReadPosts;
+	[self applyFiltersAndReload];
 }
 
 - (MBEntry* _Nullable) selectedItem
@@ -759,12 +777,15 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) applyFiltersAndReload
 {
 	NSInteger preferred_entry_id = [self preferredSelectionEntryIDForReload];
+	NSInteger selected_entry_id = [self currentSelectedEntryID];
+	NSArray* filtered_items = nil;
 	if (self.searchQuery.length > 0) {
-		self.items = [self filteredItemsForSearchQuery:self.searchQuery];
+		filtered_items = [self filteredItemsForSearchQuery:self.searchQuery];
 	}
 	else {
-		self.items = [self filteredItemsForDateFilter:self.dateFilter];
+		filtered_items = [self filteredItemsForDateFilter:self.dateFilter];
 	}
+	self.items = [self filteredItemsForReadVisibility:(filtered_items ?: @[]) selectedEntryID:selected_entry_id];
 
 	[self reloadTable];
 	BOOL did_restore_selection = [self restoreSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
@@ -777,6 +798,16 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 - (NSInteger) preferredSelectionEntryIDForReload
 {
+	NSInteger current_selected_entry_id = [self currentSelectedEntryID];
+	if (current_selected_entry_id > 0) {
+		return current_selected_entry_id;
+	}
+
+	return [self savedSelectedEntryID];
+}
+
+- (NSInteger) currentSelectedEntryID
+{
 	NSInteger selected_row = self.tableView.selectedRow;
 	if (selected_row >= 0 && selected_row < self.items.count) {
 		MBEntry* selected_item = self.items[(NSUInteger) selected_row];
@@ -785,7 +816,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		}
 	}
 
-	return [self savedSelectedEntryID];
+	return 0;
 }
 
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged
@@ -916,7 +947,8 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 - (NSArray*) fadingItems
 {
-	return [self filteredItemsForDateFilter:MBSidebarDateFilterFading];
+	NSArray* fading_items = [self filteredItemsForDateFilter:MBSidebarDateFilterFading];
+	return [self filteredItemsForReadVisibility:fading_items selectedEntryID:0];
 }
 
 - (NSArray*) fadingEntryIDs
@@ -1132,6 +1164,22 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	return [filtered_items copy];
 }
 
+- (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id
+{
+	if (!self.hideReadPosts || items.count == 0) {
+		return [items copy];
+	}
+
+	NSMutableArray* filtered_items = [NSMutableArray array];
+	for (MBEntry* entry in items) {
+		if (!entry.isRead || (selected_entry_id > 0 && entry.entryID == selected_entry_id)) {
+			[filtered_items addObject:entry];
+		}
+	}
+
+	return [filtered_items copy];
+}
+
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries subscriptions:(NSArray<MBSubscription *> *)subscriptions unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids
 {
 	NSMutableArray<MBEntry *> *sidebar_items = [NSMutableArray array];
@@ -1336,7 +1384,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 			}
 
 			[strong_self updateCachedReadState:!should_mark_as_unread forEntryID:entry_id];
-			[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
+			if (strong_self.hideReadPosts) {
+				[strong_self applyFiltersAndReload];
+			}
+			else {
+				[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
+			}
 		});
 	};
 
@@ -1491,7 +1544,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		}
 
 		[self updateCachedReadState:YES forEntryID:entry_id];
-		[self reloadRowForEntryID:entry_id preferredRow:row];
+		if (self.hideReadPosts) {
+			[self applyFiltersAndReload];
+		}
+		else {
+			[self reloadRowForEntryID:entry_id preferredRow:row];
+		}
 	}];
 }
 

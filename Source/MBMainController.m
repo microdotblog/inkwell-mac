@@ -596,6 +596,12 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	[self.sidebarController toggleSelectedItemBookmarkedState];
 }
 
+- (IBAction) toggleReadPostsVisibility:(id) sender
+{
+	#pragma unused(sender)
+	[self.sidebarController toggleReadPostsVisibility];
+}
+
 - (IBAction) showPreferences:(id) sender
 {
 	#pragma unused(sender)
@@ -643,6 +649,10 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	if (menu_item.action == @selector(toggleSelectedItemBookmarkedState:)) {
 		menu_item.title = [self.sidebarController bookmarkToggleMenuTitle];
 		return [self.sidebarController canToggleSelectedItemBookmarkedState];
+	}
+	if (menu_item.action == @selector(toggleReadPostsVisibility:)) {
+		menu_item.title = [self.sidebarController readPostsVisibilityMenuTitle];
+		return (self.sidebarController != nil);
 	}
 
 	if (menu_item.action == @selector(copyLink:)) {
