@@ -778,8 +778,9 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 {
 	NSInteger preferred_entry_id = [self preferredSelectionEntryIDForReload];
 	NSInteger selected_entry_id = [self currentSelectedEntryID];
+	BOOL is_searching = (self.searchQuery.length > 0);
 	NSArray* filtered_items = nil;
-	if (self.searchQuery.length > 0) {
+	if (is_searching) {
 		filtered_items = [self filteredItemsForSearchQuery:self.searchQuery];
 	}
 	else {
@@ -791,6 +792,9 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	BOOL did_restore_selection = [self restoreSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
 	if (!did_restore_selection && preferred_entry_id > 0 && self.tableView.selectedRow >= 0) {
 		[self.tableView deselectAll:nil];
+	}
+	if (is_searching) {
+		[self scrollTableToTop];
 	}
 	[self updateRecapUI];
 	[self updatePremiumRequiredView];
