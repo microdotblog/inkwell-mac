@@ -39,5 +39,7 @@
 	<string>NSApplication</string>
 	<key>SUFeedURL</key>
 	<string>https://s3.amazonaws.com/micro.blog/mac/inkwell.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>pfIShU4dEXqPd5ObYNfDBiQWcXozk7estwzTnF9BamQ=</string>
 </dict>
 </plist>
