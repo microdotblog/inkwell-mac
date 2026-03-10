@@ -7,6 +7,7 @@
 
 #import "MBPreferencesController.h"
 #import "MBClient.h"
+#import "MBFeedsController.h"
 
 static CGFloat const InkwellPreferencesAvatarSize = 44.0;
 static CGFloat const InkwellPreferencesColorSwatchSize = 30.0;
@@ -16,7 +17,7 @@ static CGFloat const InkwellPreferencesSettingsLabelFontSize = 15.0;
 static CGFloat const InkwellPreferencesSectionLeadingInset = 33.0;
 static CGFloat const InkwellPreferencesSectionTopSpacing = 19.0;
 static CGFloat const InkwellPreferencesRowSpacing = 16.0;
-static CGFloat const InkwellPreferencesWindowHeight = 235.0;
+static CGFloat const InkwellPreferencesWindowHeight = 600.0;
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -27,10 +28,14 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 @property (nonatomic, strong) NSTextField* usernameTextField;
 @property (nonatomic, strong) NSPopUpButton* fontPopUpButton;
 @property (nonatomic, strong) NSPopUpButton* sizePopUpButton;
+@property (nonatomic, strong) NSSearchField* feedsSearchField;
 @property (nonatomic, copy) NSArray* backgroundColorHexes;
 @property (nonatomic, copy) NSArray* fontNames;
 @property (nonatomic, copy) NSArray* sizeNames;
 @property (nonatomic, strong) NSMutableArray* backgroundColorButtons;
+@property (nonatomic, strong) MBClient* client;
+@property (nonatomic, copy) NSString* token;
+@property (nonatomic, strong) MBFeedsController* feedsController;
 @property (nonatomic, strong) NSURLSession* avatarSession;
 @property (nonatomic, assign) BOOL didSetupContent;
 
@@ -40,12 +45,20 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
 - (instancetype) init
 {
+	return [self initWithClient:nil token:nil];
+}
+
+- (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token
+{
 	self = [super initWithWindow:nil];
 	if (self) {
 		self.backgroundColorHexes = @[ @"#ffffff", @"#f1f2f4", @"#e5dcc8", @"#1c2435", @"#000000" ];
 		self.fontNames = @[ @"San Francisco", @"Avenir Next", @"Times New Roman" ];
 		self.sizeNames = @[ @"Tiny", @"Small", @"Medium", @"Large", @"Huge" ];
 		self.backgroundColorButtons = [NSMutableArray array];
+		self.client = client ?: [[MBClient alloc] init];
+		self.token = [token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		self.feedsController = [[MBFeedsController alloc] initWithClient:self.client token:self.token];
 		self.avatarSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 	}
 	return self;
@@ -57,8 +70,16 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	[self setupContentIfNeeded];
 	[self applyWindowHeightIfNeeded];
 	[self reloadFromDefaults];
+	[self.feedsController reloadFeeds];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
+}
+
+- (void) dealloc
+{
+	if (self.feedsSearchField != nil) {
+		[[NSNotificationCenter defaultCenter] removeObserver:self name:NSControlTextDidChangeNotification object:self.feedsSearchField];
+	}
 }
 
 - (void) setupWindowIfNeeded
@@ -189,6 +210,28 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 	[content_view addSubview:size_popup_button];
 
+	NSBox* feeds_separator_line = [[NSBox alloc] initWithFrame:NSZeroRect];
+	feeds_separator_line.translatesAutoresizingMaskIntoConstraints = NO;
+	feeds_separator_line.boxType = NSBoxSeparator;
+	[content_view addSubview:feeds_separator_line];
+
+	NSTextField* feeds_label = [NSTextField labelWithString:@"Feeds:"];
+	feeds_label.translatesAutoresizingMaskIntoConstraints = NO;
+	feeds_label.font = [NSFont systemFontOfSize:InkwellPreferencesSettingsLabelFontSize weight:NSFontWeightSemibold];
+	[content_view addSubview:feeds_label];
+
+	NSSearchField* feeds_search_field = [[NSSearchField alloc] initWithFrame:NSZeroRect];
+	feeds_search_field.translatesAutoresizingMaskIntoConstraints = NO;
+	feeds_search_field.controlSize = NSControlSizeSmall;
+	feeds_search_field.placeholderString = @"Search feeds";
+	[feeds_search_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[feeds_search_field setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[content_view addSubview:feeds_search_field];
+
+	NSView* feeds_view = self.feedsController.view;
+	feeds_view.translatesAutoresizingMaskIntoConstraints = NO;
+	[content_view addSubview:feeds_view];
+
 	[NSLayoutConstraint activateConstraints:@[
 		[avatar_image_view.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:16.0],
 		[avatar_image_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
@@ -229,14 +272,32 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		[size_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
 		[size_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
 		[size_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
-		[size_popup_button.bottomAnchor constraintLessThanOrEqualToAnchor:content_view.bottomAnchor constant:-18.0]
+		[feeds_separator_line.topAnchor constraintEqualToAnchor:size_popup_button.bottomAnchor constant:18.0],
+		[feeds_separator_line.leadingAnchor constraintEqualToAnchor:separator_line.leadingAnchor],
+		[feeds_separator_line.trailingAnchor constraintEqualToAnchor:separator_line.trailingAnchor],
+
+		[feeds_label.topAnchor constraintEqualToAnchor:feeds_separator_line.bottomAnchor constant:18.0],
+		[feeds_label.leadingAnchor constraintEqualToAnchor:feeds_separator_line.leadingAnchor],
+		[feeds_label.centerYAnchor constraintEqualToAnchor:feeds_search_field.centerYAnchor],
+		[feeds_label.trailingAnchor constraintLessThanOrEqualToAnchor:feeds_search_field.leadingAnchor constant:-12.0],
+
+		[feeds_search_field.trailingAnchor constraintEqualToAnchor:feeds_separator_line.trailingAnchor],
+		[feeds_search_field.widthAnchor constraintEqualToConstant:200.0],
+
+		[feeds_view.topAnchor constraintEqualToAnchor:feeds_label.bottomAnchor constant:14.0],
+		[feeds_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
+		[feeds_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-18.0],
+		[feeds_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor constant:-18.0]
 	]];
 
 	self.avatarImageView = avatar_image_view;
 	self.usernameTextField = username_text_field;
 	self.fontPopUpButton = font_popup_button;
 	self.sizePopUpButton = size_popup_button;
+	self.feedsSearchField = feeds_search_field;
 	self.didSetupContent = YES;
+
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(searchFieldTextDidChange:) name:NSControlTextDidChangeNotification object:feeds_search_field];
 }
 
 - (void) reloadFromDefaults
@@ -263,6 +324,16 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	[self.sizePopUpButton selectItemWithTitle:selected_size_name];
 
 	[self refreshBackgroundColorSelection];
+}
+
+- (void) searchFieldTextDidChange:(NSNotification*) notification
+{
+	NSSearchField* search_field = notification.object;
+	if (![search_field isKindOfClass:[NSSearchField class]] || search_field != self.feedsSearchField) {
+		return;
+	}
+
+	[self.feedsController updateSearchQuery:(search_field.stringValue ?: @"")];
 }
 
 - (void) selectBackgroundColor:(id) sender

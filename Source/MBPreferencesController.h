@@ -9,11 +9,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class MBClient;
+
 @interface MBPreferencesController : NSWindowController
 
 @property (nonatomic, copy, nullable) void (^textSettingsChangedHandler)(void);
 @property (nonatomic, copy, nullable) void (^signOutHandler)(void);
 
+- (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token;
 - (void) reloadFromDefaults;
 
 @end

@@ -613,7 +613,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 	#pragma unused(sender)
 
 	if (self.preferencesController == nil) {
-		self.preferencesController = [[MBPreferencesController alloc] init];
+		self.preferencesController = [[MBPreferencesController alloc] initWithClient:self.client token:self.token];
 
 		__weak typeof(self) weak_self = self;
 		self.preferencesController.textSettingsChangedHandler = ^{

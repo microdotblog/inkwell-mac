@@ -29,6 +29,7 @@ static NSString * const MBAuthorizationEndpoint = MBMicroBlogBaseURL @"/indieaut
 static NSString * const MBTokenEndpoint = MBMicroBlogBaseURL @"/indieauth/token";
 static NSString * const MBVerifyEndpoint = MBMicroBlogBaseURL @"/account/verify";
 static NSString * const MBFeedSubscriptionsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/subscriptions.json";
+static NSString* const MBFeedSubscriptionsEndpointBase = MBMicroBlogBaseURL @"/feeds/v2/subscriptions";
 static NSString * const MBFeedEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/entries.json";
 static NSString * const MBFeedUnreadEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/unread_entries.json";
 static NSString * const MBFeedStarredEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/starred_entries.json";
@@ -242,27 +243,12 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[subscriptions_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
 	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:subscriptions_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		if (error != nil) {
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:error completion:completion];
+		NSArray* subscriptions = [self subscriptionsFromData:data response:response error:error];
+		if (subscriptions == nil) {
+			NSError* subscriptions_error = [self subscriptionsErrorFromData:data response:response error:error];
+			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:subscriptions_error completion:completion];
 			return;
 		}
-
-		NSHTTPURLResponse *http_response = (NSHTTPURLResponse *) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Subscriptions request failed."];
-			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:request_error completion:completion];
-			return;
-		}
-
-		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-		if (![payload isKindOfClass:[NSArray class]]) {
-			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions response was invalid." }];
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:parse_error completion:completion];
-			return;
-		}
-
-		NSArray<MBSubscription *> *subscriptions = [self subscriptionsFromPayload:(NSArray *) payload];
 
 		NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-MBFeedEntriesLookbackInterval];
 		NSMutableArray* accumulated_entries = [NSMutableArray array];
@@ -302,6 +288,34 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 			}];
 			[unread_task resume];
 		}];
+	}];
+	[task resume];
+}
+
+- (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1033 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for subscriptions request." }];
+		[self finishWithFeedSubscriptions:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedSubscriptionsEndpoint]];
+	request.HTTPMethod = @"GET";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		NSArray* subscriptions = [self subscriptionsFromData:data response:response error:error];
+		if (subscriptions == nil) {
+			NSError* subscriptions_error = [self subscriptionsErrorFromData:data response:response error:error];
+			[self finishWithFeedSubscriptions:nil error:subscriptions_error completion:completion];
+			return;
+		}
+
+		[self finishWithFeedSubscriptions:subscriptions error:nil completion:completion];
 	}];
 	[task resume];
 }
@@ -856,6 +870,47 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[task resume];
 }
 
+- (void) deleteFeedSubscription:(MBSubscription*) subscription token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion
+{
+	if (![subscription isKindOfClass:[MBSubscription class]] || subscription.subscriptionID <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1034 userInfo:@{ NSLocalizedDescriptionKey: @"Missing subscription for delete request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1035 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for delete subscription request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld.json", MBFeedSubscriptionsEndpointBase, (long) subscription.subscriptionID];
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
+	request.HTTPMethod = @"DELETE";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Delete subscription request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
+	}];
+	[task resume];
+}
+
 - (NSArray*) cachedHighlightsForEntryID:(NSInteger) entry_id
 {
 	if (entry_id <= 0) {
@@ -1166,6 +1221,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		subscription.title = [self stringValueFromObject:dictionary[@"title"]];
 		subscription.feedURL = [self stringValueFromObject:dictionary[@"feed_url"]];
 		subscription.siteURL = [self stringValueFromObject:dictionary[@"site_url"]];
+		subscription.avatarURL = [self avatarURLFromSubscriptionDictionary:dictionary];
 
 		NSString *created_at_string = [self stringValueFromObject:dictionary[@"created_at"]];
 		subscription.createdAt = [self dateFromISO8601String:created_at_string];
@@ -1174,6 +1230,75 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 
 	return [subscriptions copy];
+}
+
+- (NSArray* _Nullable) subscriptionsFromData:(NSData* _Nullable) data response:(NSURLResponse* _Nullable) response error:(NSError* _Nullable) error
+{
+	if (error != nil) {
+		return nil;
+	}
+
+	NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+	if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+		return nil;
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if (![payload isKindOfClass:[NSArray class]]) {
+		return nil;
+	}
+
+	return [self subscriptionsFromPayload:(NSArray*) payload];
+}
+
+- (NSError* _Nullable) subscriptionsErrorFromData:(NSData* _Nullable) data response:(NSURLResponse* _Nullable) response error:(NSError* _Nullable) error
+{
+	if (error != nil) {
+		return error;
+	}
+
+	NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+	if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+		NSString* description = [self responseDescriptionForData:data defaultMessage:@"Subscriptions request failed."];
+		return [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+	}
+
+	return [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions response was invalid." }];
+}
+
+- (NSString*) avatarURLFromSubscriptionDictionary:(NSDictionary*) dictionary
+{
+	NSString* avatar_url = [self stringValueFromObject:dictionary[@"avatar"]];
+	if (avatar_url.length > 0) {
+		return avatar_url;
+	}
+
+	avatar_url = [self stringValueFromObject:dictionary[@"avatar_url"]];
+	if (avatar_url.length > 0) {
+		return avatar_url;
+	}
+
+	avatar_url = [self stringValueFromObject:dictionary[@"icon"]];
+	if (avatar_url.length > 0) {
+		return avatar_url;
+	}
+
+	avatar_url = [self stringValueFromObject:dictionary[@"favicon"]];
+	if (avatar_url.length > 0) {
+		return avatar_url;
+	}
+
+	NSDictionary* json_feed = dictionary[@"json_feed"];
+	if (![json_feed isKindOfClass:[NSDictionary class]]) {
+		return @"";
+	}
+
+	avatar_url = [self stringValueFromObject:json_feed[@"icon"]];
+	if (avatar_url.length > 0) {
+		return avatar_url;
+	}
+
+	return [self stringValueFromObject:json_feed[@"favicon"]];
 }
 
 - (NSSet *) unreadEntryIDsFromPayload:(NSArray *)payload
@@ -1994,6 +2119,17 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(subscriptions, entries, unread_entry_ids, is_finished, error);
+	});
+}
+
+- (void) finishWithFeedSubscriptions:(NSArray* _Nullable) subscriptions error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(subscriptions, error);
 	});
 }
 

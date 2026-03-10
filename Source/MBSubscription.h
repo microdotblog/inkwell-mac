@@ -17,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString* title;
 @property (nonatomic, copy, nullable) NSString* feedURL;
 @property (nonatomic, copy, nullable) NSString* siteURL;
+@property (nonatomic, copy, nullable) NSString* avatarURL;
 
 @end
 
