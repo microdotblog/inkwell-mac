@@ -24,10 +24,16 @@ static NSInteger const InkwellFilterTodaySegmentIndex = 0;
 static NSInteger const InkwellFilterRecentSegmentIndex = 1;
 static NSInteger const InkwellFilterFadingSegmentIndex = 2;
 static CGFloat const InkwellSidebarPaneWidth = 310.0;
+static CGFloat const InkwellMainWindowDefaultWidth = 1100.0;
+static CGFloat const InkwellMainWindowDefaultHeight = 760.0;
+static CGFloat const InkwellMainWindowMinWidth = 760.0;
+static CGFloat const InkwellMainWindowMinHeight = 520.0;
+static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
 
 @interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation>
 
 @property (assign) BOOL didBuildInterface;
+@property (assign) BOOL didRestoreWindowFrame;
 @property (strong) MBClient *client;
 @property (strong) NSSegmentedControl *filterSegmentedControl;
 @property (strong) NSProgressIndicator *toolbarProgressIndicator;
@@ -48,6 +54,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 - (BOOL) focusSidebarPane;
 - (BOOL) focusDetailPane;
+- (void) restoreWindowFrameIfNeeded;
 
 @end
 
@@ -87,6 +94,7 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 - (void) showWindow:(id)sender
 {
 	[self buildInterfaceIfNeeded];
+	[self restoreWindowFrameIfNeeded];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
 }
@@ -107,11 +115,35 @@ static CGFloat const InkwellSidebarPaneWidth = 310.0;
 
 - (void) setupWindowIfNeeded
 {
+	if (self.window == nil) {
+		NSRect frame = NSMakeRect(0, 0, InkwellMainWindowDefaultWidth, InkwellMainWindowDefaultHeight);
+		NSUInteger style_mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+		NSWindow* window = [[NSWindow alloc] initWithContentRect:frame styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
+		window.releasedWhenClosed = NO;
+		window.minSize = NSMakeSize(InkwellMainWindowMinWidth, InkwellMainWindowMinHeight);
+		self.window = window;
+	}
+
 	self.window.title = @"Inkwell";
 	self.window.styleMask |= NSWindowStyleMaskFullSizeContentView;
 	self.window.titlebarAppearsTransparent = YES;
 	self.window.titleVisibility = NSWindowTitleHidden;
 	self.window.toolbarStyle = NSWindowToolbarStyleUnified;
+}
+
+- (void) restoreWindowFrameIfNeeded
+{
+	if (self.didRestoreWindowFrame || self.window == nil) {
+		return;
+	}
+
+	BOOL did_restore_frame = [self.window setFrameUsingName:InkwellMainWindowAutosaveName];
+	[self.window setFrameAutosaveName:InkwellMainWindowAutosaveName];
+	if (!did_restore_frame) {
+		[self.window center];
+	}
+
+	self.didRestoreWindowFrame = YES;
 }
 
 - (void) buildToolbar

@@ -16,7 +16,6 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 
 @interface MBAppDelegate ()
 
-@property (strong) IBOutlet NSWindow *window;
 @property (strong) MBAuthController *authController;
 @property (strong) MBClient *client;
 @property (strong) MBMainController *mainController;
@@ -98,8 +97,6 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 
 - (void) showWelcomeWindow
 {
-	[self.window orderOut:nil];
-
 	if (self.welcomeController == nil) {
 		self.welcomeController = [[MBWelcomeController alloc] init];
 
@@ -121,8 +118,8 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 - (void) showMainWindow
 {
 	if (self.mainController == nil) {
-		NSString *token_value = [self.sessionController token] ?: @"";
-		self.mainController = [[MBMainController alloc] initWithWindow:self.window client:self.client token:token_value];
+		NSString* token_value = [self.sessionController token] ?: @"";
+		self.mainController = [[MBMainController alloc] initWithWindow:nil client:self.client token:token_value];
 	}
 
 	[self.mainController showWindow:nil];
