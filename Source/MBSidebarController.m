@@ -114,7 +114,8 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 @interface MBSidebarRowView : NSTableRowView
 
-@property (strong) NSColor* customBackgroundColor;
+@property (nonatomic, strong) NSColor* customBackgroundColor;
+@property (nonatomic, strong) NSColor* customSelectionBackgroundColor;
 
 @end
 
@@ -130,18 +131,43 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	[self setNeedsDisplay:YES];
 }
 
+- (void) setCustomSelectionBackgroundColor:(NSColor*) custom_selection_background_color
+{
+	if ((_customSelectionBackgroundColor == custom_selection_background_color) || [_customSelectionBackgroundColor isEqual:custom_selection_background_color]) {
+		return;
+	}
+
+	_customSelectionBackgroundColor = custom_selection_background_color;
+	[self setNeedsDisplay:YES];
+}
+
 - (void) drawBackgroundInRect:(NSRect)dirty_rect
 {
 	[super drawBackgroundInRect:dirty_rect];
 	#pragma unused(dirty_rect)
-	if (self.customBackgroundColor == nil) {
+	NSColor* fill_color = self.customSelectionBackgroundColor;
+	if (fill_color == nil) {
+		fill_color = self.customBackgroundColor;
+	}
+
+	if (fill_color == nil) {
 		return;
 	}
 
 	NSRect fill_rect = NSInsetRect(self.bounds, InkwellSidebarRowBackgroundHorizontalInset, InkwellSidebarRowBackgroundVerticalInset);
 	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:fill_rect xRadius:10.0 yRadius:10.0];
-	[self.customBackgroundColor setFill];
+	[fill_color setFill];
 	[background_path fill];
+}
+
+- (void) drawSelectionInRect:(NSRect)dirty_rect
+{
+	if (self.customSelectionBackgroundColor != nil) {
+		#pragma unused(dirty_rect)
+		return;
+	}
+
+	[super drawSelectionInRect:dirty_rect];
 }
 
 @end
@@ -180,15 +206,19 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 @property (weak) NSWindow* observedWindowForSelectionStyling;
 @property (strong) NSView* premiumRequiredView;
 @property (assign) BOOL hideReadPosts;
+@property (assign) BOOL isPreservingSelectionDuringReload;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
+- (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
 - (NSInteger) preferredSelectionEntryIDForReload;
 - (NSInteger) currentSelectedEntryID;
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
 - (NSInteger) rowForEntryID:(NSInteger)entry_id;
+- (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view;
+- (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view;
 - (NSInteger) savedSelectedEntryID;
 - (void) saveSelectedEntryIDForCurrentSelection;
 - (void) scrollTableToTop;
@@ -520,15 +550,49 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	return item;
 }
 
-- (void) reloadTable
+- (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged
 {
-	[self.tableView reloadData];
-	NSInteger selected_row = self.tableView.selectedRow;
-	if (selected_row >= 0 && selected_row < self.items.count) {
-		self.selectedRowForStyling = selected_row;
+	if (self.tableView == nil) {
+		self.selectedRowForStyling = -1;
+		return;
+	}
+
+	NSInteger previous_selected_row = self.tableView.selectedRow;
+	NSInteger target_row = [self rowForEntryID:entry_id];
+	if (target_row < 0 || target_row >= (NSInteger) self.items.count) {
+		target_row = -1;
+	}
+
+	if (target_row >= 0) {
+		self.selectedRowForStyling = target_row;
 	}
 	else {
 		self.selectedRowForStyling = -1;
+	}
+
+	self.isPreservingSelectionDuringReload = YES;
+	[self.tableView reloadData];
+
+	BOOL did_restore_selection = [self restoreSelectionForEntryID:entry_id notifySelectionIfUnchanged:notify_if_unchanged];
+	if (!did_restore_selection && self.tableView.selectedRow >= 0) {
+		[self.tableView deselectAll:nil];
+		self.selectedRowForStyling = -1;
+	}
+	else {
+		NSInteger selected_row = self.tableView.selectedRow;
+		if (selected_row >= 0 && selected_row < self.items.count) {
+			self.selectedRowForStyling = selected_row;
+		}
+		else if (!did_restore_selection) {
+			self.selectedRowForStyling = -1;
+		}
+	}
+
+	self.isPreservingSelectionDuringReload = NO;
+	NSInteger current_selected_row = self.tableView.selectedRow;
+	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+	if (!did_restore_selection && previous_selected_row >= 0 && current_selected_row < 0) {
+		[self notifySelectionChanged];
 	}
 }
 
@@ -788,11 +852,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 	self.items = [self filteredItemsForReadVisibility:(filtered_items ?: @[]) selectedEntryID:selected_entry_id];
 
-	[self reloadTable];
-	BOOL did_restore_selection = [self restoreSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
-	if (!did_restore_selection && preferred_entry_id > 0 && self.tableView.selectedRow >= 0) {
-		[self.tableView deselectAll:nil];
-	}
+	[self reloadTablePreservingSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
 	if (is_searching) {
 		[self scrollTableToTop];
 	}
@@ -862,6 +922,48 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	return -1;
+}
+
+- (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view
+{
+	BOOL is_selected_row = (row == self.selectedRowForStyling);
+	if (!is_selected_row) {
+		is_selected_row = (table_view.selectedRow == row);
+	}
+	if (!is_selected_row) {
+		is_selected_row = [table_view isRowSelected:row];
+	}
+
+	return is_selected_row;
+}
+
+- (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view
+{
+	if (row_view == nil) {
+		return;
+	}
+
+	BOOL is_selected_row = [self isRowSelectedForStyling:row tableView:table_view];
+	if (is_selected_row || row < 0 || row >= self.items.count) {
+		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:table_view];
+		if (is_selected_row) {
+			row_view.customSelectionBackgroundColor = has_emphasized_selection ? [NSColor selectedContentBackgroundColor] : [NSColor unemphasizedSelectedContentBackgroundColor];
+		}
+		else {
+			row_view.customSelectionBackgroundColor = nil;
+		}
+		row_view.customBackgroundColor = nil;
+		return;
+	}
+
+	row_view.customSelectionBackgroundColor = nil;
+	MBEntry* item = self.items[(NSUInteger) row];
+	if (item.isRead) {
+		row_view.customBackgroundColor = nil;
+	}
+	else {
+		row_view.customBackgroundColor = [NSColor colorWithRed:0.93 green:0.96 blue:1.0 alpha:0.85];
+	}
 }
 
 - (NSInteger) savedSelectedEntryID
@@ -1657,27 +1759,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		row_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
 	}
 
-	BOOL is_selected_row = (row == self.selectedRowForStyling);
-	if (!is_selected_row) {
-		is_selected_row = (tableView.selectedRow == row);
-	}
-	if (!is_selected_row) {
-		is_selected_row = [tableView isRowSelected:row];
-	}
-
-	if (is_selected_row || row < 0 || row >= self.items.count) {
-		row_view.customBackgroundColor = nil;
-		return row_view;
-	}
-
-	MBEntry* item = self.items[(NSUInteger) row];
-	if (item.isRead) {
-		row_view.customBackgroundColor = nil;
-	}
-	else {
-		row_view.customBackgroundColor = [NSColor colorWithRed:0.93 green:0.96 blue:1.0 alpha:0.85];
-	}
-
+	[self configureRowView:row_view forRow:row tableView:tableView];
 	return row_view;
 }
 
@@ -2088,6 +2170,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 {
 	#pragma unused(notification)
 	NSInteger current_selected_row = self.tableView.selectedRow;
+	if (self.isPreservingSelectionDuringReload) {
+		self.selectedRowForStyling = current_selected_row;
+		return;
+	}
+
 	[self refreshSelectionStylingForSelectedRow:current_selected_row];
 	[self saveSelectedEntryIDForCurrentSelection];
 	[self notifySelectionChanged];
@@ -2097,6 +2184,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 {
 	#pragma unused(notification)
 	NSInteger current_selected_row = self.tableView.selectedRow;
+	if (self.isPreservingSelectionDuringReload) {
+		self.selectedRowForStyling = current_selected_row;
+		return;
+	}
+
 	[self refreshSelectionStylingForSelectedRow:current_selected_row];
 }
 
@@ -2113,6 +2205,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	self.selectedRowForStyling = selected_row;
 
 	if (rows_to_reload.count > 0) {
+		[rows_to_reload enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
+			#pragma unused(stop)
+			MBSidebarRowView* row_view = (MBSidebarRowView*) [self.tableView rowViewAtRow:(NSInteger) idx makeIfNecessary:NO];
+			[self configureRowView:row_view forRow:(NSInteger) idx tableView:self.tableView];
+		}];
+
 		NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
 		[self.tableView reloadDataForRowIndexes:rows_to_reload columnIndexes:column_indexes];
 	}
