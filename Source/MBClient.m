@@ -320,6 +320,91 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[task resume];
 }
 
+- (void) createFeedSubscriptionWithURLString:(NSString*) url_string token:(NSString*) token completion:(void (^)(NSInteger status_code, MBSubscription* _Nullable subscription, NSArray* _Nullable choices, NSError* _Nullable error))completion
+{
+	NSString* trimmed_url_string = [url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_url_string.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1036 userInfo:@{ NSLocalizedDescriptionKey: @"Missing feed URL for subscription request." }];
+		[self finishCreateFeedSubscriptionWithStatusCode:0 subscription:nil choices:nil error:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1037 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for subscription request." }];
+		[self finishCreateFeedSubscriptionWithStatusCode:0 subscription:nil choices:nil error:error completion:completion];
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:MBFeedSubscriptionsEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1038 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions endpoint URL was invalid." }];
+		[self finishCreateFeedSubscriptionWithStatusCode:0 subscription:nil choices:nil error:error completion:completion];
+		return;
+	}
+
+	NSData* body_data = [NSJSONSerialization dataWithJSONObject:@{ @"feed_url": trimmed_url_string } options:0 error:nil];
+	if (body_data.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1039 userInfo:@{ NSLocalizedDescriptionKey: @"Subscription request body was invalid." }];
+		[self finishCreateFeedSubscriptionWithStatusCode:0 subscription:nil choices:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"POST";
+	request.HTTPBody = body_data;
+	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishCreateFeedSubscriptionWithStatusCode:0 subscription:nil choices:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		NSInteger status_code = http_response.statusCode;
+		if (status_code == 300) {
+			id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+			if (![payload isKindOfClass:[NSArray class]]) {
+				NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1040 userInfo:@{ NSLocalizedDescriptionKey: @"Subscription choices response was invalid." }];
+				[self finishCreateFeedSubscriptionWithStatusCode:status_code subscription:nil choices:nil error:parse_error completion:completion];
+				return;
+			}
+
+			NSArray* choices = [self subscriptionChoicesFromPayload:(NSArray*) payload];
+			[self finishCreateFeedSubscriptionWithStatusCode:status_code subscription:nil choices:choices error:nil completion:completion];
+			return;
+		}
+
+		if (status_code == 302 || (status_code >= 200 && status_code < 300)) {
+			id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+			if (![payload isKindOfClass:[NSDictionary class]]) {
+				NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1041 userInfo:@{ NSLocalizedDescriptionKey: @"Subscription response was invalid." }];
+				[self finishCreateFeedSubscriptionWithStatusCode:status_code subscription:nil choices:nil error:parse_error completion:completion];
+				return;
+			}
+
+			MBSubscription* subscription = [self subscriptionFromDictionary:(NSDictionary*) payload];
+			if (subscription == nil) {
+				NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1041 userInfo:@{ NSLocalizedDescriptionKey: @"Subscription response was invalid." }];
+				[self finishCreateFeedSubscriptionWithStatusCode:status_code subscription:nil choices:nil error:parse_error completion:completion];
+				return;
+			}
+
+			[self finishCreateFeedSubscriptionWithStatusCode:status_code subscription:subscription choices:nil error:nil completion:completion];
+			return;
+		}
+
+		NSString* description = [self responseDescriptionForData:data defaultMessage:@"Subscription request failed."];
+		NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:status_code userInfo:@{ NSLocalizedDescriptionKey: description }];
+		[self finishCreateFeedSubscriptionWithStatusCode:status_code subscription:nil choices:nil error:request_error completion:completion];
+	}];
+	[task resume];
+}
+
 - (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number cutoffDate:(NSDate*) cutoff_date accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
 {
 	NSURLComponents* components = [NSURLComponents componentsWithString:MBFeedEntriesEndpoint];
@@ -1214,22 +1299,34 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 			continue;
 		}
 
-		NSDictionary<NSString *, id> *dictionary = (NSDictionary<NSString *, id> *) object;
-		MBSubscription *subscription = [[MBSubscription alloc] init];
-		subscription.subscriptionID = [self integerValueFromObject:dictionary[@"id"]];
-		subscription.feedID = [self integerValueFromObject:dictionary[@"feed_id"]];
-		subscription.title = [self stringValueFromObject:dictionary[@"title"]];
-		subscription.feedURL = [self stringValueFromObject:dictionary[@"feed_url"]];
-		subscription.siteURL = [self stringValueFromObject:dictionary[@"site_url"]];
-		subscription.avatarURL = [self avatarURLFromSubscriptionDictionary:dictionary];
-
-		NSString *created_at_string = [self stringValueFromObject:dictionary[@"created_at"]];
-		subscription.createdAt = [self dateFromISO8601String:created_at_string];
+		MBSubscription* subscription = [self subscriptionFromDictionary:(NSDictionary*) object];
+		if (subscription == nil) {
+			continue;
+		}
 
 		[subscriptions addObject:subscription];
 	}
 
 	return [subscriptions copy];
+}
+
+- (MBSubscription* _Nullable) subscriptionFromDictionary:(NSDictionary*) dictionary
+{
+	if (![dictionary isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	MBSubscription* subscription = [[MBSubscription alloc] init];
+	subscription.subscriptionID = [self integerValueFromObject:dictionary[@"id"]];
+	subscription.feedID = [self integerValueFromObject:dictionary[@"feed_id"]];
+	subscription.title = [self stringValueFromObject:dictionary[@"title"]];
+	subscription.feedURL = [self stringValueFromObject:dictionary[@"feed_url"]];
+	subscription.siteURL = [self stringValueFromObject:dictionary[@"site_url"]];
+	subscription.avatarURL = [self avatarURLFromSubscriptionDictionary:dictionary];
+
+	NSString* created_at_string = [self stringValueFromObject:dictionary[@"created_at"]];
+	subscription.createdAt = [self dateFromISO8601String:created_at_string];
+	return subscription;
 }
 
 - (NSArray* _Nullable) subscriptionsFromData:(NSData* _Nullable) data response:(NSURLResponse* _Nullable) response error:(NSError* _Nullable) error
@@ -1264,6 +1361,74 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 
 	return [NSError errorWithDomain:MBClientErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Subscriptions response was invalid." }];
+}
+
+- (NSArray*) subscriptionChoicesFromPayload:(NSArray*) payload
+{
+	NSMutableArray* choices = [NSMutableArray array];
+
+	for (id object in payload) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* dictionary = (NSDictionary*) object;
+		NSString* title_value = [self stringValueFromObject:dictionary[@"title"]];
+		NSString* feed_url_value = [self stringValueFromObject:dictionary[@"feed_url"]];
+		if (feed_url_value.length == 0) {
+			feed_url_value = [self stringValueFromObject:dictionary[@"url"]];
+		}
+		if (feed_url_value.length == 0) {
+			continue;
+		}
+
+		NSDictionary* choice = @{
+			@"title": title_value ?: @"",
+			@"feed_url": feed_url_value,
+			@"is_json_feed": @([self isJSONFeedDictionary:dictionary])
+		};
+		[choices addObject:choice];
+	}
+
+	return [choices copy];
+}
+
+- (BOOL) isJSONFeedDictionary:(NSDictionary*) dictionary
+{
+	if (![dictionary isKindOfClass:[NSDictionary class]]) {
+		return NO;
+	}
+
+	id json_feed_value = dictionary[@"json_feed"];
+	if ([json_feed_value isKindOfClass:[NSDictionary class]]) {
+		return YES;
+	}
+
+	NSArray* type_keys = @[ @"feed_type", @"type", @"format", @"mime_type", @"content_type", @"version" ];
+	for (NSString* key in type_keys) {
+		NSString* value = [[self stringValueFromObject:dictionary[key]] lowercaseString];
+		if ([value containsString:@"json"]) {
+			return YES;
+		}
+	}
+
+	NSString* feed_url_value = [[self stringValueFromObject:dictionary[@"feed_url"]] lowercaseString];
+	if (feed_url_value.length == 0) {
+		feed_url_value = [[self stringValueFromObject:dictionary[@"url"]] lowercaseString];
+	}
+
+	if ([feed_url_value containsString:@"jsonfeed"]) {
+		return YES;
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:feed_url_value];
+	NSString* path_value = [components.path lowercaseString] ?: @"";
+	NSString* extension_value = [path_value pathExtension] ?: @"";
+	if ([extension_value isEqualToString:@"json"]) {
+		return YES;
+	}
+
+	return NO;
 }
 
 - (NSString*) avatarURLFromSubscriptionDictionary:(NSDictionary*) dictionary
@@ -2130,6 +2295,17 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(subscriptions, error);
+	});
+}
+
+- (void) finishCreateFeedSubscriptionWithStatusCode:(NSInteger) status_code subscription:(MBSubscription* _Nullable) subscription choices:(NSArray* _Nullable) choices error:(NSError* _Nullable) error completion:(void (^)(NSInteger status_code, MBSubscription* _Nullable subscription, NSArray* _Nullable choices, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(status_code, subscription, choices, error);
 	});
 }
 

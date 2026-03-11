@@ -29,8 +29,151 @@ static CGFloat const InkwellMainWindowDefaultHeight = 760.0;
 static CGFloat const InkwellMainWindowMinWidth = 760.0;
 static CGFloat const InkwellMainWindowMinHeight = 520.0;
 static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
+static NSString* const InkwellNewFeedChoiceCellIdentifier = @"InkwellNewFeedChoiceCell";
+static CGFloat const InkwellNewFeedSheetWidth = 460.0;
+static CGFloat const InkwellNewFeedSheetCollapsedHeight = 152.0;
+static CGFloat const InkwellNewFeedSheetExpandedHeight = 350.0;
+static CGFloat const InkwellNewFeedChoicesHeight = 186.0;
+static CGFloat const InkwellNewFeedChoiceIconSize = 16.0;
+static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 
-@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation>
+@interface MBNewFeedChoice : NSObject
+
+@property (copy) NSString* title;
+@property (copy) NSString* feedURL;
+@property (assign) BOOL isJSONFeed;
+
+@end
+
+@implementation MBNewFeedChoice
+
+@end
+
+@interface MBNewFeedChoiceCellView : NSTableCellView
+
+@property (strong) NSImageView* iconImageView;
+@property (strong) NSTextField* titleTextField;
+@property (strong) NSTextField* feedURLTextField;
+
+- (void) configureWithChoice:(MBNewFeedChoice*) choice;
+
+@end
+
+@implementation MBNewFeedChoiceCellView
+
+- (instancetype) initWithFrame:(NSRect) frame_rect
+{
+	self = [super initWithFrame:frame_rect];
+	if (self) {
+		[self setupViews];
+	}
+	return self;
+}
+
+- (void) prepareForReuse
+{
+	[super prepareForReuse];
+	self.iconImageView.image = nil;
+	self.titleTextField.stringValue = @"";
+	self.feedURLTextField.stringValue = @"";
+	[self applyTextColors];
+}
+
+- (void) configureWithChoice:(MBNewFeedChoice*) choice
+{
+	NSString* title_value = [self normalizedString:choice.title];
+	NSString* feed_url_value = [self normalizedString:choice.feedURL];
+	if (title_value.length == 0) {
+		title_value = (feed_url_value.length > 0) ? feed_url_value : @"Untitled Feed";
+	}
+
+	NSString* image_name = choice.isJSONFeed ? @"icon_jsonfeed" : @"icon_rss";
+	self.iconImageView.image = [NSImage imageNamed:image_name];
+	self.titleTextField.stringValue = title_value;
+	self.feedURLTextField.stringValue = feed_url_value;
+	[self applyTextColors];
+}
+
+- (void) setBackgroundStyle:(NSBackgroundStyle) background_style
+{
+	[super setBackgroundStyle:background_style];
+	[self applyTextColors];
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self applyTextColors];
+}
+
+- (void) setupViews
+{
+	NSImageView* icon_image_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
+	icon_image_view.translatesAutoresizingMaskIntoConstraints = NO;
+	icon_image_view.imageScaling = NSImageScaleProportionallyUpOrDown;
+	icon_image_view.wantsLayer = YES;
+	icon_image_view.layer.cornerRadius = 3.0;
+	icon_image_view.layer.masksToBounds = YES;
+	[self addSubview:icon_image_view];
+
+	NSTextField* title_text_field = [NSTextField labelWithString:@""];
+	title_text_field.translatesAutoresizingMaskIntoConstraints = NO;
+	title_text_field.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	title_text_field.lineBreakMode = NSLineBreakByTruncatingTail;
+	title_text_field.maximumNumberOfLines = 1;
+	title_text_field.usesSingleLineMode = YES;
+
+	NSTextField* feed_url_text_field = [NSTextField labelWithString:@""];
+	feed_url_text_field.translatesAutoresizingMaskIntoConstraints = NO;
+	feed_url_text_field.font = [NSFont systemFontOfSize:11.0];
+	feed_url_text_field.lineBreakMode = NSLineBreakByTruncatingTail;
+	feed_url_text_field.maximumNumberOfLines = 1;
+	feed_url_text_field.usesSingleLineMode = YES;
+
+	NSStackView* text_stack_view = [[NSStackView alloc] initWithFrame:NSZeroRect];
+	text_stack_view.translatesAutoresizingMaskIntoConstraints = NO;
+	text_stack_view.orientation = NSUserInterfaceLayoutOrientationVertical;
+	text_stack_view.alignment = NSLayoutAttributeLeading;
+	text_stack_view.distribution = NSStackViewDistributionFill;
+	text_stack_view.spacing = 1.0;
+	[text_stack_view addArrangedSubview:title_text_field];
+	[text_stack_view addArrangedSubview:feed_url_text_field];
+	[self addSubview:text_stack_view];
+
+	[NSLayoutConstraint activateConstraints:@[
+		[icon_image_view.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12.0],
+		[icon_image_view.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+		[icon_image_view.widthAnchor constraintEqualToConstant:InkwellNewFeedChoiceIconSize],
+		[icon_image_view.heightAnchor constraintEqualToConstant:InkwellNewFeedChoiceIconSize],
+		[text_stack_view.leadingAnchor constraintEqualToAnchor:icon_image_view.trailingAnchor constant:10.0],
+		[text_stack_view.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12.0],
+		[text_stack_view.centerYAnchor constraintEqualToAnchor:self.centerYAnchor]
+	]];
+
+	self.iconImageView = icon_image_view;
+	self.titleTextField = title_text_field;
+	self.feedURLTextField = feed_url_text_field;
+	self.textField = title_text_field;
+	[self applyTextColors];
+}
+
+- (void) applyTextColors
+{
+	BOOL is_selected = (self.backgroundStyle == NSBackgroundStyleEmphasized);
+	NSColor* primary_color = is_selected ? [NSColor alternateSelectedControlTextColor] : [NSColor labelColor];
+	NSColor* secondary_color = is_selected ? [[NSColor alternateSelectedControlTextColor] colorWithAlphaComponent:0.78] : [NSColor secondaryLabelColor];
+	self.titleTextField.textColor = primary_color;
+	self.feedURLTextField.textColor = secondary_color;
+}
+
+- (NSString*) normalizedString:(NSString*) string_value
+{
+	return [string_value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
+@end
+
+@interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation, NSTableViewDataSource, NSTableViewDelegate>
 
 @property (assign) BOOL didBuildInterface;
 @property (assign) BOOL didRestoreWindowFrame;
@@ -51,10 +194,31 @@ static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
 @property (copy) NSDictionary* lastConversationPayload;
 @property (copy) NSString* pendingConversationLookupURLString;
 @property (strong) NSButton* toolbarRepliesButton;
+@property (strong) NSWindow* feedSubscriptionSheetWindow;
+@property (strong) NSTextField* feedSubscriptionURLField;
+@property (strong) NSButton* feedSubscriptionSubscribeButton;
+@property (strong) NSButton* feedSubscriptionCancelButton;
+@property (strong) NSProgressIndicator* feedSubscriptionProgressIndicator;
+@property (strong) NSScrollView* feedSubscriptionChoicesScrollView;
+@property (strong) NSTableView* feedSubscriptionChoicesTableView;
+@property (strong) NSLayoutConstraint* feedSubscriptionChoicesHeightConstraint;
+@property (copy) NSArray* feedSubscriptionChoices;
+@property (copy) NSString* feedSubscriptionRequestedURLString;
+@property (assign) BOOL isCreatingFeedSubscription;
 
 - (BOOL) focusSidebarPane;
 - (BOOL) focusDetailPane;
 - (void) restoreWindowFrameIfNeeded;
+- (void) setupNewFeedSheetIfNeeded;
+- (void) resetNewFeedSheetState;
+- (void) updateNewFeedChoicesWithDictionaries:(NSArray*) choices;
+- (void) setNewFeedChoicesVisible:(BOOL) is_visible animated:(BOOL) is_animated;
+- (void) resizeNewFeedSheetToContentHeight:(CGFloat) content_height animated:(BOOL) is_animated;
+- (void) updateNewFeedControls;
+- (NSString*) normalizedNewFeedURLString;
+- (MBNewFeedChoice* _Nullable) selectedNewFeedChoice;
+- (void) closeNewFeedSheet;
+- (void) presentNewFeedError:(NSError*) error;
 
 @end
 
@@ -400,6 +564,101 @@ static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
 	[[NSWorkspace sharedWorkspace] openURL:open_url];
 }
 
+- (IBAction) newFeed:(id) sender
+{
+	#pragma unused(sender)
+
+	if (self.window == nil) {
+		return;
+	}
+
+	[self setupNewFeedSheetIfNeeded];
+	if (self.window.attachedSheet == self.feedSubscriptionSheetWindow) {
+		[self.feedSubscriptionURLField selectText:nil];
+		return;
+	}
+
+	[self resetNewFeedSheetState];
+
+	__weak typeof(self) weak_self = self;
+	[self.window beginSheet:self.feedSubscriptionSheetWindow completionHandler:^(NSModalResponse return_code) {
+		#pragma unused(return_code)
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self.feedSubscriptionSheetWindow orderOut:nil];
+		[strong_self resetNewFeedSheetState];
+		[strong_self.sidebarController refreshData];
+	}];
+	[self.feedSubscriptionSheetWindow makeFirstResponder:self.feedSubscriptionURLField];
+	[self.feedSubscriptionURLField selectText:nil];
+}
+
+- (IBAction) cancelNewFeed:(id) sender
+{
+	#pragma unused(sender)
+	if (self.isCreatingFeedSubscription) {
+		return;
+	}
+
+	[self closeNewFeedSheet];
+}
+
+- (IBAction) subscribeNewFeed:(id) sender
+{
+	#pragma unused(sender)
+
+	if (self.client == nil || self.token.length == 0 || self.isCreatingFeedSubscription) {
+		return;
+	}
+
+	NSString* url_string = @"";
+	MBNewFeedChoice* selected_choice = [self selectedNewFeedChoice];
+	if (selected_choice != nil && self.feedSubscriptionChoices.count > 0) {
+		url_string = selected_choice.feedURL ?: @"";
+	}
+	else {
+		url_string = [self normalizedNewFeedURLString];
+	}
+
+	NSString* trimmed_url_string = [url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_url_string.length == 0) {
+		NSBeep();
+		return;
+	}
+
+	self.isCreatingFeedSubscription = YES;
+	self.feedSubscriptionRequestedURLString = trimmed_url_string;
+	[self updateNewFeedControls];
+
+	__weak typeof(self) weak_self = self;
+	[self.client createFeedSubscriptionWithURLString:trimmed_url_string token:self.token completion:^(NSInteger status_code, MBSubscription* _Nullable subscription, NSArray* _Nullable choices, NSError* _Nullable error) {
+		#pragma unused(subscription)
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.isCreatingFeedSubscription = NO;
+
+		if (error != nil) {
+			[strong_self updateNewFeedControls];
+			[strong_self presentNewFeedError:error];
+			return;
+		}
+
+		if (status_code == 300) {
+			[strong_self updateNewFeedChoicesWithDictionaries:choices ?: @[]];
+			[strong_self updateNewFeedControls];
+			return;
+		}
+
+		[strong_self closeNewFeedSheet];
+	}];
+}
+
 - (IBAction) copyLink:(id)sender
 {
 	#pragma unused(sender)
@@ -677,6 +936,9 @@ static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
 	if (menu_item.action == @selector(newPost:)) {
 		return ([self.sidebarController selectedItem] != nil);
 	}
+	if (menu_item.action == @selector(newFeed:)) {
+		return (self.client != nil && self.token.length > 0);
+	}
 	if (menu_item.action == @selector(showHighlights:)) {
 		return YES;
 	}
@@ -749,12 +1011,31 @@ static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
 	self.sidebarController.searchQuery = search_field.stringValue ?: @"";
 }
 
+- (void) newFeedURLFieldTextDidChange:(NSNotification*) notification
+{
+	NSTextField* text_field = notification.object;
+	if (text_field != self.feedSubscriptionURLField) {
+		return;
+	}
+
+	if (self.feedSubscriptionChoices.count > 0) {
+		self.feedSubscriptionRequestedURLString = @"";
+		[self updateNewFeedChoicesWithDictionaries:@[]];
+	}
+
+	[self updateNewFeedControls];
+}
+
 - (BOOL) control:(NSControl*) control textView:(NSTextView*) text_view doCommandBySelector:(SEL) command_selector
 {
-	#pragma unused(control)
 	#pragma unused(text_view)
 
 	if (command_selector == @selector(insertNewline:) || command_selector == @selector(insertLineBreak:) || command_selector == @selector(insertNewlineIgnoringFieldEditor:)) {
+		if (control == self.feedSubscriptionURLField) {
+			[self subscribeNewFeed:control];
+			return YES;
+		}
+
 		[self.sidebarController focusAndSelectFirstItem];
 		return YES;
 	}
@@ -878,6 +1159,319 @@ static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
 	}
 
 	return @"";
+}
+
+- (void) setupNewFeedSheetIfNeeded
+{
+	if (self.feedSubscriptionSheetWindow != nil) {
+		return;
+	}
+
+	NSRect content_rect = NSMakeRect(0.0, 0.0, InkwellNewFeedSheetWidth, InkwellNewFeedSheetCollapsedHeight);
+	NSWindow* sheet_window = [[NSWindow alloc] initWithContentRect:content_rect styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+	sheet_window.releasedWhenClosed = NO;
+	sheet_window.title = @"New Feed";
+	sheet_window.titleVisibility = NSWindowTitleHidden;
+	sheet_window.titlebarAppearsTransparent = YES;
+	sheet_window.movable = NO;
+
+	NSView* content_view = [[NSView alloc] initWithFrame:content_rect];
+	content_view.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* title_label = [NSTextField labelWithString:@"Subscribe to a new feed:"];
+	title_label.translatesAutoresizingMaskIntoConstraints = NO;
+	title_label.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+
+	NSTextField* url_field = [[NSTextField alloc] initWithFrame:NSZeroRect];
+	url_field.translatesAutoresizingMaskIntoConstraints = NO;
+	url_field.placeholderString = @"URL";
+	url_field.bezelStyle = NSTextFieldRoundedBezel;
+	url_field.delegate = (id<NSTextFieldDelegate>) self;
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(newFeedURLFieldTextDidChange:) name:NSControlTextDidChangeNotification object:url_field];
+
+	NSTableView* table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
+	table_view.translatesAutoresizingMaskIntoConstraints = NO;
+	table_view.delegate = self;
+	table_view.dataSource = self;
+	table_view.headerView = nil;
+	table_view.rowHeight = InkwellNewFeedChoiceRowHeight;
+	table_view.intercellSpacing = NSMakeSize(0.0, 0.0);
+	table_view.usesAutomaticRowHeights = NO;
+	table_view.allowsEmptySelection = NO;
+	table_view.allowsMultipleSelection = NO;
+	table_view.style = NSTableViewStylePlain;
+
+	NSTableColumn* table_column = [[NSTableColumn alloc] initWithIdentifier:@"NewFeedChoicesColumn"];
+	table_column.resizingMask = NSTableColumnAutoresizingMask;
+	table_column.editable = NO;
+	[table_view addTableColumn:table_column];
+
+	NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+	scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
+	scroll_view.drawsBackground = NO;
+	scroll_view.hasVerticalScroller = YES;
+	scroll_view.autohidesScrollers = YES;
+	scroll_view.borderType = NSBezelBorder;
+	scroll_view.documentView = table_view;
+	scroll_view.hidden = YES;
+
+	NSProgressIndicator* progress_indicator = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+	progress_indicator.translatesAutoresizingMaskIntoConstraints = NO;
+	progress_indicator.style = NSProgressIndicatorStyleSpinning;
+	progress_indicator.indeterminate = YES;
+	progress_indicator.controlSize = NSControlSizeSmall;
+	progress_indicator.displayedWhenStopped = NO;
+	progress_indicator.hidden = YES;
+
+	NSButton* cancel_button = [NSButton buttonWithTitle:@"Cancel" target:self action:@selector(cancelNewFeed:)];
+	cancel_button.translatesAutoresizingMaskIntoConstraints = NO;
+	cancel_button.bezelStyle = NSBezelStyleRounded;
+	cancel_button.keyEquivalent = @".";
+	cancel_button.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+
+	NSButton* subscribe_button = [NSButton buttonWithTitle:@"Subscribe" target:self action:@selector(subscribeNewFeed:)];
+	subscribe_button.translatesAutoresizingMaskIntoConstraints = NO;
+	subscribe_button.bezelStyle = NSBezelStyleRounded;
+	subscribe_button.keyEquivalent = @"\r";
+
+	[content_view addSubview:title_label];
+	[content_view addSubview:url_field];
+	[content_view addSubview:scroll_view];
+	[content_view addSubview:progress_indicator];
+	[content_view addSubview:cancel_button];
+	[content_view addSubview:subscribe_button];
+
+	NSLayoutConstraint* choices_height_constraint = [scroll_view.heightAnchor constraintEqualToConstant:0.0];
+	[NSLayoutConstraint activateConstraints:@[
+		[title_label.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:20.0],
+		[title_label.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:20.0],
+		[title_label.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		[url_field.topAnchor constraintEqualToAnchor:title_label.bottomAnchor constant:17.0],
+		[url_field.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:20.0],
+		[url_field.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		[url_field.heightAnchor constraintEqualToConstant:24.0],
+		[scroll_view.topAnchor constraintEqualToAnchor:url_field.bottomAnchor constant:12.0],
+		[scroll_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:20.0],
+		[scroll_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		choices_height_constraint,
+		[scroll_view.bottomAnchor constraintEqualToAnchor:cancel_button.topAnchor constant:-16.0],
+		[progress_indicator.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:20.0],
+		[progress_indicator.centerYAnchor constraintEqualToAnchor:cancel_button.centerYAnchor],
+		[progress_indicator.widthAnchor constraintEqualToConstant:16.0],
+		[progress_indicator.heightAnchor constraintEqualToConstant:16.0],
+		[cancel_button.trailingAnchor constraintEqualToAnchor:subscribe_button.leadingAnchor constant:-8.0],
+		[cancel_button.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor constant:-16.0],
+		[subscribe_button.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		[subscribe_button.bottomAnchor constraintEqualToAnchor:cancel_button.bottomAnchor]
+	]];
+
+	sheet_window.contentView = content_view;
+	sheet_window.defaultButtonCell = subscribe_button.cell;
+	sheet_window.initialFirstResponder = url_field;
+
+	self.feedSubscriptionSheetWindow = sheet_window;
+	self.feedSubscriptionURLField = url_field;
+	self.feedSubscriptionChoicesTableView = table_view;
+	self.feedSubscriptionChoicesScrollView = scroll_view;
+	self.feedSubscriptionProgressIndicator = progress_indicator;
+	self.feedSubscriptionCancelButton = cancel_button;
+	self.feedSubscriptionSubscribeButton = subscribe_button;
+	self.feedSubscriptionChoicesHeightConstraint = choices_height_constraint;
+	self.feedSubscriptionChoices = @[];
+	self.feedSubscriptionRequestedURLString = @"";
+	[self updateNewFeedControls];
+}
+
+- (void) resetNewFeedSheetState
+{
+	self.feedSubscriptionRequestedURLString = @"";
+	self.feedSubscriptionChoices = @[];
+	self.isCreatingFeedSubscription = NO;
+	self.feedSubscriptionURLField.stringValue = @"";
+	[self.feedSubscriptionChoicesTableView deselectAll:nil];
+	[self.feedSubscriptionChoicesTableView reloadData];
+	[self setNewFeedChoicesVisible:NO animated:NO];
+	[self updateNewFeedControls];
+}
+
+- (void) updateNewFeedChoicesWithDictionaries:(NSArray*) choices
+{
+	NSMutableArray* parsed_choices = [NSMutableArray array];
+	for (id object in choices ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* dictionary = (NSDictionary*) object;
+		NSString* feed_url = [self stringValueFromObjectOrNumber:dictionary[@"feed_url"]];
+		NSString* title_value = [self stringValueFromObjectOrNumber:dictionary[@"title"]];
+		if (feed_url.length == 0) {
+			continue;
+		}
+
+		MBNewFeedChoice* choice = [[MBNewFeedChoice alloc] init];
+		choice.title = title_value ?: @"";
+		choice.feedURL = feed_url;
+		choice.isJSONFeed = [dictionary[@"is_json_feed"] boolValue];
+		[parsed_choices addObject:choice];
+	}
+
+	self.feedSubscriptionChoices = [parsed_choices copy];
+	[self.feedSubscriptionChoicesTableView reloadData];
+
+	BOOL should_show_choices = (self.feedSubscriptionChoices.count > 0);
+	[self setNewFeedChoicesVisible:should_show_choices animated:YES];
+	if (should_show_choices) {
+		NSIndexSet* first_index = [NSIndexSet indexSetWithIndex:0];
+		[self.feedSubscriptionChoicesTableView selectRowIndexes:first_index byExtendingSelection:NO];
+		[self.feedSubscriptionChoicesTableView scrollRowToVisible:0];
+		[self.feedSubscriptionSheetWindow makeFirstResponder:self.feedSubscriptionChoicesTableView];
+	}
+}
+
+- (void) setNewFeedChoicesVisible:(BOOL) is_visible animated:(BOOL) is_animated
+{
+	self.feedSubscriptionChoicesScrollView.hidden = !is_visible;
+	self.feedSubscriptionChoicesHeightConstraint.constant = is_visible ? InkwellNewFeedChoicesHeight : 0.0;
+	[self resizeNewFeedSheetToContentHeight:(is_visible ? InkwellNewFeedSheetExpandedHeight : InkwellNewFeedSheetCollapsedHeight) animated:is_animated];
+	[self.feedSubscriptionSheetWindow.contentView layoutSubtreeIfNeeded];
+}
+
+- (void) resizeNewFeedSheetToContentHeight:(CGFloat) content_height animated:(BOOL) is_animated
+{
+	if (self.feedSubscriptionSheetWindow == nil) {
+		return;
+	}
+
+	NSRect current_frame = self.feedSubscriptionSheetWindow.frame;
+	NSRect current_content_rect = [self.feedSubscriptionSheetWindow contentRectForFrameRect:current_frame];
+	if (fabs(current_content_rect.size.height - content_height) < 0.5) {
+		return;
+	}
+
+	NSRect target_content_rect = current_content_rect;
+	target_content_rect.size.height = content_height;
+	NSRect target_frame = [self.feedSubscriptionSheetWindow frameRectForContentRect:target_content_rect];
+	target_frame.origin.x = current_frame.origin.x;
+	target_frame.origin.y = current_frame.origin.y - (target_frame.size.height - current_frame.size.height);
+	if (is_animated) {
+		[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+			context.duration = 0.18;
+			[[self.feedSubscriptionSheetWindow animator] setFrame:target_frame display:YES];
+		} completionHandler:nil];
+	}
+	else {
+		[self.feedSubscriptionSheetWindow setFrame:target_frame display:YES];
+	}
+}
+
+- (void) updateNewFeedControls
+{
+	BOOL is_busy = self.isCreatingFeedSubscription;
+	self.feedSubscriptionURLField.enabled = !is_busy;
+	self.feedSubscriptionChoicesTableView.enabled = !is_busy;
+	self.feedSubscriptionCancelButton.enabled = !is_busy;
+
+	if (is_busy) {
+		self.feedSubscriptionProgressIndicator.hidden = NO;
+		[self.feedSubscriptionProgressIndicator startAnimation:nil];
+	}
+	else {
+		[self.feedSubscriptionProgressIndicator stopAnimation:nil];
+		self.feedSubscriptionProgressIndicator.hidden = YES;
+	}
+
+	BOOL has_url_value = ([self normalizedNewFeedURLString].length > 0);
+	BOOL has_choice = ([self selectedNewFeedChoice] != nil);
+	self.feedSubscriptionSubscribeButton.enabled = (!is_busy && (has_choice || has_url_value));
+}
+
+- (NSString*) normalizedNewFeedURLString
+{
+	return [self.feedSubscriptionURLField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
+- (MBNewFeedChoice* _Nullable) selectedNewFeedChoice
+{
+	NSInteger selected_row = self.feedSubscriptionChoicesTableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.feedSubscriptionChoices.count) {
+		return nil;
+	}
+
+	id object = self.feedSubscriptionChoices[(NSUInteger) selected_row];
+	if (![object isKindOfClass:[MBNewFeedChoice class]]) {
+		return nil;
+	}
+
+	return (MBNewFeedChoice*) object;
+}
+
+- (void) closeNewFeedSheet
+{
+	if (self.window.attachedSheet != self.feedSubscriptionSheetWindow) {
+		return;
+	}
+
+	[self.window endSheet:self.feedSubscriptionSheetWindow];
+}
+
+- (void) presentNewFeedError:(NSError*) error
+{
+	if (error == nil || self.feedSubscriptionSheetWindow == nil) {
+		return;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Subscribe Failed";
+	alert.informativeText = error.localizedDescription ?: @"The feed could not be subscribed.";
+	[alert beginSheetModalForWindow:self.feedSubscriptionSheetWindow completionHandler:nil];
+}
+
+- (NSInteger) numberOfRowsInTableView:(NSTableView*) tableView
+{
+	if (tableView != self.feedSubscriptionChoicesTableView) {
+		return 0;
+	}
+
+	return self.feedSubscriptionChoices.count;
+}
+
+- (NSView* _Nullable) tableView:(NSTableView*) tableView viewForTableColumn:(NSTableColumn*) tableColumn row:(NSInteger) row
+{
+	#pragma unused(tableColumn)
+	if (tableView != self.feedSubscriptionChoicesTableView) {
+		return nil;
+	}
+
+	if (row < 0 || row >= self.feedSubscriptionChoices.count) {
+		return nil;
+	}
+
+	MBNewFeedChoiceCellView* cell_view = [tableView makeViewWithIdentifier:InkwellNewFeedChoiceCellIdentifier owner:self];
+	if (cell_view == nil) {
+		cell_view = [[MBNewFeedChoiceCellView alloc] initWithFrame:NSZeroRect];
+		cell_view.identifier = InkwellNewFeedChoiceCellIdentifier;
+	}
+
+	MBNewFeedChoice* choice = self.feedSubscriptionChoices[(NSUInteger) row];
+	[cell_view configureWithChoice:choice];
+	return cell_view;
+}
+
+- (void) tableViewSelectionDidChange:(NSNotification*) notification
+{
+	NSTableView* table_view = notification.object;
+	if (table_view != self.feedSubscriptionChoicesTableView) {
+		return;
+	}
+
+	if (self.feedSubscriptionChoices.count > 0 && table_view.selectedRow < 0) {
+		NSIndexSet* first_index = [NSIndexSet indexSetWithIndex:0];
+		[table_view selectRowIndexes:first_index byExtendingSelection:NO];
+	}
+
+	[self updateNewFeedControls];
 }
 
 #pragma mark - Toolbar

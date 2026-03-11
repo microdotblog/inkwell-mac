@@ -33,6 +33,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (void) exchangeAuthorizationCode:(NSString *)code completion:(void (^)(NSString * _Nullable token, NSError * _Nullable error))completion;
 - (void) verifyToken:(NSString *)token completion:(void (^)(BOOL is_valid, NSError * _Nullable error))completion;
 - (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion;
+- (void) createFeedSubscriptionWithURLString:(NSString*) url_string token:(NSString*) token completion:(void (^)(NSInteger status_code, MBSubscription* _Nullable subscription, NSArray* _Nullable choices, NSError* _Nullable error))completion;
 - (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion;
 - (void) fetchFeedIconsWithToken:(NSString *)token completion:(void (^)(NSDictionary<NSString *, NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion;
 - (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion;
