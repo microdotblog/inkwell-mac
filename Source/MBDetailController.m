@@ -98,6 +98,15 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
 
+- (void) applyReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
+- (NSString*) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
+- (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
+- (NSString*) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
+- (NSString*) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
+- (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
+- (NSString*) normalizedRecapColorString:(NSString*) color_hex;
+- (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
+
 @end
 
 @implementation MBDetailController
@@ -403,6 +412,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		"for(var j=0;j<links.length;j++){links[j].style.color=link;}"
 		"var quotes=document.querySelectorAll('blockquote');"
 		"for(var k=0;k<quotes.length;k++){"
+			"if(quotes[k].closest && quotes[k].closest('.reading-recap')){continue;}"
 			"quotes[k].style.color=quote;"
 			"quotes[k].style.borderLeftColor=quoteBorder;"
 		"}"
@@ -416,13 +426,283 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		content_font_size,
 		title_font_size];
 
-	[self.webView evaluateJavaScript:script completionHandler:nil];
+	__weak typeof(self) weak_self = self;
+	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+		#pragma unused(result)
+		#pragma unused(error)
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self applyReadingRecapColorsForDarkTheme:is_dark_background];
+	}];
 }
 
 - (NSString*) processedReadingRecapHTML:(NSString*) html
 {
-	// Placeholder for future recap-specific HTML processing (e.g. JS/CSS transforms).
-	return html ?: @"";
+	NSString* safe_html = html ?: @"";
+	if (safe_html.length == 0) {
+		return @"";
+	}
+
+	BOOL is_dark_theme = [self isDarkColorHexString:[self preferredTextBackgroundHex]];
+	return [self htmlStringByApplyingReadingRecapStyles:safe_html darkTheme:is_dark_theme];
+}
+
+- (void) applyReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme
+{
+	if (self.webView == nil) {
+		return;
+	}
+
+	NSString* script = [self javaScriptForApplyingReadingRecapColorsForDarkTheme:is_dark_theme];
+	[self.webView evaluateJavaScript:script completionHandler:nil];
+}
+
+- (NSString*) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme
+{
+	NSString* is_dark_value = is_dark_theme ? @"true" : @"false";
+	return [NSString stringWithFormat:@"(function(){"
+		"function normalizeRecapColor(rawColor){"
+			"var normalizedColor=(rawColor||'').trim();"
+			"if(!normalizedColor){return '';}"
+			"if(!/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(normalizedColor)){return '';}"
+			"var hex=normalizedColor.slice(1);"
+			"if(hex.length==3||hex.length==4){"
+				"var expanded='';"
+				"for(var i=0;i<hex.length;i++){expanded+=hex.charAt(i)+hex.charAt(i);}"
+				"return '#'+expanded;"
+			"}"
+			"return '#'+hex;"
+		"}"
+		"function withRecapColorOpacity(colorValue,opacityHex){"
+			"var normalizedColor=normalizeRecapColor(colorValue);"
+			"if(!normalizedColor){return '';}"
+			"var baseColor=normalizedColor.length==9?normalizedColor.slice(0,7):normalizedColor;"
+			"var normalizedOpacity=(opacityHex||'80').trim().toLowerCase();"
+			"var safeOpacity=/^[0-9a-f]{2}$/i.test(normalizedOpacity)?normalizedOpacity:'80';"
+			"return baseColor+safeOpacity;"
+		"}"
+		"var isDarkTheme=%@;"
+		"var recapEls=document.querySelectorAll('.reading-recap');"
+		"for(var index=0;index<recapEls.length;index++){"
+			"var recapEl=recapEls[index];"
+			"var lightColor=normalizeRecapColor(recapEl.dataset.colorLight);"
+			"var darkColor=normalizeRecapColor(recapEl.dataset.colorDark||recapEl.dataset.colorRight);"
+			"var recapBaseColor=isDarkTheme?(darkColor||lightColor):(lightColor||darkColor);"
+			"var recapColor=withRecapColorOpacity(recapBaseColor,'80');"
+			"var recapTopicsColor=withRecapColorOpacity(recapBaseColor,'e6');"
+			"var recapBlockquoteBackground=withRecapColorOpacity(recapBaseColor,'99');"
+			"var recapBlockquoteBorder=withRecapColorOpacity(recapBaseColor,'ff');"
+			"recapEl.style.backgroundColor=recapColor||'';"
+			"if(recapTopicsColor){"
+				"recapEl.style.setProperty('--recap-topics-background',recapTopicsColor);"
+			"}"
+			"else{"
+				"recapEl.style.removeProperty('--recap-topics-background');"
+			"}"
+			"if(recapBlockquoteBackground){"
+				"recapEl.style.setProperty('--recap-blockquote-background',recapBlockquoteBackground);"
+			"}"
+			"else{"
+				"recapEl.style.removeProperty('--recap-blockquote-background');"
+			"}"
+			"if(recapBlockquoteBorder){"
+				"recapEl.style.setProperty('--recap-blockquote-border',recapBlockquoteBorder);"
+			"}"
+			"else{"
+				"recapEl.style.removeProperty('--recap-blockquote-border');"
+			"}"
+		"}"
+		"})();", is_dark_value];
+}
+
+- (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme
+{
+	NSError* regex_error = nil;
+	NSRegularExpression* recap_regex = [NSRegularExpression regularExpressionWithPattern:@"<div\\b[^>]*\\bclass\\s*=\\s*(['\"])[^'\"]*\\breading-recap\\b[^'\"]*\\1[^>]*>" options:NSRegularExpressionCaseInsensitive error:&regex_error];
+	if (recap_regex == nil || regex_error != nil) {
+		return html ?: @"";
+	}
+
+	NSArray* matches = [recap_regex matchesInString:html options:0 range:NSMakeRange(0, html.length)];
+	if (matches.count == 0) {
+		return html ?: @"";
+	}
+
+	NSMutableString* updated_html = [html mutableCopy];
+	for (NSTextCheckingResult* match in [matches reverseObjectEnumerator]) {
+		if (match.range.location == NSNotFound || match.range.length == 0) {
+			continue;
+		}
+
+		NSString* tag = [html substringWithRange:match.range];
+		NSString* updated_tag = [self readingRecapTagByApplyingStyles:tag darkTheme:is_dark_theme];
+		if (updated_tag.length == 0 || [updated_tag isEqualToString:tag]) {
+			continue;
+		}
+
+		[updated_html replaceCharactersInRange:match.range withString:updated_tag];
+	}
+
+	return updated_html;
+}
+
+- (NSString*) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme
+{
+	NSString* light_color = [self normalizedRecapColorString:[self htmlAttributeValue:@"data-color-light" inTag:tag]];
+	NSString* dark_color = [self normalizedRecapColorString:[self htmlAttributeValue:@"data-color-dark" inTag:tag]];
+	if (dark_color.length == 0) {
+		dark_color = [self normalizedRecapColorString:[self htmlAttributeValue:@"data-color-right" inTag:tag]];
+	}
+
+	NSString* recap_base_color = is_dark_theme
+		? (dark_color.length > 0 ? dark_color : light_color)
+		: (light_color.length > 0 ? light_color : dark_color);
+	if (recap_base_color.length == 0) {
+		return tag ?: @"";
+	}
+
+	NSString* recap_background = [self recapColorString:recap_base_color withOpacity:@"80"];
+	NSString* recap_topics_background = [self recapColorString:recap_base_color withOpacity:@"e6"];
+	NSString* recap_blockquote_background = [self recapColorString:recap_base_color withOpacity:@"99"];
+	NSString* recap_blockquote_border = [self recapColorString:recap_base_color withOpacity:@"ff"];
+
+	NSMutableArray* style_parts = [NSMutableArray array];
+	if (recap_background.length > 0) {
+		[style_parts addObject:[NSString stringWithFormat:@"background-color: %@", recap_background]];
+	}
+	if (recap_topics_background.length > 0) {
+		[style_parts addObject:[NSString stringWithFormat:@"--recap-topics-background: %@", recap_topics_background]];
+	}
+	if (recap_blockquote_background.length > 0) {
+		[style_parts addObject:[NSString stringWithFormat:@"--recap-blockquote-background: %@", recap_blockquote_background]];
+	}
+	if (recap_blockquote_border.length > 0) {
+		[style_parts addObject:[NSString stringWithFormat:@"--recap-blockquote-border: %@", recap_blockquote_border]];
+	}
+	if (style_parts.count == 0) {
+		return tag ?: @"";
+	}
+
+	NSString* style_declarations = [[style_parts componentsJoinedByString:@"; "] stringByAppendingString:@";"];
+	return [self htmlTag:tag bySettingStyleDeclarations:style_declarations];
+}
+
+- (NSString*) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag
+{
+	if (attribute_name.length == 0 || tag.length == 0) {
+		return @"";
+	}
+
+	NSString* escaped_attribute_name = [NSRegularExpression escapedPatternForString:attribute_name];
+	NSString* pattern = [NSString stringWithFormat:@"\\b%@\\s*=\\s*(['\"])(.*?)\\1", escaped_attribute_name];
+	NSError* regex_error = nil;
+	NSRegularExpression* attribute_regex = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive | NSRegularExpressionDotMatchesLineSeparators error:&regex_error];
+	if (attribute_regex == nil || regex_error != nil) {
+		return @"";
+	}
+
+	NSTextCheckingResult* match = [attribute_regex firstMatchInString:tag options:0 range:NSMakeRange(0, tag.length)];
+	if (match == nil || match.numberOfRanges < 3 || [match rangeAtIndex:2].location == NSNotFound) {
+		return @"";
+	}
+
+	return [tag substringWithRange:[match rangeAtIndex:2]];
+}
+
+- (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations
+{
+	if (tag.length == 0 || style_declarations.length == 0) {
+		return tag ?: @"";
+	}
+
+	NSString* existing_style = [self htmlAttributeValue:@"style" inTag:tag];
+	NSMutableString* combined_style = [NSMutableString string];
+	if (existing_style.length > 0) {
+		[combined_style appendString:existing_style];
+		NSString* trimmed_style = [existing_style stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+		if (trimmed_style.length > 0 && ![trimmed_style hasSuffix:@";"]) {
+			[combined_style appendString:@";"];
+		}
+		if (combined_style.length > 0 && ![[combined_style substringFromIndex:combined_style.length - 1] isEqualToString:@" "]) {
+			[combined_style appendString:@" "];
+		}
+	}
+	[combined_style appendString:style_declarations];
+
+	NSString* escaped_style = [self escapedHTMLString:combined_style];
+	NSString* replacement_attribute = [NSString stringWithFormat:@"style=\"%@\"", escaped_style];
+
+	NSError* regex_error = nil;
+	NSRegularExpression* style_regex = [NSRegularExpression regularExpressionWithPattern:@"\\bstyle\\s*=\\s*(['\"])(.*?)\\1" options:NSRegularExpressionCaseInsensitive | NSRegularExpressionDotMatchesLineSeparators error:&regex_error];
+	if (style_regex != nil && regex_error == nil) {
+		NSTextCheckingResult* match = [style_regex firstMatchInString:tag options:0 range:NSMakeRange(0, tag.length)];
+		if (match != nil && match.range.location != NSNotFound) {
+			NSMutableString* updated_tag = [tag mutableCopy];
+			[updated_tag replaceCharactersInRange:match.range withString:replacement_attribute];
+			return updated_tag;
+		}
+	}
+
+	NSRange closing_bracket_range = [tag rangeOfString:@">" options:NSBackwardsSearch];
+	if (closing_bracket_range.location == NSNotFound) {
+		return tag ?: @"";
+	}
+
+	NSMutableString* updated_tag = [tag mutableCopy];
+	NSString* inserted_attribute = [NSString stringWithFormat:@" %@", replacement_attribute];
+	[updated_tag insertString:inserted_attribute atIndex:closing_bracket_range.location];
+	return updated_tag;
+}
+
+- (NSString*) normalizedRecapColorString:(NSString*) color_hex
+{
+	NSString* normalized_color = [[color_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+	if (normalized_color.length == 0 || ![normalized_color hasPrefix:@"#"]) {
+		return @"";
+	}
+
+	NSString* hex_string = [normalized_color substringFromIndex:1];
+	if (hex_string.length != 3 && hex_string.length != 4 && hex_string.length != 6 && hex_string.length != 8) {
+		return @"";
+	}
+
+	NSCharacterSet* hex_character_set = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"];
+	if ([[hex_string stringByTrimmingCharactersInSet:hex_character_set] length] > 0) {
+		return @"";
+	}
+
+	if (hex_string.length == 3 || hex_string.length == 4) {
+		NSMutableString* expanded_hex = [NSMutableString string];
+		for (NSUInteger i = 0; i < hex_string.length; i++) {
+			unichar character = [hex_string characterAtIndex:i];
+			[expanded_hex appendFormat:@"%C%C", character, character];
+		}
+		hex_string = expanded_hex;
+	}
+
+	return [NSString stringWithFormat:@"#%@", hex_string];
+}
+
+- (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex
+{
+	NSString* normalized_color = [self normalizedRecapColorString:color_hex];
+	if (normalized_color.length == 0) {
+		return @"";
+	}
+
+	NSString* base_color = normalized_color.length == 9
+		? [normalized_color substringToIndex:7]
+		: normalized_color;
+	NSString* normalized_opacity = [[opacity_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString];
+	NSCharacterSet* hex_character_set = [NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"];
+	if (normalized_opacity.length != 2 || [[normalized_opacity stringByTrimmingCharactersInSet:hex_character_set] length] > 0) {
+		normalized_opacity = @"80";
+	}
+
+	return [base_color stringByAppendingString:normalized_opacity];
 }
 
 - (NSString *) htmlForPostTitle:(NSString *)title content:(NSString *)content
