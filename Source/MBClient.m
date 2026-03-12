@@ -235,61 +235,62 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		return;
 	}
 
-	NSMutableURLRequest *subscriptions_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedSubscriptionsEndpoint]];
-	subscriptions_request.HTTPMethod = @"GET";
-	[subscriptions_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-
 	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[subscriptions_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+	NSMutableURLRequest *unread_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
+	unread_request.HTTPMethod = @"GET";
+	[unread_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[unread_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
-	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:subscriptions_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		NSArray* subscriptions = [self subscriptionsFromData:data response:response error:error];
-		if (subscriptions == nil) {
-			NSError* subscriptions_error = [self subscriptionsErrorFromData:data response:response error:error];
-			[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:subscriptions_error completion:completion];
-			return;
+	NSURLSessionDataTask *unread_task = [self trackedDataTaskWithRequest:unread_request completionHandler:^(NSData * _Nullable unread_data, NSURLResponse * _Nullable unread_response, NSError * _Nullable unread_error) {
+		NSSet* unread_entry_ids = nil;
+		if (unread_error == nil) {
+			NSHTTPURLResponse* unread_http_response = (NSHTTPURLResponse*) unread_response;
+			if (unread_http_response.statusCode >= 200 && unread_http_response.statusCode < 300) {
+				id unread_payload = [NSJSONSerialization JSONObjectWithData:unread_data options:0 error:nil];
+				if ([unread_payload isKindOfClass:[NSArray class]]) {
+					unread_entry_ids = [self unreadEntryIDsFromPayload:(NSArray*) unread_payload];
+				}
+			}
 		}
 
-		NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-MBFeedEntriesLookbackInterval];
-		NSMutableArray* accumulated_entries = [NSMutableArray array];
-		NSMutableSet* seen_entry_ids = [NSMutableSet set];
-		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
-			NSSet* unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
-			[self finishWithSubscriptions:subscriptions entries:updated_entries unreadEntryIDs:unread_entry_ids isFinished:NO error:nil completion:completion];
-		} completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
-			if (entries_error != nil) {
-				[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil isFinished:YES error:entries_error completion:completion];
+		if (unread_entry_ids == nil) {
+			unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
+		}
+		else {
+			self.cachedUnreadEntryIDs = unread_entry_ids;
+			[self cacheUnreadEntryIDs:self.cachedUnreadEntryIDs];
+		}
+
+		NSMutableURLRequest *subscriptions_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedSubscriptionsEndpoint]];
+		subscriptions_request.HTTPMethod = @"GET";
+		[subscriptions_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+		[subscriptions_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+		NSURLSessionDataTask *subscriptions_task = [self trackedDataTaskWithRequest:subscriptions_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+			NSArray* subscriptions = [self subscriptionsFromData:data response:response error:error];
+			if (subscriptions == nil) {
+				NSError* subscriptions_error = [self subscriptionsErrorFromData:data response:response error:error];
+				[self finishWithSubscriptions:nil entries:nil unreadEntryIDs:nil isFinished:YES error:subscriptions_error completion:completion];
 				return;
 			}
 
-			NSMutableURLRequest *unread_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
-			unread_request.HTTPMethod = @"GET";
-			[unread_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-			[unread_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
-			NSURLSessionDataTask *unread_task = [self trackedDataTaskWithRequest:unread_request completionHandler:^(NSData * _Nullable unread_data, NSURLResponse * _Nullable unread_response, NSError * _Nullable unread_error) {
-				NSSet *unread_entry_ids = nil;
-				if (unread_error == nil) {
-					NSHTTPURLResponse *unread_http_response = (NSHTTPURLResponse *) unread_response;
-					if (unread_http_response.statusCode >= 200 && unread_http_response.statusCode < 300) {
-						id unread_payload = [NSJSONSerialization JSONObjectWithData:unread_data options:0 error:nil];
-						if ([unread_payload isKindOfClass:[NSArray class]]) {
-							unread_entry_ids = [self unreadEntryIDsFromPayload:(NSArray *) unread_payload];
-							self.cachedUnreadEntryIDs = unread_entry_ids ?: [NSSet set];
-							[self cacheUnreadEntryIDs:self.cachedUnreadEntryIDs];
-						}
-					}
+			NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-MBFeedEntriesLookbackInterval];
+			NSMutableArray* accumulated_entries = [NSMutableArray array];
+			NSMutableSet* seen_entry_ids = [NSMutableSet set];
+			[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
+				[self finishWithSubscriptions:subscriptions entries:updated_entries unreadEntryIDs:unread_entry_ids isFinished:NO error:nil completion:completion];
+			} completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
+				if (entries_error != nil) {
+					[self finishWithSubscriptions:subscriptions entries:nil unreadEntryIDs:nil isFinished:YES error:entries_error completion:completion];
+					return;
 				}
 
-				if (unread_entry_ids == nil) {
-					unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
-				}
 				[self finishWithSubscriptions:subscriptions entries:entries unreadEntryIDs:unread_entry_ids isFinished:YES error:nil completion:completion];
 			}];
-			[unread_task resume];
 		}];
+		[subscriptions_task resume];
 	}];
-	[task resume];
+	[unread_task resume];
 }
 
 - (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion

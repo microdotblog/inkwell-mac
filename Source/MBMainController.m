@@ -36,6 +36,7 @@ static CGFloat const InkwellNewFeedSheetExpandedHeight = 350.0;
 static CGFloat const InkwellNewFeedChoicesHeight = 186.0;
 static CGFloat const InkwellNewFeedChoiceIconSize = 16.0;
 static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
+static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 @interface MBNewFeedChoice : NSObject
 
@@ -205,6 +206,7 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 @property (copy) NSArray* feedSubscriptionChoices;
 @property (copy) NSString* feedSubscriptionRequestedURLString;
 @property (assign) BOOL isCreatingFeedSubscription;
+@property (strong) NSTimer* autoRefreshTimer;
 
 - (BOOL) focusSidebarPane;
 - (BOOL) focusDetailPane;
@@ -219,6 +221,9 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 - (MBNewFeedChoice* _Nullable) selectedNewFeedChoice;
 - (void) closeNewFeedSheet;
 - (void) presentNewFeedError:(NSError*) error;
+- (void) startAutoRefreshTimerIfNeeded;
+- (void) stopAutoRefreshTimer;
+- (void) autoRefreshTimerDidFire:(NSTimer*) timer;
 
 @end
 
@@ -244,11 +249,13 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 
 - (void) dealloc
 {
+	[self stopAutoRefreshTimer];
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void) close
 {
+	[self stopAutoRefreshTimer];
 	[self.preferencesController close];
 	[self.conversationController close];
 	[self.highlightsController close];
@@ -258,6 +265,7 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 - (void) showWindow:(id)sender
 {
 	[self buildInterfaceIfNeeded];
+	[self startAutoRefreshTimerIfNeeded];
 	[self restoreWindowFrameIfNeeded];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
@@ -273,6 +281,7 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 
 	[self buildContentSplitView];
 	[self buildToolbar];
+	[self startAutoRefreshTimerIfNeeded];
 
 	self.didBuildInterface = YES;
 }
@@ -308,6 +317,29 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 	}
 
 	self.didRestoreWindowFrame = YES;
+}
+
+- (void) startAutoRefreshTimerIfNeeded
+{
+	if (self.autoRefreshTimer != nil) {
+		return;
+	}
+
+	NSTimer* timer = [NSTimer timerWithTimeInterval:InkwellAutoRefreshInterval target:self selector:@selector(autoRefreshTimerDidFire:) userInfo:nil repeats:YES];
+	[[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+	self.autoRefreshTimer = timer;
+}
+
+- (void) stopAutoRefreshTimer
+{
+	[self.autoRefreshTimer invalidate];
+	self.autoRefreshTimer = nil;
+}
+
+- (void) autoRefreshTimerDidFire:(NSTimer*) timer
+{
+	#pragma unused(timer)
+	[self.sidebarController refreshData];
 }
 
 - (void) buildToolbar
