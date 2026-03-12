@@ -22,7 +22,7 @@ static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
-@interface MBPreferencesController ()
+@interface MBPreferencesController () <NSSearchFieldDelegate>
 
 @property (nonatomic, strong) NSImageView* avatarImageView;
 @property (nonatomic, strong) NSTextField* usernameTextField;
@@ -225,6 +225,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	feeds_search_field.translatesAutoresizingMaskIntoConstraints = NO;
 	feeds_search_field.controlSize = NSControlSizeSmall;
 	feeds_search_field.placeholderString = @"Search feeds";
+	feeds_search_field.delegate = self;
 	[feeds_search_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 	[feeds_search_field setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 	[content_view addSubview:feeds_search_field];
@@ -335,6 +336,21 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 
 	[self.feedsController updateSearchQuery:(search_field.stringValue ?: @"")];
+}
+
+- (BOOL) control:(NSControl*) control textView:(NSTextView*) text_view doCommandBySelector:(SEL) command_selector
+{
+	#pragma unused(text_view)
+
+	if (control != self.feedsSearchField) {
+		return NO;
+	}
+
+	if (command_selector == @selector(insertNewline:) || command_selector == @selector(insertLineBreak:) || command_selector == @selector(insertNewlineIgnoringFieldEditor:)) {
+		return [self.feedsController focusFeedsTable];
+	}
+
+	return NO;
 }
 
 - (IBAction) performFindPanelAction:(id) sender

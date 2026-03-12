@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBFeedsController : NSViewController
 
 - (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token;
+- (BOOL) focusFeedsTable;
 - (void) reloadFeeds;
 - (void) updateSearchQuery:(NSString*) search_query;
 

@@ -334,6 +334,26 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	}];
 }
 
+- (BOOL) focusFeedsTable
+{
+	if (self.tableView == nil) {
+		return NO;
+	}
+
+	if (self.subscriptions.count > 0 && self.tableView.selectedRow < 0) {
+		NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:0];
+		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+		[self.tableView scrollRowToVisible:0];
+	}
+
+	NSWindow* window = self.view.window;
+	if (window == nil) {
+		return NO;
+	}
+
+	return [window makeFirstResponder:self.tableView];
+}
+
 - (void) updateSearchQuery:(NSString*) search_query
 {
 	NSString* normalized_query = [search_query stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
