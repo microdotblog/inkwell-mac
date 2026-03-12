@@ -115,6 +115,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 @interface MBSidebarRowView : NSTableRowView
 
 @property (nonatomic, strong) NSColor* customBackgroundColor;
+@property (nonatomic, strong) NSColor* customBorderColor;
 @property (nonatomic, strong) NSColor* customSelectionBackgroundColor;
 
 @end
@@ -141,6 +142,16 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	[self setNeedsDisplay:YES];
 }
 
+- (void) setCustomBorderColor:(NSColor*) custom_border_color
+{
+	if ((_customBorderColor == custom_border_color) || [_customBorderColor isEqual:custom_border_color]) {
+		return;
+	}
+
+	_customBorderColor = custom_border_color;
+	[self setNeedsDisplay:YES];
+}
+
 - (void) drawBackgroundInRect:(NSRect)dirty_rect
 {
 	[super drawBackgroundInRect:dirty_rect];
@@ -158,6 +169,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:fill_rect xRadius:10.0 yRadius:10.0];
 	[fill_color setFill];
 	[background_path fill];
+	if (self.customBorderColor != nil) {
+		[self.customBorderColor setStroke];
+		background_path.lineWidth = 1.0;
+		[background_path stroke];
+	}
 }
 
 - (void) drawSelectionInRect:(NSRect)dirty_rect
@@ -207,6 +223,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 @property (strong) NSView* premiumRequiredView;
 @property (assign) BOOL hideReadPosts;
 @property (assign) BOOL isPreservingSelectionDuringReload;
+@property (assign) BOOL suppressSelectionChangedHandler;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -220,7 +237,9 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view;
 - (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view;
 - (NSInteger) savedSelectedEntryID;
+- (void) clearSavedSelectedEntryID;
 - (void) saveSelectedEntryIDForCurrentSelection;
+- (void) deselectSidebarSelectionPreservingDetail;
 - (void) scrollTableToTop;
 - (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
 - (void) startObservingWindowKeyState;
@@ -953,6 +972,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 			row_view.customSelectionBackgroundColor = nil;
 		}
 		row_view.customBackgroundColor = nil;
+		row_view.customBorderColor = nil;
 		return;
 	}
 
@@ -960,9 +980,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	MBEntry* item = self.items[(NSUInteger) row];
 	if (item.isRead) {
 		row_view.customBackgroundColor = nil;
+		row_view.customBorderColor = nil;
 	}
 	else {
-		row_view.customBackgroundColor = [NSColor colorWithRed:0.93 green:0.96 blue:1.0 alpha:0.85];
+		row_view.customBackgroundColor = [NSColor colorWithRed:0.89 green:0.92 blue:0.97 alpha:0.96];
+		row_view.customBorderColor = [NSColor colorWithRed:0.80 green:0.84 blue:0.91 alpha:0.58];
 	}
 }
 
@@ -974,6 +996,12 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	return [defaults integerForKey:InkwellSidebarSelectedEntryIDDefaultsKey];
+}
+
+- (void) clearSavedSelectedEntryID
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	[defaults removeObjectForKey:InkwellSidebarSelectedEntryIDDefaultsKey];
 }
 
 - (void) saveSelectedEntryIDForCurrentSelection
@@ -990,6 +1018,16 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
 	[defaults setInteger:selected_item.entryID forKey:InkwellSidebarSelectedEntryIDDefaultsKey];
+}
+
+- (void) deselectSidebarSelectionPreservingDetail
+{
+	if (self.tableView == nil || self.tableView.selectedRow < 0) {
+		return;
+	}
+
+	self.suppressSelectionChangedHandler = YES;
+	[self.tableView deselectAll:nil];
 }
 
 - (void) scrollTableToTop
@@ -1506,6 +1544,10 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 			}
 
 			[strong_self updateCachedReadState:!should_mark_as_unread forEntryID:entry_id];
+			if (should_mark_as_unread) {
+				[strong_self clearSavedSelectedEntryID];
+				[strong_self deselectSidebarSelectionPreservingDetail];
+			}
 			if (strong_self.hideReadPosts) {
 				[strong_self applyFiltersAndReload];
 			}
@@ -2176,6 +2218,11 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	}
 
 	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+	if (self.suppressSelectionChangedHandler) {
+		self.suppressSelectionChangedHandler = NO;
+		return;
+	}
+
 	[self saveSelectedEntryIDForCurrentSelection];
 	[self notifySelectionChanged];
 }
