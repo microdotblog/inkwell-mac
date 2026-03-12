@@ -227,6 +227,7 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
+- (void) updateCachedReadState:(BOOL) is_read forEntryIDs:(NSArray*) entry_ids;
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 - (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
@@ -513,6 +514,21 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
 }
 
+- (BOOL) canMarkAllItemsAsRead
+{
+	if (self.client == nil || self.token.length == 0) {
+		return NO;
+	}
+
+	for (MBEntry* item in self.items) {
+		if (item.entryID > 0 && !item.isRead) {
+			return YES;
+		}
+	}
+
+	return NO;
+}
+
 - (BOOL) canToggleSelectedItemBookmarkedState
 {
 	MBEntry* selected_item = [self selectedItem];
@@ -541,6 +557,43 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 - (void) toggleSelectedItemReadState
 {
 	[self toggleSelectedItemReadStateAction:nil];
+}
+
+- (void) markAllItemsAsRead
+{
+	if (![self canMarkAllItemsAsRead]) {
+		return;
+	}
+
+	NSMutableArray* unread_entry_ids = [NSMutableArray array];
+	for (MBEntry* item in self.items) {
+		if (item.entryID > 0 && !item.isRead) {
+			[unread_entry_ids addObject:@(item.entryID)];
+		}
+	}
+
+	if (unread_entry_ids.count == 0) {
+		return;
+	}
+
+	NSArray* entry_ids_to_mark_read = [unread_entry_ids copy];
+	__weak typeof(self) weak_self = self;
+	[self.client markEntriesAsRead:entry_ids_to_mark_read token:self.token completion:^(NSError * _Nullable error) {
+		if (error != nil) {
+			return;
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			MBSidebarController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			[strong_self updateCachedReadState:YES forEntryIDs:entry_ids_to_mark_read];
+			[strong_self applyFiltersAndReload];
+			[strong_self refreshData];
+		});
+	}];
 }
 
 - (void) toggleSelectedItemBookmarkedState
@@ -1731,6 +1784,33 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 
 	for (MBEntry *cached_entry in self.items) {
 		if (cached_entry.entryID == entry_id) {
+			cached_entry.isRead = is_read;
+		}
+	}
+}
+
+- (void) updateCachedReadState:(BOOL) is_read forEntryIDs:(NSArray*) entry_ids
+{
+	NSMutableSet* entry_ids_to_update = [NSMutableSet set];
+	for (NSNumber* entry_id_value in entry_ids) {
+		NSInteger entry_id = [entry_id_value integerValue];
+		if (entry_id > 0) {
+			[entry_ids_to_update addObject:@(entry_id)];
+		}
+	}
+
+	if (entry_ids_to_update.count == 0) {
+		return;
+	}
+
+	for (MBEntry* cached_entry in self.allItems) {
+		if ([entry_ids_to_update containsObject:@(cached_entry.entryID)]) {
+			cached_entry.isRead = is_read;
+		}
+	}
+
+	for (MBEntry* cached_entry in self.items) {
+		if ([entry_ids_to_update containsObject:@(cached_entry.entryID)]) {
 			cached_entry.isRead = is_read;
 		}
 	}

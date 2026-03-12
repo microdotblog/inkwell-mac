@@ -1175,12 +1175,17 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 - (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
 {
-	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:NO completion:completion];
+	[self updateUnreadStateForEntryIDs:@[ @(entry_id) ] token:token should_mark_unread:NO completion:completion];
+}
+
+- (void) markEntriesAsRead:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
+{
+	[self updateUnreadStateForEntryIDs:entry_ids token:token should_mark_unread:NO completion:completion];
 }
 
 - (void) markAsUnread:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
 {
-	[self updateUnreadStateForEntryID:entry_id token:token should_mark_unread:YES completion:completion];
+	[self updateUnreadStateForEntryIDs:@[ @(entry_id) ] token:token should_mark_unread:YES completion:completion];
 }
 
 - (void) bookmarkEntry:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion
@@ -1193,9 +1198,17 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[self updateBookmarkedStateForEntryID:entry_id token:token should_unbookmark:YES completion:completion];
 }
 
-- (void) updateUnreadStateForEntryID:(NSInteger)entry_id token:(NSString*) token should_mark_unread:(BOOL)should_mark_unread completion:(void (^)(NSError * _Nullable error))completion
+- (void) updateUnreadStateForEntryIDs:(NSArray*) entry_ids token:(NSString*) token should_mark_unread:(BOOL)should_mark_unread completion:(void (^)(NSError * _Nullable error))completion
 {
-	if (entry_id <= 0) {
+	NSMutableArray* normalized_entry_ids = [NSMutableArray array];
+	for (NSNumber* entry_id_value in entry_ids) {
+		NSInteger entry_id = [entry_id_value integerValue];
+		if (entry_id > 0) {
+			[normalized_entry_ids addObject:@(entry_id)];
+		}
+	}
+
+	if (normalized_entry_ids.count == 0) {
 		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1010 userInfo:@{ NSLocalizedDescriptionKey: @"Missing entry ID for read state update." }];
 		[self finishWithSimpleError:error completion:completion];
 		return;
@@ -1220,7 +1233,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
-	NSDictionary *payload = @{ @"unread_entries": @[ @(entry_id) ] };
+	NSDictionary *payload = @{ @"unread_entries": [normalized_entry_ids copy] };
 	NSData *body_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
 	request.HTTPBody = body_data;
 
@@ -1238,6 +1251,16 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 			[self finishWithSimpleError:request_error completion:completion];
 			return;
 		}
+
+		NSMutableSet* updated_unread_entry_ids = [NSMutableSet setWithSet:(self.cachedUnreadEntryIDs ?: [NSSet set])];
+		if (should_mark_unread) {
+			[updated_unread_entry_ids addObjectsFromArray:normalized_entry_ids];
+		}
+		else {
+			[updated_unread_entry_ids minusSet:[NSSet setWithArray:normalized_entry_ids]];
+		}
+		self.cachedUnreadEntryIDs = [updated_unread_entry_ids copy];
+		[self cacheUnreadEntryIDs:self.cachedUnreadEntryIDs];
 
 		[self finishWithSimpleError:nil completion:completion];
 	}];

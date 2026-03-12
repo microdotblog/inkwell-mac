@@ -35,12 +35,14 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 - (void) focusAndSelectFirstItem;
 - (BOOL) focusSidebar;
 - (BOOL) canToggleSelectedItemReadState;
+- (BOOL) canMarkAllItemsAsRead;
 - (BOOL) canToggleSelectedItemBookmarkedState;
 - (BOOL) canShowReadingRecap;
 - (NSString*) readToggleMenuTitle;
 - (NSString*) bookmarkToggleMenuTitle;
 - (NSString*) readPostsVisibilityMenuTitle;
 - (void) toggleSelectedItemReadState;
+- (void) markAllItemsAsRead;
 - (void) toggleSelectedItemBookmarkedState;
 - (void) toggleReadPostsVisibility;
 - (IBAction) showReadingRecap:(id)sender;

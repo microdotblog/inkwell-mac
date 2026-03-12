@@ -50,6 +50,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (MBHighlight* _Nullable) saveLocalHighlightForEntryID:(NSInteger) entry_id postTitle:(NSString*) post_title postURL:(NSString*) post_url selectionText:(NSString*) selection_text selectionStart:(NSInteger) selection_start selectionEnd:(NSInteger) selection_end;
 - (void) assignRemoteHighlightID:(NSString*) highlight_id toLocalHighlightID:(NSString*) local_id entryID:(NSInteger) entry_id;
 - (void) deleteFeedSubscription:(MBSubscription*) subscription token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion;
+- (void) markEntriesAsRead:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 - (void) markAsRead:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 - (void) markAsUnread:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;
 - (void) bookmarkEntry:(NSInteger)entry_id token:(NSString*) token completion:(void (^)(NSError * _Nullable error))completion;

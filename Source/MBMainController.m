@@ -887,6 +887,12 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 	[self.sidebarController toggleSelectedItemReadState];
 }
 
+- (IBAction) markAllItemsAsRead:(id) sender
+{
+	#pragma unused(sender)
+	[self.sidebarController markAllItemsAsRead];
+}
+
 - (IBAction) toggleSelectedItemBookmarkedState:(id) sender
 {
 	#pragma unused(sender)
@@ -945,6 +951,9 @@ static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 	if (menu_item.action == @selector(toggleSelectedItemReadState:)) {
 		menu_item.title = [self.sidebarController readToggleMenuTitle];
 		return [self.sidebarController canToggleSelectedItemReadState];
+	}
+	if (menu_item.action == @selector(markAllItemsAsRead:)) {
+		return [self.sidebarController canMarkAllItemsAsRead];
 	}
 	if (menu_item.action == @selector(toggleSelectedItemBookmarkedState:)) {
 		menu_item.title = [self.sidebarController bookmarkToggleMenuTitle];

@@ -92,6 +92,11 @@
                                     <action selector="toggleSelectedItemReadState:" target="-1" id="2eF-EH-Hdb"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Mark All as Read" keyEquivalent="" id="3Uf-iI-jbR">
+                                <connections>
+                                    <action selector="markAllItemsAsRead:" target="-1" id="DeB-pM-5Nn"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Bookmark" keyEquivalent="B" id="P9A-M2-2bL">
                                 <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
                                 <connections>
