@@ -113,7 +113,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
 @property (nonatomic, strong) NSLayoutConstraint* progressIndicatorWidthConstraint;
 @property (nonatomic, strong) NSLayoutConstraint* titleLeadingToSingleAvatarConstraint;
-@property (nonatomic, strong) NSLayoutConstraint* titleLeadingToAllPostsAvatarsConstraint;
+@property (nonatomic, strong) NSLayoutConstraint* titleLeadingToNoAvatarConstraint;
+@property (nonatomic, copy) NSArray* titleLeadingToAllPostsAvatarConstraints;
 @property (nonatomic, copy) NSString* headerTitle;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
@@ -134,6 +135,27 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 - (NSColor*) highlightsHeaderBackgroundColor
 {
 	return NSColor.secondarySystemFillColor;
+}
+
+- (NSImage*) flattenedHeaderAvatarImage:(NSImage*) image fadeAmount:(CGFloat) fade_amount
+{
+	if (image == nil) {
+		return [self defaultAvatarImage];
+	}
+
+	NSSize image_size = NSMakeSize(InkwellHighlightsAvatarSize, InkwellHighlightsAvatarSize);
+	NSImage* flattened_image = [[NSImage alloc] initWithSize:image_size];
+	[flattened_image lockFocus];
+	[[self highlightsHeaderBackgroundColor] setFill];
+	NSRectFill(NSMakeRect(0.0, 0.0, image_size.width, image_size.height));
+	[image drawInRect:NSMakeRect(0.0, 0.0, image_size.width, image_size.height) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
+	CGFloat clamped_fade_amount = MAX(0.0, MIN(1.0, fade_amount));
+	if (clamped_fade_amount > 0.0) {
+		[[[self highlightsHeaderBackgroundColor] colorWithAlphaComponent:clamped_fade_amount] setFill];
+		NSRectFillUsingOperation(NSMakeRect(0.0, 0.0, image_size.width, image_size.height), NSCompositingOperationSourceOver);
+	}
+	[flattened_image unlockFocus];
+	return flattened_image;
 }
 
 - (instancetype) initWithClient:(MBClient*) client token:(NSString*) token
@@ -234,12 +256,16 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 			[self setFetchingState:NO];
 			self.highlights = @[];
 			[self.tableView reloadData];
+			[self refreshAllPostsAvatarHosts];
+			[self updateAllPostsAvatarImages];
 			return;
 		}
 
 		NSArray* all_highlights = [self.client cachedAllHighlights];
 		self.highlights = [self filteredHighlights:all_highlights matchingQuery:search_query];
 		[self.tableView reloadData];
+		[self refreshAllPostsAvatarHosts];
+		[self updateAllPostsAvatarImages];
 		return;
 	}
 
@@ -247,6 +273,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		[self setFetchingState:NO];
 		self.highlights = @[];
 		[self.tableView reloadData];
+		[self refreshAllPostsAvatarHosts];
+		[self updateAllPostsAvatarImages];
 		return;
 	}
 
@@ -259,6 +287,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		self.highlights = [cached_highlights copy];
 	}
 	[self.tableView reloadData];
+	[self refreshAllPostsAvatarHosts];
+	[self updateAllPostsAvatarImages];
 }
 
 - (void) setupWindowIfNeeded
@@ -358,8 +388,10 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	NSImageView* second_all_posts_avatar_image_view = (all_posts_avatar_image_views.count > 1) ? all_posts_avatar_image_views[1] : nil;
 	NSImageView* third_all_posts_avatar_image_view = (all_posts_avatar_image_views.count > 2) ? all_posts_avatar_image_views[2] : nil;
 	NSLayoutConstraint* title_leading_to_single_avatar_constraint = [title_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:8.0];
-	NSLayoutConstraint* title_leading_to_all_posts_avatars_constraint = [title_text_field.leadingAnchor constraintEqualToAnchor:third_all_posts_avatar_image_view.trailingAnchor constant:8.0];
-	title_leading_to_all_posts_avatars_constraint.active = NO;
+	NSLayoutConstraint* title_leading_to_no_avatar_constraint = [title_text_field.leadingAnchor constraintEqualToAnchor:top_container_view.leadingAnchor constant:10.0];
+	NSLayoutConstraint* title_leading_to_first_all_posts_avatar_constraint = [title_text_field.leadingAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.trailingAnchor constant:8.0];
+	NSLayoutConstraint* title_leading_to_second_all_posts_avatar_constraint = [title_text_field.leadingAnchor constraintEqualToAnchor:second_all_posts_avatar_image_view.trailingAnchor constant:8.0];
+	NSLayoutConstraint* title_leading_to_third_all_posts_avatar_constraint = [title_text_field.leadingAnchor constraintEqualToAnchor:third_all_posts_avatar_image_view.trailingAnchor constant:8.0];
 
 	MBHighlightsTableView* table_view = [[MBHighlightsTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -431,8 +463,6 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		progress_indicator_width_constraint,
 		[progress_indicator.trailingAnchor constraintEqualToAnchor:top_container_view.trailingAnchor constant:-10.0],
 		[progress_indicator.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
-		title_leading_to_single_avatar_constraint,
-		title_leading_to_all_posts_avatars_constraint,
 		[title_text_field.trailingAnchor constraintLessThanOrEqualToAnchor:search_field.leadingAnchor constant:-8.0],
 		[title_text_field.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
 		[scroll_view.topAnchor constraintEqualToAnchor:top_container_view.bottomAnchor],
@@ -449,8 +479,14 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	self.progressIndicator = progress_indicator;
 	self.progressIndicatorWidthConstraint = progress_indicator_width_constraint;
 	self.titleLeadingToSingleAvatarConstraint = title_leading_to_single_avatar_constraint;
-	self.titleLeadingToAllPostsAvatarsConstraint = title_leading_to_all_posts_avatars_constraint;
+	self.titleLeadingToNoAvatarConstraint = title_leading_to_no_avatar_constraint;
+	self.titleLeadingToAllPostsAvatarConstraints = @[
+		title_leading_to_first_all_posts_avatar_constraint,
+		title_leading_to_second_all_posts_avatar_constraint,
+		title_leading_to_third_all_posts_avatar_constraint
+	];
 	self.didSetupContent = YES;
+	self.titleLeadingToSingleAvatarConstraint.active = YES;
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(searchFieldTextDidChange:) name:NSControlTextDidChangeNotification object:search_field];
 	[self applyHeaderIfNeeded];
 	[self updateProgressIndicator];
@@ -527,7 +563,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 	if (shows_all_posts_header) {
 		[self fetchFeedIconsIfNeeded];
-		[self refreshAllPostsAvatarHostsIfNeeded];
+		[self refreshAllPostsAvatarHosts];
 	}
 	else {
 		self.allPostsAvatarHosts = @[];
@@ -551,12 +587,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		self.avatarImageView.image = shows_entry_header ? (self.headerAvatarImage ?: [self defaultAvatarImage]) : nil;
 	}
 
-	if (self.titleLeadingToSingleAvatarConstraint != nil && self.titleLeadingToAllPostsAvatarsConstraint != nil) {
-		self.titleLeadingToSingleAvatarConstraint.active = !shows_all_posts_header;
-		self.titleLeadingToAllPostsAvatarsConstraint.active = shows_all_posts_header;
-	}
-
 	[self updateAllPostsAvatarImages];
+	[self updateAllPostsTitleLeadingConstraint];
 }
 
 - (void) fetchFeedIconsIfNeeded
@@ -578,7 +610,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
 		self.hasLoadedFeedIcons = YES;
-		[self refreshAllPostsAvatarHostsIfNeeded];
+		[self refreshAllPostsAvatarHosts];
 		[self updateHeaderAvatarImage];
 	}];
 }
@@ -712,13 +744,20 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	return [normalized_icons_by_host copy];
 }
 
-- (void) refreshAllPostsAvatarHostsIfNeeded
+- (void) refreshAllPostsAvatarHosts
 {
-	if (self.allPostsAvatarHosts.count > 0) {
+	if (![self hasActiveSearchQuery]) {
+		self.allPostsAvatarHosts = @[];
 		return;
 	}
 
-	self.allPostsAvatarHosts = [self randomHostsForAllPostsAvatars];
+	NSArray* matching_hosts = [self randomHostsForMatchingHighlights];
+	if (matching_hosts.count > 0) {
+		self.allPostsAvatarHosts = matching_hosts;
+	}
+	else {
+		self.allPostsAvatarHosts = [self randomHostsForAllPostsAvatars];
+	}
 }
 
 - (NSArray*) randomHostsForAllPostsAvatars
@@ -738,25 +777,108 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	return [shuffled_hosts subarrayWithRange:NSMakeRange(0, selected_count)];
 }
 
+- (NSArray*) randomHostsForMatchingHighlights
+{
+	if (self.highlights.count == 0) {
+		return @[];
+	}
+
+	NSMutableOrderedSet* unique_hosts = [[NSMutableOrderedSet alloc] init];
+	NSMutableArray* highlight_hosts = [NSMutableArray array];
+	for (id object in self.highlights) {
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* highlight = (MBHighlight*) object;
+		NSString* host_value = [self normalizedHostFromURLString:highlight.postURL ?: @""];
+		if (host_value.length == 0) {
+			continue;
+		}
+
+		[unique_hosts addObject:host_value];
+		[highlight_hosts addObject:host_value];
+	}
+
+	if (highlight_hosts.count == 0) {
+		return @[];
+	}
+
+	NSMutableArray* shuffled_hosts = [[unique_hosts array] mutableCopy];
+	for (NSInteger i = (shuffled_hosts.count - 1); i > 0; i--) {
+		u_int32_t random_index = arc4random_uniform((u_int32_t) (i + 1));
+		[shuffled_hosts exchangeObjectAtIndex:i withObjectAtIndex:(NSInteger) random_index];
+	}
+
+	NSMutableArray* selected_hosts = [NSMutableArray array];
+	NSUInteger preferred_count = MIN((NSUInteger) 3, shuffled_hosts.count);
+	for (NSUInteger i = 0; i < preferred_count; i++) {
+		[selected_hosts addObject:shuffled_hosts[i]];
+	}
+	return [selected_hosts copy];
+}
+
+- (NSString*) normalizedHostFromURLString:(NSString*) url_string
+{
+	if (url_string.length == 0) {
+		return @"";
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:url_string];
+	NSString* host_value = components.host ?: @"";
+	if (host_value.length == 0) {
+		NSString* possible_url_string = [NSString stringWithFormat:@"https://%@", url_string];
+		NSURLComponents* host_only_components = [NSURLComponents componentsWithString:possible_url_string];
+		host_value = host_only_components.host ?: @"";
+	}
+
+	return [self normalizedHostString:host_value];
+}
+
 - (void) updateAllPostsAvatarImages
 {
 	BOOL shows_all_posts_header = [self hasActiveSearchQuery];
 	for (NSInteger i = 0; i < self.allPostsAvatarImageViews.count; i++) {
 		NSImageView* image_view = self.allPostsAvatarImageViews[(NSUInteger) i];
-		image_view.hidden = !shows_all_posts_header;
-		if (!shows_all_posts_header) {
+		BOOL should_show_image_view = (shows_all_posts_header && i < self.allPostsAvatarHosts.count);
+		image_view.hidden = !should_show_image_view;
+		if (!should_show_image_view) {
 			image_view.image = nil;
 			continue;
 		}
 
-		NSString* host_value = (i < self.allPostsAvatarHosts.count) ? self.allPostsAvatarHosts[(NSUInteger) i] : @"";
+		NSString* host_value = self.allPostsAvatarHosts[(NSUInteger) i];
+		CGFloat fade_amount = ((CGFloat) i) * 0.1;
 		if (host_value.length > 0) {
-			image_view.image = [self avatarImageForHost:host_value];
+			image_view.image = [self avatarImageForHost:host_value fadeAmount:fade_amount];
 		}
 		else {
-			image_view.image = [self defaultAvatarImage];
+			image_view.image = [self flattenedHeaderAvatarImage:[self defaultAvatarImage] fadeAmount:fade_amount];
 		}
 	}
+}
+
+- (void) updateAllPostsTitleLeadingConstraint
+{
+	self.titleLeadingToSingleAvatarConstraint.active = NO;
+	self.titleLeadingToNoAvatarConstraint.active = NO;
+	for (NSLayoutConstraint* constraint in self.titleLeadingToAllPostsAvatarConstraints) {
+		constraint.active = NO;
+	}
+
+	if (![self hasActiveSearchQuery]) {
+		self.titleLeadingToSingleAvatarConstraint.active = YES;
+		return;
+	}
+
+	if (self.allPostsAvatarHosts.count == 0) {
+		self.titleLeadingToNoAvatarConstraint.active = YES;
+		return;
+	}
+
+	NSUInteger last_avatar_index = MIN((NSUInteger) (self.allPostsAvatarHosts.count - 1), (NSUInteger) (self.titleLeadingToAllPostsAvatarConstraints.count - 1));
+	NSLayoutConstraint* active_constraint = self.titleLeadingToAllPostsAvatarConstraints[last_avatar_index];
+	active_constraint.active = YES;
 }
 
 - (BOOL) handleDeleteShortcut
@@ -1066,20 +1188,25 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	return normalized_host;
 }
 
-- (NSImage*) avatarImageForHost:(NSString*) host_value
+- (NSImage*) avatarImageForHost:(NSString*) host_value fadeAmount:(CGFloat) fade_amount
 {
 	NSString* icon_url_string = [self avatarURLStringForHost:host_value];
 	if (icon_url_string.length == 0) {
-		return [self defaultAvatarImage];
+		return [self flattenedHeaderAvatarImage:[self defaultAvatarImage] fadeAmount:fade_amount];
 	}
 
 	NSImage* cached_image = [self.avatarLoader cachedImageForURLString:icon_url_string];
 	if (cached_image != nil) {
-		return cached_image;
+		return [self flattenedHeaderAvatarImage:cached_image fadeAmount:fade_amount];
 	}
 
 	[self.avatarLoader loadImageForURLString:icon_url_string];
-	return [self defaultAvatarImage];
+	return [self flattenedHeaderAvatarImage:[self defaultAvatarImage] fadeAmount:fade_amount];
+}
+
+- (NSImage*) avatarImageForHost:(NSString*) host_value
+{
+	return [self avatarImageForHost:host_value fadeAmount:0.0];
 }
 
 - (NSString*) avatarURLStringForHost:(NSString*) host_value
