@@ -685,7 +685,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	request.HTTPMethod = @"GET";
 	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+	NSURLSessionDataTask* task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
 			[self finishWithConversationPayload:nil error:error completion:completion];
 			return;
