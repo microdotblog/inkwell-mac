@@ -1982,20 +1982,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			}
 
 			[strong_self updateCachedBookmarkedState:!should_unbookmark forEntryID:entry_id];
-			if (should_unbookmark && strong_self.contentMode == MBSidebarContentModeBookmarks) {
-				NSMutableArray* remaining_items = [NSMutableArray array];
-				for (MBEntry* item in strong_self.bookmarkItems) {
-					if (item.entryID != entry_id) {
-						[remaining_items addObject:item];
-					}
-				}
-
-				strong_self.bookmarkItems = [remaining_items copy];
-				[strong_self applyFiltersAndReload];
-				[strong_self ensureBookmarksSelectionIfNeeded];
-				return;
-			}
-
 			[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
 		});
 	};
