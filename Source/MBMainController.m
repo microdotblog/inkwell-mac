@@ -225,6 +225,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) stopAutoRefreshTimer;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
 - (BOOL) canHighlightSelectedItem;
+- (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
+- (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
+- (void) openNewPostForMarkdownText:(NSString*) markdown_text;
 
 @end
 
@@ -574,39 +577,16 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
-	NSString* title_string = [selected_item.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (title_string.length == 0) {
-		title_string = [selected_item.subscriptionTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	}
+	__weak typeof(self) weak_self = self;
+	[self.detailController requestSelectionHighlightPayloadWithCompletion:^(NSDictionary* _Nullable payload) {
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
 
-	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (url_string.length == 0) {
-		return;
-	}
-
-	NSString* markdown_text = [NSString stringWithFormat:@"[%@](%@):\n\n", title_string, url_string];
-	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
-	[allowed_character_set removeCharactersInString:@":#[]@!$&'()*+,;=/?"];
-	NSString* encoded_text = [markdown_text stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
-	if (encoded_text.length == 0) {
-		return;
-	}
-
-	BOOL has_microblog_app = ([[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"blog.micro.mac"] != nil);
-	NSString* open_url_string = nil;
-	if (has_microblog_app) {
-		open_url_string = [NSString stringWithFormat:@"microblog://post?text=%@", encoded_text];
-	}
-	else {
-		open_url_string = [NSString stringWithFormat:@"https://micro.blog/post?text=%@", encoded_text];
-	}
-
-	NSURL* open_url = [NSURL URLWithString:open_url_string];
-	if (open_url == nil) {
-		return;
-	}
-
-	[[NSWorkspace sharedWorkspace] openURL:open_url];
+		NSString* markdown_text = [strong_self markdownTextForNewPostWithItem:selected_item selectionPayload:payload];
+		[strong_self openNewPostForMarkdownText:markdown_text];
+	}];
 }
 
 - (IBAction) newFeed:(id) sender
@@ -1188,6 +1168,84 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 			[weak_self.highlightsController reloadHighlights];
 		}
 	}];
+}
+
+- (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload
+{
+	if (![item isKindOfClass:[MBEntry class]]) {
+		return @"";
+	}
+
+	NSString* title_string = [item.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title_string.length == 0) {
+		title_string = [item.subscriptionTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	NSString* url_string = [item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return @"";
+	}
+
+	NSString* selection_text = [self stringValueFromObjectOrNumber:payload[@"selection_text"]];
+	NSString* trimmed_selection_text = [selection_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_selection_text.length == 0) {
+		return [NSString stringWithFormat:@"[%@](%@):\n\n", title_string, url_string];
+	}
+
+	NSString* blockquote_text = [self blockquoteMarkdownFromText:trimmed_selection_text];
+	if (blockquote_text.length == 0) {
+		return [NSString stringWithFormat:@"[%@](%@):\n\n", title_string, url_string];
+	}
+
+	return [NSString stringWithFormat:@"[%@](%@):\n\n%@", title_string, url_string, blockquote_text];
+}
+
+- (NSString*) blockquoteMarkdownFromText:(NSString*) text_string
+{
+	NSString* normalized_text = [text_string stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"] ?: @"";
+	normalized_text = [normalized_text stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"] ?: @"";
+	if (normalized_text.length == 0) {
+		return @"";
+	}
+
+	NSArray* lines = [normalized_text componentsSeparatedByString:@"\n"];
+	NSMutableArray* quoted_lines = [NSMutableArray array];
+	for (NSString* line in lines) {
+		[quoted_lines addObject:[NSString stringWithFormat:@"> %@", line ?: @""]];
+	}
+
+	return [quoted_lines componentsJoinedByString:@"\n"] ?: @"";
+}
+
+- (void) openNewPostForMarkdownText:(NSString*) markdown_text
+{
+	NSString* normalized_text = markdown_text ?: @"";
+	if (normalized_text.length == 0) {
+		return;
+	}
+
+	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+	[allowed_character_set removeCharactersInString:@":#[]@!$&'()*+,;=/?"];
+	NSString* encoded_text = [normalized_text stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
+	if (encoded_text.length == 0) {
+		return;
+	}
+
+	BOOL has_microblog_app = ([[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"blog.micro.mac"] != nil);
+	NSString* open_url_string = nil;
+	if (has_microblog_app) {
+		open_url_string = [NSString stringWithFormat:@"microblog://post?text=%@", encoded_text];
+	}
+	else {
+		open_url_string = [NSString stringWithFormat:@"https://micro.blog/post?text=%@", encoded_text];
+	}
+
+	NSURL* open_url = [NSURL URLWithString:open_url_string];
+	if (open_url == nil) {
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:open_url];
 }
 
 - (void) updateHighlightViewsForEntryID:(NSInteger) entry_id
