@@ -756,7 +756,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		self.allPostsAvatarHosts = matching_hosts;
 	}
 	else {
-		self.allPostsAvatarHosts = [self randomHostsForAllPostsAvatars];
+		self.allPostsAvatarHosts = @[];
 	}
 }
 
@@ -840,10 +840,18 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	BOOL shows_all_posts_header = [self hasActiveSearchQuery];
 	for (NSInteger i = 0; i < self.allPostsAvatarImageViews.count; i++) {
 		NSImageView* image_view = self.allPostsAvatarImageViews[(NSUInteger) i];
+		BOOL should_show_fallback_avatar = (shows_all_posts_header && self.allPostsAvatarHosts.count == 0 && i == 0);
 		BOOL should_show_image_view = (shows_all_posts_header && i < self.allPostsAvatarHosts.count);
+		BOOL should_show_any_avatar = (should_show_image_view || should_show_fallback_avatar);
 		image_view.hidden = !should_show_image_view;
-		if (!should_show_image_view) {
+		image_view.hidden = !should_show_any_avatar;
+		if (!should_show_any_avatar) {
 			image_view.image = nil;
+			continue;
+		}
+
+		if (should_show_fallback_avatar) {
+			image_view.image = [self defaultAvatarImage];
 			continue;
 		}
 
@@ -872,7 +880,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	if (self.allPostsAvatarHosts.count == 0) {
-		self.titleLeadingToNoAvatarConstraint.active = YES;
+		NSLayoutConstraint* active_constraint = self.titleLeadingToAllPostsAvatarConstraints.firstObject;
+		active_constraint.active = YES;
 		return;
 	}
 
