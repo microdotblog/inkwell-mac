@@ -819,6 +819,9 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 			return;
 		}
 
+		if (strong_self.highlightDeletedHandler != nil) {
+			strong_self.highlightDeletedHandler(highlight);
+		}
 		[strong_self reloadHighlights];
 	}];
 }

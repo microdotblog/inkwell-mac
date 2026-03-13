@@ -92,15 +92,20 @@
                                     <action selector="toggleSelectedItemReadState:" target="-1" id="2eF-EH-Hdb"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Mark All as Read" keyEquivalent="" id="3Uf-iI-jbR">
+                            <menuItem title="Mark All as Read" id="3Uf-iI-jbR">
                                 <connections>
                                     <action selector="markAllItemsAsRead:" target="-1" id="DeB-pM-5Nn"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Bookmark" keyEquivalent="B" id="P9A-M2-2bL">
+                            <menuItem title="Bookmark" image="star" catalog="system" keyEquivalent="B" id="P9A-M2-2bL">
                                 <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
                                 <connections>
                                     <action selector="toggleSelectedItemBookmarkedState:" target="-1" id="fso-Hs-jD6"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Highlight" image="highlighter" catalog="system" id="mRP-b3-iis">
+                                <connections>
+                                    <action selector="highlightSelectedItem:" target="-1" id="tQk-30-l88"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="hmA-Sa-V55"/>
@@ -443,5 +448,7 @@
     </objects>
     <resources>
         <image name="arrow.clockwise" catalog="system" width="14" height="16"/>
+        <image name="highlighter" catalog="system" width="17" height="16"/>
+        <image name="star" catalog="system" width="17" height="16"/>
     </resources>
 </document>

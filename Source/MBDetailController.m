@@ -22,10 +22,13 @@ static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
+static NSInteger const InkwellDetailHighlightContextMenuItemTag = 7101;
+static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 @interface MBDetailWebView : WKWebView
 
 @property (copy, nullable) BOOL (^focusSidebarHandler)(void);
+@property (copy, nullable) BOOL (^shouldShowHighlightMenuItemHandler)(void);
 
 @end
 
@@ -45,6 +48,45 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 
 	[super keyDown:event];
+}
+
+- (void) willOpenMenu:(NSMenu*) menu withEvent:(NSEvent*) event
+{
+	[super willOpenMenu:menu withEvent:event];
+	#pragma unused(event)
+
+	if (menu == nil) {
+		return;
+	}
+
+	while ([menu indexOfItemWithTag:InkwellDetailHighlightContextMenuItemTag] != -1) {
+		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailHighlightContextMenuItemTag];
+		[menu removeItemAtIndex:existing_index];
+	}
+
+	while ([menu indexOfItemWithTag:InkwellDetailHighlightContextMenuSeparatorTag] != -1) {
+		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailHighlightContextMenuSeparatorTag];
+		[menu removeItemAtIndex:existing_index];
+	}
+
+	BOOL should_show_highlight_item = NO;
+	if (self.shouldShowHighlightMenuItemHandler != nil) {
+		should_show_highlight_item = self.shouldShowHighlightMenuItemHandler();
+	}
+	if (!should_show_highlight_item) {
+		return;
+	}
+
+	SEL highlight_selector = NSSelectorFromString(@"highlightSelectedItem:");
+	NSMenuItem* highlight_item = [[NSMenuItem alloc] initWithTitle:@"Highlight" action:highlight_selector keyEquivalent:@""];
+	highlight_item.target = nil;
+	highlight_item.tag = InkwellDetailHighlightContextMenuItemTag;
+	highlight_item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
+	NSMenuItem* separator_item = [NSMenuItem separatorItem];
+	separator_item.tag = InkwellDetailHighlightContextMenuSeparatorTag;
+
+	[menu insertItem:separator_item atIndex:0];
+	[menu insertItem:highlight_item atIndex:0];
 }
 
 @end
@@ -148,6 +190,14 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		}
 
 		return strong_self.focusSidebarHandler();
+	};
+	web_view.shouldShowHighlightMenuItemHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return (strong_self.hasTextSelection && strong_self.currentEntryID > 0);
 	};
 	[root_view addSubview:web_view];
 	[root_view addSubview:top_bar_view];

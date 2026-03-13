@@ -9,12 +9,14 @@
 
 @class MBClient;
 @class MBEntry;
+@class MBHighlight;
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface MBHighlightsController : NSWindowController
 
 @property (nonatomic, assign, readonly) NSInteger entryID;
+@property (nonatomic, copy, nullable) void (^highlightDeletedHandler)(MBHighlight* highlight);
 
 - (instancetype) initWithClient:(MBClient*) client token:(NSString*) token;
 - (void) updateForSelectedEntry:(MBEntry* _Nullable) entry;

@@ -224,6 +224,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) startAutoRefreshTimerIfNeeded;
 - (void) stopAutoRefreshTimer;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
+- (BOOL) canHighlightSelectedItem;
 
 @end
 
@@ -546,6 +547,18 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 	if (self.highlightsController == nil) {
 		self.highlightsController = [[MBHighlightsController alloc] initWithClient:self.client token:self.token];
+		__weak typeof(self) weak_self = self;
+		self.highlightsController.highlightDeletedHandler = ^(MBHighlight* highlight) {
+			MBMainController* strong_self = weak_self;
+			if (strong_self == nil || ![highlight isKindOfClass:[MBHighlight class]]) {
+				return;
+			}
+
+			MBEntry* selected_item = [strong_self.sidebarController selectedItem];
+			if (selected_item != nil && selected_item.entryID == highlight.entryID) {
+				[strong_self.detailController refreshHighlights];
+			}
+		};
 	}
 
 	MBEntry* selected_item = [self.sidebarController selectedItem];
@@ -998,6 +1011,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (menu_item.action == @selector(showReadingRecap:)) {
 		return [self.sidebarController canShowReadingRecap];
 	}
+	if (menu_item.action == @selector(highlightSelectedItem:)) {
+		return [self canHighlightSelectedItem];
+	}
 
 	if (menu_item.action == @selector(copyLink:)) {
 		MBEntry* selected_item = [self.sidebarController selectedItem];
@@ -1015,13 +1031,23 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
 {
 	if (toolbar_item.action == @selector(highlightSelectedItem:)) {
-		return [self.detailController hasSelection];
+		return [self canHighlightSelectedItem];
 	}
 	if (toolbar_item.action == @selector(showConversation:)) {
 		return (self.conversationReplyCount > 0);
 	}
 
 	return YES;
+}
+
+- (BOOL) canHighlightSelectedItem
+{
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil || selected_item.entryID <= 0) {
+		return NO;
+	}
+
+	return [self.detailController hasSelection];
 }
 
 - (IBAction) performFindPanelAction:(id)sender
