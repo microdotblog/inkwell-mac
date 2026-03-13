@@ -1387,8 +1387,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSButton* cancel_button = [NSButton buttonWithTitle:@"Cancel" target:self action:@selector(cancelNewFeed:)];
 	cancel_button.translatesAutoresizingMaskIntoConstraints = NO;
 	cancel_button.bezelStyle = NSBezelStyleRounded;
-	cancel_button.keyEquivalent = @".";
-	cancel_button.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+	cancel_button.keyEquivalent = @"\x1B";
+	cancel_button.keyEquivalentModifierMask = 0;
 
 	NSButton* subscribe_button = [NSButton buttonWithTitle:@"Subscribe" target:self action:@selector(subscribeNewFeed:)];
 	subscribe_button.translatesAutoresizingMaskIntoConstraints = NO;
