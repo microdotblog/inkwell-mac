@@ -33,6 +33,9 @@ static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
+static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
+static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
+static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 @interface MBSidebarTableView : NSTableView
 
@@ -1036,8 +1039,9 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 		row_view.customBorderColor = nil;
 	}
 	else {
-		row_view.customBackgroundColor = [NSColor colorWithRed:0.89 green:0.92 blue:0.97 alpha:0.96];
-		row_view.customBorderColor = [NSColor colorWithRed:0.80 green:0.84 blue:0.91 alpha:0.58];
+		row_view.customBackgroundColor = [NSColor colorNamed:InkwellUnreadBackgroundColorName];
+		row_view.customBorderColor = [NSColor colorNamed:InkwellUnreadBorderColorName];
+//		row_view.customBorderColor = [NSColor colorWithRed:0.80 green:0.84 blue:0.91 alpha:0.58];
 	}
 }
 
@@ -2035,7 +2039,13 @@ static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plan
 	
 	if (is_selected_row) {
 		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:tableView];
-		NSColor* selected_text_color = has_emphasized_selection ? [NSColor alternateSelectedControlTextColor] : [NSColor darkGrayColor];
+		NSColor* selected_text_color = [NSColor alternateSelectedControlTextColor];
+		if (!has_emphasized_selection) {
+			selected_text_color = [NSColor colorNamed:InkwellSelectedUnfocusedColorName];
+			if (selected_text_color == nil) {
+				selected_text_color = [NSColor darkGrayColor];
+			}
+		}
 		title_color = selected_text_color;
 		subtitle_color = [selected_text_color colorWithAlphaComponent:0.78];
 		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
