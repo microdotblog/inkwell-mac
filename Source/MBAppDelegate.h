@@ -11,6 +11,7 @@
 
 - (IBAction) showMainWindowAction:(id) sender;
 - (IBAction) showPreferences:(id) sender;
+- (IBAction) showHelp:(id) sender;
 - (IBAction) signOut:(id) sender;
 
 @end

@@ -13,6 +13,7 @@
 #import "MBWelcomeController.h"
 
 static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for your account yet.";
+static NSString* const InkwellHelpURLString = @"https://help.micro.blog";
 
 @interface MBAppDelegate ()
 
@@ -135,6 +136,18 @@ static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for 
 {
 	#pragma unused(sender)
 	[self.mainController showPreferences:self];
+}
+
+- (IBAction) showHelp:(id) sender
+{
+	#pragma unused(sender)
+
+	NSURL* help_url = [NSURL URLWithString:InkwellHelpURLString];
+	if (help_url == nil) {
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:help_url];
 }
 
 - (IBAction) signOut:(id) sender
