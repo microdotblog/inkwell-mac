@@ -74,7 +74,7 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="File" id="bib-Uj-vzu">
                         <items>
-                            <menuItem title="New Post" keyEquivalent="n" id="Was-JA-tGl">
+                            <menuItem title="New Post" image="square.and.pencil" catalog="system" keyEquivalent="n" id="Was-JA-tGl">
                                 <connections>
                                     <action selector="newPost:" target="-1" id="4Si-XN-c54"/>
                                 </connections>
@@ -449,6 +449,7 @@
     <resources>
         <image name="arrow.clockwise" catalog="system" width="14" height="16"/>
         <image name="highlighter" catalog="system" width="17" height="16"/>
+        <image name="square.and.pencil" catalog="system" width="17" height="16"/>
         <image name="star" catalog="system" width="17" height="16"/>
     </resources>
 </document>
