@@ -241,6 +241,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (assign) BOOL isPreservingSelectionDuringReload;
 @property (assign) BOOL suppressSelectionChangedHandler;
 @property (assign) MBSidebarContentMode contentMode;
+@property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -258,6 +259,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) clearSavedSelectedEntryID;
 - (void) saveSelectedEntryIDForCurrentSelection;
 - (void) deselectSidebarSelectionPreservingDetail;
+- (void) clearPreservedHiddenReadState;
 - (void) scrollTableToTop;
 - (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
 - (void) startObservingWindowKeyState;
@@ -542,6 +544,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	if (self.contentMode != MBSidebarContentModeBookmarks) {
+		[self clearPreservedHiddenReadState];
 		self.contentMode = MBSidebarContentModeBookmarks;
 		if (self.bookmarksModeChangedHandler != nil) {
 			self.bookmarksModeChangedHandler(YES);
@@ -559,6 +562,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self clearPreservedHiddenReadState];
 	self.contentMode = MBSidebarContentModeFeeds;
 	self.isFetchingBookmarks = NO;
 	self.bookmarksRequestIdentifier += 1;
@@ -707,6 +711,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) toggleReadPostsVisibility
 {
 	self.hideReadPosts = !self.hideReadPosts;
+	if (self.hideReadPosts) {
+		self.preservedVisibleEntryIDsForHiddenReadPosts = nil;
+	}
+	else {
+		[self clearPreservedHiddenReadState];
+	}
+
 	[self applyFiltersAndReload];
 }
 
@@ -1119,6 +1130,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self clearPreservedHiddenReadState];
 	_dateFilter = date_filter;
 	if (_dateFilter != MBSidebarDateFilterFading && self.isRecapFetching) {
 		self.recapRequestIdentifier += 1;
@@ -1139,6 +1151,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self clearPreservedHiddenReadState];
 	_searchQuery = [normalized_query copy];
 	[self applyFiltersAndReload];
 }
@@ -1163,6 +1176,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 	else {
 		self.items = [self filteredItemsForReadVisibility:(filtered_items ?: @[]) selectedEntryID:selected_entry_id];
+		if (self.hideReadPosts && self.preservedVisibleEntryIDsForHiddenReadPosts == nil) {
+			NSMutableSet* visible_entry_ids = [NSMutableSet set];
+			for (MBEntry* entry in self.items) {
+				if (entry.entryID > 0) {
+					[visible_entry_ids addObject:@(entry.entryID)];
+				}
+			}
+			self.preservedVisibleEntryIDsForHiddenReadPosts = [visible_entry_ids copy];
+		}
 	}
 
 	[self reloadTablePreservingSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
@@ -1664,6 +1686,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [filtered_items copy];
 }
 
+- (void) clearPreservedHiddenReadState
+{
+	self.preservedVisibleEntryIDsForHiddenReadPosts = nil;
+}
+
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id
 {
 	if (!self.hideReadPosts || items.count == 0) {
@@ -1672,7 +1699,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSMutableArray* filtered_items = [NSMutableArray array];
 	for (MBEntry* entry in items) {
-		if (!entry.isRead || (selected_entry_id > 0 && entry.entryID == selected_entry_id)) {
+		BOOL is_selected_entry = (selected_entry_id > 0 && entry.entryID == selected_entry_id);
+		BOOL is_preserved_visible_entry = (entry.entryID > 0 && [self.preservedVisibleEntryIDsForHiddenReadPosts containsObject:@(entry.entryID)]);
+		if (!entry.isRead || is_selected_entry || is_preserved_visible_entry) {
 			[filtered_items addObject:entry];
 		}
 	}
