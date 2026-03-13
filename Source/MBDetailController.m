@@ -148,6 +148,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
 - (NSString*) normalizedRecapColorString:(NSString*) color_hex;
 - (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
+- (BOOL) prefersDarkSystemAppearance;
 
 @end
 
@@ -902,6 +903,10 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) preferredTextBackgroundHex
 {
 	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	if ([defaults objectForKey:InkwellTextBackgroundColorDefaultsKey] == nil) {
+		return [self prefersDarkSystemAppearance] ? @"#000000" : InkwellDefaultTextBackgroundHex;
+	}
+
 	NSString* stored_hex = [defaults stringForKey:InkwellTextBackgroundColorDefaultsKey] ?: @"";
 	NSString* normalized_hex = [stored_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if ([self isValidHexColorString:normalized_hex]) {
@@ -909,6 +914,20 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	}
 
 	return InkwellDefaultTextBackgroundHex;
+}
+
+- (BOOL) prefersDarkSystemAppearance
+{
+	NSAppearance* appearance = self.view.effectiveAppearance ?: NSApp.effectiveAppearance;
+	if (appearance == nil) {
+		return NO;
+	}
+
+	NSAppearanceName matched_appearance = [appearance bestMatchFromAppearancesWithNames:@[
+		NSAppearanceNameAqua,
+		NSAppearanceNameDarkAqua
+	]];
+	return [matched_appearance isEqualToString:NSAppearanceNameDarkAqua];
 }
 
 - (NSString*) preferredTextFontCSS

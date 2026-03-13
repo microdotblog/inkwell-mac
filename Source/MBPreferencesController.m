@@ -315,9 +315,6 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	NSString* avatar_url_string = [defaults stringForKey:InkwellUserAvatarURLDefaultsKey] ?: @"";
 	[self applyAvatarImageFromURLString:avatar_url_string];
 
-	NSString* selected_background_hex = [self selectedBackgroundColorHexFromDefaults];
-	[defaults setObject:selected_background_hex forKey:InkwellTextBackgroundColorDefaultsKey];
-
 	NSString* selected_font_name = [self selectedFontNameFromDefaults];
 	[defaults setObject:selected_font_name forKey:InkwellTextFontNameDefaultsKey];
 	[self.fontPopUpButton selectItemWithTitle:selected_font_name];
@@ -445,7 +442,12 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 
 - (NSString*) selectedBackgroundColorHexFromDefaults
 {
-	NSString* selected_hex = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellTextBackgroundColorDefaultsKey] ?: @"";
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	if ([defaults objectForKey:InkwellTextBackgroundColorDefaultsKey] == nil) {
+		return [self prefersDarkSystemAppearance] ? @"#000000" : InkwellDefaultTextBackgroundHex;
+	}
+
+	NSString* selected_hex = [defaults stringForKey:InkwellTextBackgroundColorDefaultsKey] ?: @"";
 	NSString* normalized_hex = [selected_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (normalized_hex.length == 0) {
 		return InkwellDefaultTextBackgroundHex;
@@ -458,6 +460,20 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 
 	return InkwellDefaultTextBackgroundHex;
+}
+
+- (BOOL) prefersDarkSystemAppearance
+{
+	NSAppearance* appearance = self.window.effectiveAppearance ?: NSApp.effectiveAppearance;
+	if (appearance == nil) {
+		return NO;
+	}
+
+	NSAppearanceName matched_appearance = [appearance bestMatchFromAppearancesWithNames:@[
+		NSAppearanceNameAqua,
+		NSAppearanceNameDarkAqua
+	]];
+	return [matched_appearance isEqualToString:NSAppearanceNameDarkAqua];
 }
 
 - (NSString*) selectedFontNameFromDefaults
