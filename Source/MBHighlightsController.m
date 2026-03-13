@@ -1025,7 +1025,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	NSAlert* alert = [[NSAlert alloc] init];
 	alert.alertStyle = NSAlertStyleWarning;
 	alert.messageText = @"Delete Highlight?";
-	alert.informativeText = @"This will delete the selected highlight from the server.";
+	alert.informativeText = @"This will delete the selected highlight from your account.";
 	[alert addButtonWithTitle:@"Delete"];
 	[alert addButtonWithTitle:@"Cancel"];
 
