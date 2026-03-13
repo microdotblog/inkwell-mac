@@ -17,12 +17,14 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *summary;
 @property (nonatomic, copy, nullable) NSString *text;
 @property (nonatomic, copy, nullable) NSString *source;
+@property (nonatomic, copy, nullable) NSString *avatarURL;
 @property (nonatomic, assign) NSInteger entryID;
 @property (nonatomic, assign) NSInteger feedID;
 @property (nonatomic, copy, nullable) NSString *feedHost;
 @property (nonatomic, strong, nullable) NSDate *date;
 @property (nonatomic, assign) BOOL isRead;
 @property (nonatomic, assign) BOOL isBookmarked;
+@property (nonatomic, assign) BOOL isBookmarkEntry;
 
 @end
 

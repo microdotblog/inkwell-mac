@@ -26,14 +26,18 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 @property (nonatomic, copy, nullable) void (^readingRecapHandler)(NSString* html);
 @property (nonatomic, copy, nullable) void (^syncCompletedHandler)(void);
 @property (nonatomic, copy, nullable) BOOL (^focusDetailHandler)(void);
+@property (nonatomic, copy, nullable) void (^bookmarksModeChangedHandler)(BOOL is_showing_bookmarks);
 @property (nonatomic, copy, nullable) NSString* token;
 @property (nonatomic, assign) MBSidebarDateFilter dateFilter;
 @property (nonatomic, copy) NSString* searchQuery;
 
 - (void) reloadData;
 - (void) refreshData;
+- (void) showBookmarks;
+- (void) clearBookmarksMode;
 - (void) focusAndSelectFirstItem;
 - (BOOL) focusSidebar;
+- (BOOL) isShowingBookmarks;
 - (BOOL) canToggleSelectedItemReadState;
 - (BOOL) canMarkAllItemsAsRead;
 - (BOOL) canToggleSelectedItemBookmarkedState;

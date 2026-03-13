@@ -224,6 +224,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) startAutoRefreshTimerIfNeeded;
 - (void) stopAutoRefreshTimer;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
+- (void) updateFilterSegmentedControlEnabledState;
 - (BOOL) canHighlightSelectedItem;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
@@ -381,6 +382,10 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	self.sidebarController.syncCompletedHandler = ^{
 		[weak_self syncHighlightsFromServer];
 	};
+	self.sidebarController.bookmarksModeChangedHandler = ^(BOOL is_showing_bookmarks) {
+		#pragma unused(is_showing_bookmarks)
+		[weak_self updateFilterSegmentedControlEnabledState];
+	};
 	self.detailController.selectionChangedHandler = ^(BOOL has_selection) {
 		#pragma unused(has_selection)
 		[weak_self.window.toolbar validateVisibleItems];
@@ -495,6 +500,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
+	[self.sidebarController clearBookmarksMode];
 	self.sidebarController.dateFilter = [self sidebarDateFilterForSegmentIndex:segment_index];
 
 	if (self.filterSegmentedControl == nil) {
@@ -506,6 +512,15 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	self.filterSegmentedControl.selectedSegment = segment_index;
+}
+
+- (void) updateFilterSegmentedControlEnabledState
+{
+	if (self.filterSegmentedControl == nil) {
+		return;
+	}
+
+	self.filterSegmentedControl.enabled = ![self.sidebarController isShowingBookmarks];
 }
 
 - (IBAction) filterSegmentChanged:(id)sender
@@ -536,6 +551,18 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 {
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 	[self.sidebarController showReadingRecap:sender];
+}
+
+- (IBAction) showBookmarks:(id)sender
+{
+	#pragma unused(sender)
+
+	if (self.toolbarSearchField != nil && self.toolbarSearchField.stringValue.length > 0) {
+		self.toolbarSearchField.stringValue = @"";
+	}
+	self.sidebarController.searchQuery = @"";
+	[self.sidebarController showBookmarks];
+	[self updateFilterSegmentedControlEnabledState];
 }
 
 - (IBAction) refreshView:(id)sender
@@ -991,6 +1018,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (menu_item.action == @selector(showReadingRecap:)) {
 		return [self.sidebarController canShowReadingRecap];
 	}
+	if (menu_item.action == @selector(showBookmarks:)) {
+		return (self.client != nil && self.token.length > 0);
+	}
 	if (menu_item.action == @selector(highlightSelectedItem:)) {
 		return [self canHighlightSelectedItem];
 	}
@@ -1053,6 +1083,12 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSSearchField* search_field = notification.object;
 	if (![search_field isKindOfClass:[NSSearchField class]]) {
 		return;
+	}
+
+	NSString* search_query = [search_field.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (search_query.length > 0 && [self.sidebarController isShowingBookmarks]) {
+		[self.sidebarController clearBookmarksMode];
+		[self updateFilterSegmentedControlEnabledState];
 	}
 
 	self.sidebarController.searchQuery = search_field.stringValue ?: @"";
@@ -1636,6 +1672,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		self.filterSegmentedControl.selectedSegment = InkwellFilterTodaySegmentIndex;
 		self.filterSegmentedControl.segmentStyle = NSSegmentStyleAutomatic;
 		self.filterSegmentedControl.translatesAutoresizingMaskIntoConstraints = NO;
+		[self updateFilterSegmentedControlEnabledState];
 
 		item.view = self.filterSegmentedControl;
 		return item;

@@ -366,6 +366,11 @@
                                     <action selector="showReadingRecap:" target="-1" id="n8M-jA-X7F"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Bookmarks" keyEquivalent="5" id="G4M-1Q-pK3">
+                                <connections>
+                                    <action selector="showBookmarks:" target="-1" id="M03-lq-1qj"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="0am-8V-GZd"/>
                             <menuItem title="Hide Read Posts" keyEquivalent="H" id="vCL-vz-2uP">
                                 <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>

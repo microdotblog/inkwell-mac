@@ -30,12 +30,18 @@ static CGFloat const InkwellSidebarTitleFontSize = 14.0;
 static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
 static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
+static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
 static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
+
+typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
+	MBSidebarContentModeFeeds = 0,
+	MBSidebarContentModeBookmarks = 1
+};
 
 @interface MBSidebarTableView : NSTableView
 
@@ -209,24 +215,32 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 @property (strong) NSTableView *tableView;
 @property (strong) NSScrollView* tableScrollView;
 @property (copy) NSArray<MBEntry *> *allItems;
+@property (copy) NSArray<MBEntry *> *bookmarkItems;
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
 @property (strong) NSMutableDictionary<NSString *, NSImage *> *iconImageByHost;
 @property (strong) NSMutableSet<NSString *> *hostsWithPendingImageRequests;
+@property (strong) NSMutableDictionary<NSString *, NSImage *> *avatarImageByURL;
+@property (strong) NSMutableSet<NSString *> *avatarURLsWithPendingImageRequests;
 @property (strong) NSURLSession *imageSession;
 @property (strong) NSImage *defaultAvatarImage;
 @property (strong) NSMenu* contextMenu;
 @property (strong) NSBox* recapBoxView;
 @property (strong) NSButton* recapButton;
 @property (strong) NSTextField* recapCountLabel;
+@property (strong) NSTextField* bookmarksTitleLabel;
+@property (strong) NSButton* bookmarksClearButton;
 @property (strong) NSLayoutConstraint* recapBoxHeightConstraint;
 @property (strong) NSLayoutConstraint* recapToTableTopConstraint;
 @property (assign) BOOL isRecapFetching;
+@property (assign) BOOL isFetchingBookmarks;
 @property (assign) NSInteger recapRequestIdentifier;
+@property (assign) NSInteger bookmarksRequestIdentifier;
 @property (weak) NSWindow* observedWindowForSelectionStyling;
 @property (strong) NSView* premiumRequiredView;
 @property (assign) BOOL hideReadPosts;
 @property (assign) BOOL isPreservingSelectionDuringReload;
 @property (assign) BOOL suppressSelectionChangedHandler;
+@property (assign) MBSidebarContentMode contentMode;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -257,20 +271,29 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 - (void) updatePremiumRequiredView;
 - (void) setRecapFetching:(BOOL)is_fetching;
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
+- (void) fetchBookmarksIfNeeded;
+- (void) fetchBookmarks;
+- (void) ensureBookmarksSelectionIfNeeded;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
 - (NSAttributedString*) premiumRequiredMessageAttributedString;
 - (BOOL) shouldShowPremiumRequiredView;
+- (BOOL) shouldShowBookmarksBanner;
 - (BOOL) isPremiumUser;
 - (NSMenu*) sidebarContextMenu;
 - (IBAction) toggleSelectedItemReadStateAction:(id)sender;
 - (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender;
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
+- (IBAction) clearBookmarksAction:(id)sender;
 - (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
+- (void) requestAvatarImageForURLString:(NSString*) url_string;
+- (void) reloadRowsForAvatarURLString:(NSString*) url_string;
+- (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
+- (NSString*) bookmarksDisplayDateString:(NSDate* _Nullable) date;
 
 @end
 
@@ -284,11 +307,15 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 		self.searchQuery = @"";
 		self.selectedRowForStyling = -1;
 		self.allItems = @[];
+		self.bookmarkItems = @[];
 		self.iconURLByHost = @{};
 		self.iconImageByHost = [NSMutableDictionary dictionary];
 		self.hostsWithPendingImageRequests = [NSMutableSet set];
+		self.avatarImageByURL = [NSMutableDictionary dictionary];
+		self.avatarURLsWithPendingImageRequests = [NSMutableSet set];
 		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.items = @[];
+		self.contentMode = MBSidebarContentModeFeeds;
 	}
 	return self;
 }
@@ -343,6 +370,24 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 	[recap_box addSubview:recap_button];
 	[recap_box addSubview:recap_label];
+
+	NSTextField* bookmarks_label = [NSTextField labelWithString:@"Showing recent bookmarks"];
+	bookmarks_label.translatesAutoresizingMaskIntoConstraints = NO;
+	bookmarks_label.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	bookmarks_label.textColor = [NSColor labelColor];
+	bookmarks_label.lineBreakMode = NSLineBreakByTruncatingTail;
+	bookmarks_label.maximumNumberOfLines = 1;
+	bookmarks_label.hidden = YES;
+
+	NSButton* clear_button = [NSButton buttonWithTitle:@"Clear" target:self action:@selector(clearBookmarksAction:)];
+	clear_button.translatesAutoresizingMaskIntoConstraints = NO;
+	clear_button.bezelStyle = NSBezelStyleRounded;
+	clear_button.controlSize = NSControlSizeSmall;
+	clear_button.font = [NSFont systemFontOfSize:13.0];
+	clear_button.hidden = YES;
+
+	[recap_box addSubview:bookmarks_label];
+	[recap_box addSubview:clear_button];
 
 	MBSidebarTableView *table_view = [[MBSidebarTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -432,6 +477,11 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 			[recap_label.leadingAnchor constraintEqualToAnchor:recap_button.trailingAnchor constant:12.0],
 			[recap_label.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
 			[recap_label.trailingAnchor constraintLessThanOrEqualToAnchor:recap_box.trailingAnchor constant:-14.0],
+			[bookmarks_label.leadingAnchor constraintEqualToAnchor:recap_box.leadingAnchor constant:12.0],
+			[bookmarks_label.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
+			[bookmarks_label.trailingAnchor constraintLessThanOrEqualToAnchor:clear_button.leadingAnchor constant:-12.0],
+			[clear_button.trailingAnchor constraintEqualToAnchor:recap_box.trailingAnchor constant:-12.0],
+			[clear_button.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
 		recap_to_table_top_constraint,
 		[scroll_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
@@ -451,6 +501,8 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	self.recapBoxView = recap_box;
 	self.recapButton = recap_button;
 	self.recapCountLabel = recap_label;
+	self.bookmarksTitleLabel = bookmarks_label;
+	self.bookmarksClearButton = clear_button;
 	self.recapBoxHeightConstraint = recap_height_constraint;
 	self.recapToTableTopConstraint = recap_to_table_top_constraint;
 	self.tableView = table_view;
@@ -464,13 +516,61 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 - (void) reloadData
 {
 	[self applyFiltersAndReload];
-	[self fetchEntriesIfNeeded];
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		[self fetchBookmarksIfNeeded];
+	}
+	else {
+		[self fetchEntriesIfNeeded];
+	}
 }
 
 - (void) refreshData
 {
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		[self fetchBookmarks];
+		return;
+	}
+
 	self.hasLoadedRemoteItems = NO;
 	[self fetchEntriesIfNeeded];
+}
+
+- (void) showBookmarks
+{
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	if (self.contentMode != MBSidebarContentModeBookmarks) {
+		self.contentMode = MBSidebarContentModeBookmarks;
+		if (self.bookmarksModeChangedHandler != nil) {
+			self.bookmarksModeChangedHandler(YES);
+		}
+	}
+
+	[self applyFiltersAndReload];
+	[self ensureBookmarksSelectionIfNeeded];
+	[self fetchBookmarks];
+}
+
+- (void) clearBookmarksMode
+{
+	if (self.contentMode != MBSidebarContentModeBookmarks) {
+		return;
+	}
+
+	self.contentMode = MBSidebarContentModeFeeds;
+	self.isFetchingBookmarks = NO;
+	self.bookmarksRequestIdentifier += 1;
+	[self applyFiltersAndReload];
+	if (self.bookmarksModeChangedHandler != nil) {
+		self.bookmarksModeChangedHandler(NO);
+	}
+}
+
+- (BOOL) isShowingBookmarks
+{
+	return (self.contentMode == MBSidebarContentModeBookmarks);
 }
 
 - (void) focusAndSelectFirstItem
@@ -708,6 +808,63 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	}];
 }
 
+- (void) fetchBookmarksIfNeeded
+{
+	if (self.bookmarkItems.count > 0 || self.isFetchingBookmarks) {
+		return;
+	}
+
+	[self fetchBookmarks];
+}
+
+- (void) fetchBookmarks
+{
+	if (self.client == nil || self.token.length == 0 || self.isFetchingBookmarks) {
+		return;
+	}
+
+	self.isFetchingBookmarks = YES;
+	self.bookmarksRequestIdentifier += 1;
+	NSInteger request_identifier = self.bookmarksRequestIdentifier;
+	__weak typeof(self) weak_self = self;
+	[self.client fetchRecentBookmarksWithToken:self.token completion:^(NSArray* _Nullable items, NSError* _Nullable error) {
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (request_identifier != strong_self.bookmarksRequestIdentifier) {
+			return;
+		}
+
+		strong_self.isFetchingBookmarks = NO;
+		if (error != nil || strong_self.contentMode != MBSidebarContentModeBookmarks) {
+			return;
+		}
+
+		strong_self.bookmarkItems = [strong_self sidebarItemsForBookmarks:items ?: @[]];
+		[strong_self applyFiltersAndReload];
+		[strong_self ensureBookmarksSelectionIfNeeded];
+	}];
+}
+
+- (void) ensureBookmarksSelectionIfNeeded
+{
+	if (self.contentMode != MBSidebarContentModeBookmarks || self.tableView == nil) {
+		return;
+	}
+
+	if (self.items.count == 0 || self.tableView.selectedRow >= 0) {
+		return;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:0];
+	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+	self.selectedRowForStyling = 0;
+	[self.tableView scrollRowToVisible:0];
+	[self notifySelectionChanged];
+}
+
 - (void) fetchFeedIcons
 {
 	if (self.client == nil || self.token.length == 0) {
@@ -786,6 +943,17 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (NSImage *) avatarImageForEntry:(MBEntry *)entry
 {
+	NSString* avatar_url = [entry.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (avatar_url.length > 0) {
+		NSImage* cached_image = self.avatarImageByURL[avatar_url];
+		if (cached_image != nil) {
+			return cached_image;
+		}
+
+		[self requestAvatarImageForURLString:avatar_url];
+		return [self fallbackAvatarImage];
+	}
+
 	NSString *feed_host = [self normalizedHostString:entry.feedHost ?: @""];
 	if (feed_host.length == 0) {
 		return [self fallbackAvatarImage];
@@ -802,6 +970,68 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	}
 
 	return [self fallbackAvatarImage];
+}
+
+- (void) requestAvatarImageForURLString:(NSString*) url_string
+{
+	if (url_string.length == 0) {
+		return;
+	}
+
+	if (self.avatarImageByURL[url_string] != nil || [self.avatarURLsWithPendingImageRequests containsObject:url_string]) {
+		return;
+	}
+
+	NSURL* image_url = [NSURL URLWithString:url_string];
+	if (image_url == nil) {
+		return;
+	}
+
+	[self.avatarURLsWithPendingImageRequests addObject:url_string];
+
+	NSURLSessionDataTask* task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		#pragma unused(response)
+		NSImage* image_value = nil;
+		if (error == nil && data.length > 0) {
+			image_value = [[NSImage alloc] initWithData:data];
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self.avatarURLsWithPendingImageRequests removeObject:url_string];
+
+			if (image_value == nil) {
+				return;
+			}
+
+			self.avatarImageByURL[url_string] = image_value;
+			[self reloadRowsForAvatarURLString:url_string];
+		});
+	}];
+	[task resume];
+}
+
+- (void) reloadRowsForAvatarURLString:(NSString*) url_string
+{
+	if (url_string.length == 0 || self.items.count == 0) {
+		return;
+	}
+
+	NSMutableIndexSet* row_indexes = [NSMutableIndexSet indexSet];
+	NSUInteger item_count = self.items.count;
+	for (NSUInteger i = 0; i < item_count; i++) {
+		MBEntry* entry = self.items[i];
+		NSString* entry_avatar_url = [entry.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([entry_avatar_url isEqualToString:url_string]) {
+			[row_indexes addIndex:i];
+		}
+	}
+
+	if (row_indexes.count == 0) {
+		return;
+	}
+
+	NSIndexSet* column_indexes = [NSIndexSet indexSetWithIndex:0];
+	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
 }
 
 - (NSImage *) fallbackAvatarImage
@@ -917,18 +1147,26 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 {
 	NSInteger preferred_entry_id = [self preferredSelectionEntryIDForReload];
 	NSInteger selected_entry_id = [self currentSelectedEntryID];
-	BOOL is_searching = (self.searchQuery.length > 0);
+	BOOL is_searching = (self.contentMode == MBSidebarContentModeFeeds && self.searchQuery.length > 0);
 	NSArray* filtered_items = nil;
-	if (is_searching) {
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		filtered_items = [self.bookmarkItems copy];
+	}
+	else if (is_searching) {
 		filtered_items = [self filteredItemsForSearchQuery:self.searchQuery];
 	}
 	else {
 		filtered_items = [self filteredItemsForDateFilter:self.dateFilter];
 	}
-	self.items = [self filteredItemsForReadVisibility:(filtered_items ?: @[]) selectedEntryID:selected_entry_id];
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		self.items = [filtered_items copy] ?: @[];
+	}
+	else {
+		self.items = [self filteredItemsForReadVisibility:(filtered_items ?: @[]) selectedEntryID:selected_entry_id];
+	}
 
 	[self reloadTablePreservingSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
-	if (is_searching) {
+	if (is_searching || self.contentMode == MBSidebarContentModeBookmarks) {
 		[self scrollTableToTop];
 	}
 	[self updateRecapUI];
@@ -937,9 +1175,13 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (NSInteger) preferredSelectionEntryIDForReload
 {
-	NSInteger current_selected_entry_id = [self currentSelectedEntryID];
-	if (current_selected_entry_id > 0) {
-		return current_selected_entry_id;
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry) {
+		return selected_item.entryID;
+	}
+
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		return 0;
 	}
 
 	return [self savedSelectedEntryID];
@@ -1034,6 +1276,12 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 	row_view.customSelectionBackgroundColor = nil;
 	MBEntry* item = self.items[(NSUInteger) row];
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		row_view.customBackgroundColor = nil;
+		row_view.customBorderColor = nil;
+		return;
+	}
+
 	if (item.isRead) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
@@ -1069,7 +1317,7 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	}
 
 	MBEntry* selected_item = self.items[(NSUInteger) selected_row];
-	if (![selected_item isKindOfClass:[MBEntry class]] || selected_item.entryID <= 0) {
+	if (![selected_item isKindOfClass:[MBEntry class]] || selected_item.entryID <= 0 || selected_item.isBookmarkEntry) {
 		return;
 	}
 
@@ -1109,15 +1357,21 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (void) updateRecapUI
 {
-	BOOL should_show_recap = (self.dateFilter == MBSidebarDateFilterFading) && ![self shouldShowPremiumRequiredView];
+	BOOL should_show_bookmarks = [self shouldShowBookmarksBanner];
+	BOOL should_show_recap = !should_show_bookmarks && (self.dateFilter == MBSidebarDateFilterFading) && ![self shouldShowPremiumRequiredView];
 	if (self.recapBoxView != nil) {
-		self.recapBoxView.hidden = !should_show_recap;
+		self.recapBoxView.hidden = !(should_show_recap || should_show_bookmarks);
 	}
 	if (self.recapBoxHeightConstraint != nil) {
-		self.recapBoxHeightConstraint.constant = should_show_recap ? InkwellSidebarRecapBoxHeight : 0.0;
+		if (should_show_bookmarks) {
+			self.recapBoxHeightConstraint.constant = InkwellSidebarBookmarksBoxHeight;
+		}
+		else {
+			self.recapBoxHeightConstraint.constant = should_show_recap ? InkwellSidebarRecapBoxHeight : 0.0;
+		}
 	}
 	if (self.recapToTableTopConstraint != nil) {
-		self.recapToTableTopConstraint.constant = should_show_recap ? 8.0 : 0.0;
+		self.recapToTableTopConstraint.constant = (should_show_recap || should_show_bookmarks) ? 8.0 : 0.0;
 	}
 
 	NSInteger fading_count = [self fadingItems].count;
@@ -1126,6 +1380,16 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	}
 	if (self.recapButton != nil) {
 		self.recapButton.enabled = should_show_recap && [self canShowReadingRecap];
+		self.recapButton.hidden = !should_show_recap;
+	}
+	if (self.recapCountLabel != nil) {
+		self.recapCountLabel.hidden = !should_show_recap;
+	}
+	if (self.bookmarksTitleLabel != nil) {
+		self.bookmarksTitleLabel.hidden = !should_show_bookmarks;
+	}
+	if (self.bookmarksClearButton != nil) {
+		self.bookmarksClearButton.hidden = !should_show_bookmarks;
 	}
 }
 
@@ -1203,6 +1467,10 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (BOOL) canShowReadingRecap
 {
+	if (self.contentMode != MBSidebarContentModeFeeds) {
+		return NO;
+	}
+
 	if (![self isPremiumUser]) {
 		return NO;
 	}
@@ -1216,7 +1484,16 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (BOOL) shouldShowPremiumRequiredView
 {
+	if (self.contentMode != MBSidebarContentModeFeeds) {
+		return NO;
+	}
+
 	return (self.dateFilter == MBSidebarDateFilterFading) && ![self isPremiumUser];
+}
+
+- (BOOL) shouldShowBookmarksBanner
+{
+	return (self.contentMode == MBSidebarContentModeBookmarks);
 }
 
 - (BOOL) isPremiumUser
@@ -1242,6 +1519,12 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	[self setRecapFetching:YES];
 	[self.client beginManualNetworkingActivity];
 	[self pollReadingRecapForEntryIDs:entry_ids attempt:1 requestIdentifier:request_identifier];
+}
+
+- (IBAction) clearBookmarksAction:(id)sender
+{
+	#pragma unused(sender)
+	[self clearBookmarksMode];
 }
 
 - (IBAction) openPlansAction:(id)sender
@@ -1475,6 +1758,54 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	return [sidebar_items copy];
 }
 
+- (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items
+{
+	NSMutableArray<MBEntry *> *sidebar_items = [NSMutableArray array];
+
+	for (id object in items) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* item = (NSDictionary*) object;
+		NSDictionary* author = nil;
+		if ([item[@"author"] isKindOfClass:[NSDictionary class]]) {
+			author = (NSDictionary*) item[@"author"];
+		}
+
+		NSString* author_name = [self normalizedPreviewString:[self stringValueFromObject:author[@"name"]]];
+		NSString* author_avatar = [self stringValueFromObject:author[@"avatar"]];
+		NSString* url_string = [self stringValueFromObject:item[@"url"]];
+		NSString* summary_value = [self normalizedPreviewString:[self stringValueFromObject:item[@"summary"]]];
+		NSInteger entry_id_value = [self integerValueFromObject:item[@"id"]];
+		NSDate* entry_date = [self dateValueFromEntry:item];
+
+		if (author_name.length == 0) {
+			author_name = [self normalizedHostFromURLString:url_string];
+		}
+
+		MBEntry* sidebar_entry = [[MBEntry alloc] init];
+		sidebar_entry.title = author_name;
+		sidebar_entry.url = url_string;
+		sidebar_entry.subscriptionTitle = @"";
+		sidebar_entry.summary = summary_value;
+		sidebar_entry.text = @"";
+		sidebar_entry.source = @"";
+		sidebar_entry.avatarURL = author_avatar;
+		sidebar_entry.entryID = entry_id_value;
+		sidebar_entry.feedID = 0;
+		sidebar_entry.feedHost = [self normalizedHostFromURLString:url_string];
+		sidebar_entry.date = entry_date;
+		sidebar_entry.isRead = YES;
+		sidebar_entry.isBookmarked = YES;
+		sidebar_entry.isBookmarkEntry = YES;
+
+		[sidebar_items addObject:sidebar_entry];
+	}
+
+	return [sidebar_items copy];
+}
+
 - (NSString *) stringValueFromObject:(id)object
 {
 	if ([object isKindOfClass:[NSString class]]) {
@@ -1651,6 +1982,20 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 			}
 
 			[strong_self updateCachedBookmarkedState:!should_unbookmark forEntryID:entry_id];
+			if (should_unbookmark && strong_self.contentMode == MBSidebarContentModeBookmarks) {
+				NSMutableArray* remaining_items = [NSMutableArray array];
+				for (MBEntry* item in strong_self.bookmarkItems) {
+					if (item.entryID != entry_id) {
+						[remaining_items addObject:item];
+					}
+				}
+
+				strong_self.bookmarkItems = [remaining_items copy];
+				[strong_self applyFiltersAndReload];
+				[strong_self ensureBookmarksSelectionIfNeeded];
+				return;
+			}
+
 			[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
 		});
 	};
@@ -1750,7 +2095,7 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row
 {
-	if (item == nil || item.isRead || item.entryID <= 0) {
+	if (item == nil || item.isRead || item.entryID <= 0 || item.isBookmarkEntry || self.contentMode == MBSidebarContentModeBookmarks) {
 		return;
 	}
 
@@ -1833,6 +2178,12 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	}
 
 	for (MBEntry *cached_entry in self.items) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isBookmarked = is_bookmarked;
+		}
+	}
+
+	for (MBEntry* cached_entry in self.bookmarkItems) {
 		if (cached_entry.entryID == entry_id) {
 			cached_entry.isBookmarked = is_bookmarked;
 		}
@@ -1996,7 +2347,7 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	if (subtitle_value.length == 0) {
 		subtitle_value = item.source ?: @"";
 	}
-	NSString* date_value = [self displayDateString:item.date];
+	NSString* date_value = (self.contentMode == MBSidebarContentModeBookmarks) ? [self bookmarksDisplayDateString:item.date] : [self displayDateString:item.date];
 
 	NSString* raw_title_value = item.title ?: @"";
 	BOOL has_post_title = (raw_title_value.length > 0);
@@ -2051,7 +2402,7 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
 		date_color = [selected_text_color colorWithAlphaComponent:0.55];
 	}
-	else if (item.isRead) {
+	else if (item.isRead && self.contentMode != MBSidebarContentModeBookmarks) {
 		title_color = [NSColor disabledControlTextColor];
 		subtitle_color = [NSColor disabledControlTextColor];
 		subscription_color = [NSColor disabledControlTextColor];
@@ -2081,7 +2432,7 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	if (subtitle_value.length == 0) {
 		subtitle_value = item.source ?: @"";
 	}
-	NSString *date_value = [self displayDateString:item.date];
+	NSString *date_value = (self.contentMode == MBSidebarContentModeBookmarks) ? [self bookmarksDisplayDateString:item.date] : [self displayDateString:item.date];
 	NSFont *title_font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
 	NSFont *subtitle_font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
 	NSFont *date_font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
@@ -2132,6 +2483,11 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 - (NSDate * _Nullable) dateValueFromEntry:(NSDictionary<NSString *, id> *)entry
 {
+	NSString* published_date_value = [self stringValueFromObject:entry[@"date_published"]];
+	if (published_date_value.length > 0) {
+		return [self dateFromISO8601String:published_date_value];
+	}
+
 	NSString *published_value = [self stringValueFromObject:entry[@"published"]];
 	if (published_value.length > 0) {
 		return [self dateFromISO8601String:published_value];
@@ -2177,6 +2533,28 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 	}
 
 	return NO;
+}
+
+- (NSString*) bookmarksDisplayDateString:(NSDate* _Nullable) date
+{
+	if (date == nil) {
+		return @"";
+	}
+
+	NSCalendar* calendar = [NSCalendar currentCalendar];
+	if ([calendar isDateInToday:date]) {
+		static NSDateFormatter* today_time_formatter;
+		static dispatch_once_t once_token;
+		dispatch_once(&once_token, ^{
+			today_time_formatter = [[NSDateFormatter alloc] init];
+			today_time_formatter.dateStyle = NSDateFormatterNoStyle;
+			today_time_formatter.timeStyle = NSDateFormatterShortStyle;
+		});
+
+		return [today_time_formatter stringFromDate:date];
+	}
+
+	return [self displayDateString:date];
 }
 
 - (NSString *) displayDateString:(NSDate * _Nullable)date
