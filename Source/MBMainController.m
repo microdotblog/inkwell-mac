@@ -380,7 +380,19 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return [strong_self focusDetailPane];
 	};
 	self.sidebarController.syncCompletedHandler = ^{
-		[weak_self syncHighlightsFromServer];
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		MBEntry* selected_item = [strong_self.sidebarController selectedItem];
+		if (selected_item != nil && strong_self.detailController.displayedEntryID <= 0) {
+			[strong_self.detailController showSidebarItem:selected_item];
+			[strong_self.highlightsController updateForSelectedEntry:selected_item];
+			[strong_self updateConversationForSelectedItem:selected_item];
+		}
+
+		[strong_self syncHighlightsFromServer];
 	};
 	self.sidebarController.bookmarksModeChangedHandler = ^(BOOL is_showing_bookmarks) {
 		#pragma unused(is_showing_bookmarks)

@@ -244,6 +244,11 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	return [window makeFirstResponder:self.webView];
 }
 
+- (NSInteger) displayedEntryID
+{
+	return self.currentEntryID;
+}
+
 - (void) webView:(WKWebView *)web_view decidePolicyForNavigationAction:(WKNavigationAction *)navigation_action decisionHandler:(void (^)(WKNavigationActionPolicy))decision_handler
 {
 	#pragma unused(web_view)

@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL) hasSelection;
 - (BOOL) focusDetailPane;
+- (NSInteger) displayedEntryID;
 - (void) showSidebarItem:(MBEntry * _Nullable)item;
 - (void) showReadingRecapHTML:(NSString*) html;
 - (void) requestSelectionHighlightPayloadWithCompletion:(void (^)(NSDictionary* _Nullable payload)) completion;
