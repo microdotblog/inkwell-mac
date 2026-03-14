@@ -1158,9 +1158,9 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	}
 
 	NSString* normalized_title = [title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/update.json", MBFeedSubscriptionsEndpointBase, (long) subscription.subscriptionID];
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld.json", MBFeedSubscriptionsEndpointBase, (long) subscription.subscriptionID];
 	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
-	request.HTTPMethod = @"POST";
+	request.HTTPMethod = @"PATCH";
 	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
 
