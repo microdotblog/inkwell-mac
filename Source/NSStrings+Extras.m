@@ -20,7 +20,8 @@
 		@"Vivaldi",
 		@"Arc",
 		@"Dia",
-		@"Orion"
+		@"Orion",
+		@"Atlas"
 	];
 
 	for (NSString* browser_name in browser_names) {
