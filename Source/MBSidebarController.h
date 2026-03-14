@@ -38,6 +38,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 @property (nonatomic, copy) NSString* searchQuery;
 
 - (void) reloadData;
+- (void) loadCachedRecentEntries;
 - (void) refreshData;
 - (void) showBookmarks;
 - (void) clearBookmarksMode;

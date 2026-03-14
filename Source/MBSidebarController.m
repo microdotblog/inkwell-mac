@@ -34,6 +34,7 @@ static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
+static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
 static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
 static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
@@ -277,6 +278,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) fetchBookmarksIfNeeded;
 - (void) fetchBookmarks;
 - (void) ensureBookmarksSelectionIfNeeded;
+- (void) cacheRecentEntries;
+- (NSURL* _Nullable) applicationSupportDirectoryURL;
+- (NSURL* _Nullable) recentEntriesCacheURL;
+- (NSDictionary*) serializedRecentEntriesPayload;
+- (NSDictionary*) dictionaryFromEntry:(MBEntry*) entry;
+- (MBEntry* _Nullable) entryFromDictionary:(NSDictionary*) dictionary;
+- (NSString*) iso8601StringFromDate:(NSDate* _Nullable) date;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
@@ -518,6 +526,62 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.view = container_view;
 	[self updateRecapUI];
 	[self updatePremiumRequiredView];
+}
+
+- (void) loadCachedRecentEntries
+{
+	if (self.contentMode != MBSidebarContentModeFeeds) {
+		return;
+	}
+
+	NSURL* cache_url = [self recentEntriesCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+	if (data.length == 0) {
+		return;
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	NSArray* serialized_items = nil;
+	NSDictionary* icons_by_host = nil;
+	if ([payload isKindOfClass:[NSDictionary class]]) {
+		serialized_items = [(NSDictionary*) payload objectForKey:@"items"];
+		icons_by_host = [(NSDictionary*) payload objectForKey:@"icons_by_host"];
+	}
+	else if ([payload isKindOfClass:[NSArray class]]) {
+		serialized_items = (NSArray*) payload;
+	}
+
+	if (![serialized_items isKindOfClass:[NSArray class]]) {
+		return;
+	}
+
+	NSMutableArray* cached_items = [NSMutableArray array];
+	for (id object in serialized_items) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		MBEntry* entry = [self entryFromDictionary:(NSDictionary*) object];
+		if (entry == nil) {
+			continue;
+		}
+
+		[cached_items addObject:entry];
+	}
+
+	if (cached_items.count == 0) {
+		return;
+	}
+
+	self.allItems = [cached_items copy];
+	if ([icons_by_host isKindOfClass:[NSDictionary class]]) {
+		self.iconURLByHost = [self normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host];
+	}
+	[self applyFiltersAndReload];
 }
 
 - (void) reloadData
@@ -818,6 +882,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[self fetchFeedIcons];
 		}
 
+		if (is_finished) {
+			[self cacheRecentEntries];
+		}
+
 		if (is_finished && self.syncCompletedHandler != nil) {
 			self.syncCompletedHandler();
 		}
@@ -895,8 +963,162 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
 		[self.iconImageByHost removeAllObjects];
 		[self.hostsWithPendingImageRequests removeAllObjects];
+		[self cacheRecentEntries];
 		[self.tableView reloadData];
 	}];
+}
+
+- (NSURL* _Nullable) applicationSupportDirectoryURL
+{
+	NSFileManager* file_manager = [NSFileManager defaultManager];
+	NSArray* application_support_urls = [file_manager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
+	NSURL* application_support_url = [application_support_urls firstObject];
+	if (application_support_url == nil) {
+		return nil;
+	}
+
+	NSString* bundle_identifier = [[NSBundle mainBundle] bundleIdentifier];
+	if (bundle_identifier.length == 0) {
+		bundle_identifier = @"Inkwell";
+	}
+
+	NSURL* directory_url = [application_support_url URLByAppendingPathComponent:bundle_identifier isDirectory:YES];
+	if (![file_manager createDirectoryAtURL:directory_url withIntermediateDirectories:YES attributes:nil error:nil]) {
+		return nil;
+	}
+
+	return directory_url;
+}
+
+- (NSURL* _Nullable) recentEntriesCacheURL
+{
+	NSURL* directory_url = [self applicationSupportDirectoryURL];
+	if (directory_url == nil) {
+		return nil;
+	}
+
+	return [directory_url URLByAppendingPathComponent:InkwellRecentEntriesCacheFilename isDirectory:NO];
+}
+
+- (void) cacheRecentEntries
+{
+	NSURL* cache_url = [self recentEntriesCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	NSDictionary* payload = [self serializedRecentEntriesPayload];
+	NSData* data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+	if (data.length == 0) {
+		return;
+	}
+
+	[data writeToURL:cache_url atomically:YES];
+}
+
+- (NSDictionary*) serializedRecentEntriesPayload
+{
+	NSMutableArray* serialized_items = [NSMutableArray array];
+	for (id object in self.allItems ?: @[]) {
+		if (![object isKindOfClass:[MBEntry class]]) {
+			continue;
+		}
+
+		NSDictionary* dictionary = [self dictionaryFromEntry:(MBEntry*) object];
+		if (dictionary.count == 0) {
+			continue;
+		}
+
+		[serialized_items addObject:dictionary];
+	}
+
+	return @{
+		@"version": @1,
+		@"items": serialized_items,
+		@"icons_by_host": self.iconURLByHost ?: @{}
+	};
+}
+
+- (NSDictionary*) dictionaryFromEntry:(MBEntry*) entry
+{
+	if (![entry isKindOfClass:[MBEntry class]] || entry.entryID <= 0) {
+		return @{};
+	}
+
+	NSMutableDictionary* dictionary = [NSMutableDictionary dictionary];
+	dictionary[@"title"] = entry.title ?: @"";
+	dictionary[@"url"] = entry.url ?: @"";
+	dictionary[@"subscription_title"] = entry.subscriptionTitle ?: @"";
+	dictionary[@"summary"] = entry.summary ?: @"";
+	dictionary[@"text"] = entry.text ?: @"";
+	dictionary[@"source"] = entry.source ?: @"";
+	dictionary[@"avatar_url"] = entry.avatarURL ?: @"";
+	dictionary[@"entry_id"] = @(entry.entryID);
+	dictionary[@"feed_id"] = @(entry.feedID);
+	dictionary[@"feed_host"] = entry.feedHost ?: @"";
+	dictionary[@"is_read"] = @(entry.isRead);
+	dictionary[@"is_bookmarked"] = @(entry.isBookmarked);
+	dictionary[@"is_bookmark_entry"] = @(entry.isBookmarkEntry);
+
+	NSString* date_string = [self iso8601StringFromDate:entry.date];
+	if (date_string.length > 0) {
+		dictionary[@"date"] = date_string;
+	}
+
+	return [dictionary copy];
+}
+
+- (MBEntry* _Nullable) entryFromDictionary:(NSDictionary*) dictionary
+{
+	if (![dictionary isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSInteger entry_id = [self integerValueFromObject:dictionary[@"entry_id"]];
+	if (entry_id <= 0) {
+		entry_id = [self integerValueFromObject:dictionary[@"id"]];
+	}
+	if (entry_id <= 0) {
+		return nil;
+	}
+
+	MBEntry* entry = [[MBEntry alloc] init];
+	entry.title = [self stringValueFromObject:dictionary[@"title"]];
+	entry.url = [self stringValueFromObject:dictionary[@"url"]];
+	entry.subscriptionTitle = [self stringValueFromObject:dictionary[@"subscription_title"]];
+	entry.summary = [self stringValueFromObject:dictionary[@"summary"]];
+	entry.text = [self stringValueFromObject:dictionary[@"text"]];
+	entry.source = [self stringValueFromObject:dictionary[@"source"]];
+	entry.avatarURL = [self stringValueFromObject:dictionary[@"avatar_url"]];
+	entry.entryID = entry_id;
+	entry.feedID = [self integerValueFromObject:dictionary[@"feed_id"]];
+	entry.feedHost = [self stringValueFromObject:dictionary[@"feed_host"]];
+	entry.isRead = [self boolValueFromObject:dictionary[@"is_read"]];
+	entry.isBookmarked = [self boolValueFromObject:dictionary[@"is_bookmarked"]];
+	entry.isBookmarkEntry = [self boolValueFromObject:dictionary[@"is_bookmark_entry"]];
+
+	NSString* date_string = [self stringValueFromObject:dictionary[@"date"]];
+	if (date_string.length > 0) {
+		entry.date = [self dateFromISO8601String:date_string];
+	}
+
+	return entry;
+}
+
+- (NSString*) iso8601StringFromDate:(NSDate* _Nullable) date
+{
+	if (date == nil) {
+		return @"";
+	}
+
+	static NSISO8601DateFormatter* date_formatter;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		date_formatter = [[NSISO8601DateFormatter alloc] init];
+		date_formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+	});
+
+	return [date_formatter stringFromDate:date] ?: @"";
 }
 
 - (NSDictionary<NSString *, NSString *> *) normalizedIconURLByHostFromMap:(NSDictionary<NSString *, NSString *> *)icons_by_host
@@ -1254,7 +1476,29 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
 	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
 	self.selectedRowForStyling = row;
-	[self.tableView scrollRowToVisible:row];
+	BOOL is_restoring_saved_selection = (previous_selected_row < 0 && entry_id == [self savedSelectedEntryID]);
+	if (is_restoring_saved_selection) {
+		[self.tableView layoutSubtreeIfNeeded];
+
+		CGFloat visible_height = 0.0;
+		if (self.tableScrollView != nil) {
+			visible_height = NSHeight(self.tableScrollView.contentView.bounds);
+		}
+		if (visible_height <= 0.0) {
+			visible_height = NSHeight(self.tableView.bounds);
+		}
+
+		NSRect row_rect = [self.tableView rectOfRow:row];
+		if (visible_height > 0.0 && NSMaxY(row_rect) <= visible_height) {
+			[self scrollTableToTop];
+		}
+		else {
+			[self.tableView scrollRowToVisible:row];
+		}
+	}
+	else {
+		[self.tableView scrollRowToVisible:row];
+	}
 
 	if (notify_if_unchanged && previous_selected_row == row) {
 		[self notifySelectionChanged];

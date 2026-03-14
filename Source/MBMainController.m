@@ -428,6 +428,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	self.mainSplitView = split_view_controller.splitView;
 
 	self.window.contentViewController = split_view_controller;
+	[self.sidebarController loadCachedRecentEntries];
 	[self.sidebarController reloadData];
 }
 
