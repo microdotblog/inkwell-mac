@@ -6,6 +6,7 @@
 //
 
 #import "MBSidebarController.h"
+#import "MBAvatarLoader.h"
 #import "MBClient.h"
 #import "MBEntry.h"
 #import "MBRoundedImageView.h"
@@ -219,11 +220,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSArray<MBEntry *> *bookmarkItems;
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
-@property (strong) NSMutableDictionary<NSString *, NSImage *> *iconImageByHost;
-@property (strong) NSMutableSet<NSString *> *hostsWithPendingImageRequests;
-@property (strong) NSMutableDictionary<NSString *, NSImage *> *avatarImageByURL;
-@property (strong) NSMutableSet<NSString *> *avatarURLsWithPendingImageRequests;
-@property (strong) NSURLSession *imageSession;
+@property (strong) MBAvatarLoader* avatarLoader;
 @property (strong) NSImage *defaultAvatarImage;
 @property (strong) NSMenu* contextMenu;
 @property (strong) NSBox* recapBoxView;
@@ -304,8 +301,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (IBAction) clearBookmarksAction:(id)sender;
 - (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
-- (void) requestAvatarImageForURLString:(NSString*) url_string;
+- (void) avatarImageDidLoad:(NSNotification*) notification;
 - (void) reloadRowsForAvatarURLString:(NSString*) url_string;
+- (void) reloadRowsForIconURLString:(NSString*) url_string;
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
 - (NSString*) bookmarksDisplayDateString:(NSDate* _Nullable) date;
 
@@ -324,13 +322,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.allItems = @[];
 		self.bookmarkItems = @[];
 		self.iconURLByHost = @{};
-		self.iconImageByHost = [NSMutableDictionary dictionary];
-		self.hostsWithPendingImageRequests = [NSMutableSet set];
-		self.avatarImageByURL = [NSMutableDictionary dictionary];
-		self.avatarURLsWithPendingImageRequests = [NSMutableSet set];
-		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+		self.avatarLoader = [MBAvatarLoader sharedLoader];
 		self.items = @[];
 		self.contentMode = MBSidebarContentModeFeeds;
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
 }
@@ -338,6 +333,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) dealloc
 {
 	[self stopObservingWindowKeyState];
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 }
 
 - (void) viewDidAppear
@@ -961,8 +957,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		}
 
 		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
-		[self.iconImageByHost removeAllObjects];
-		[self.hostsWithPendingImageRequests removeAllObjects];
 		[self cacheRecentEntries];
 		[self.tableView reloadData];
 	}];
@@ -1183,12 +1177,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	NSString* avatar_url = [entry.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (avatar_url.length > 0) {
-		NSImage* cached_image = self.avatarImageByURL[avatar_url];
+		NSImage* cached_image = [self.avatarLoader cachedImageForURLString:avatar_url];
 		if (cached_image != nil) {
 			return cached_image;
 		}
 
-		[self requestAvatarImageForURLString:avatar_url];
+		[self.avatarLoader loadImageForURLString:avatar_url];
 		return [self fallbackAvatarImage];
 	}
 
@@ -1197,55 +1191,28 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return [self fallbackAvatarImage];
 	}
 
-	NSImage *cached_image = self.iconImageByHost[feed_host];
-	if (cached_image != nil) {
-		return cached_image;
-	}
-
 	NSString *icon_url_string = self.iconURLByHost[feed_host];
 	if (icon_url_string.length > 0) {
-		[self requestAvatarImageForHost:feed_host urlString:icon_url_string];
+		NSImage* cached_image = [self.avatarLoader cachedImageForURLString:icon_url_string];
+		if (cached_image != nil) {
+			return cached_image;
+		}
+
+		[self.avatarLoader loadImageForURLString:icon_url_string];
 	}
 
 	return [self fallbackAvatarImage];
 }
 
-- (void) requestAvatarImageForURLString:(NSString*) url_string
+- (void) avatarImageDidLoad:(NSNotification*) notification
 {
+	NSString* url_string = [self stringValueFromObject:notification.userInfo[MBAvatarLoaderURLStringUserInfoKey]];
 	if (url_string.length == 0) {
 		return;
 	}
 
-	if (self.avatarImageByURL[url_string] != nil || [self.avatarURLsWithPendingImageRequests containsObject:url_string]) {
-		return;
-	}
-
-	NSURL* image_url = [NSURL URLWithString:url_string];
-	if (image_url == nil) {
-		return;
-	}
-
-	[self.avatarURLsWithPendingImageRequests addObject:url_string];
-
-	NSURLSessionDataTask* task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		#pragma unused(response)
-		NSImage* image_value = nil;
-		if (error == nil && data.length > 0) {
-			image_value = [[NSImage alloc] initWithData:data];
-		}
-
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[self.avatarURLsWithPendingImageRequests removeObject:url_string];
-
-			if (image_value == nil) {
-				return;
-			}
-
-			self.avatarImageByURL[url_string] = image_value;
-			[self reloadRowsForAvatarURLString:url_string];
-		});
-	}];
-	[task resume];
+	[self reloadRowsForAvatarURLString:url_string];
+	[self reloadRowsForIconURLString:url_string];
 }
 
 - (void) reloadRowsForAvatarURLString:(NSString*) url_string
@@ -1289,56 +1256,19 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return fallback_image;
 }
 
-- (void) requestAvatarImageForHost:(NSString *)host_value urlString:(NSString *)url_string
+- (void) reloadRowsForIconURLString:(NSString*) url_string
 {
-	if (host_value.length == 0 || url_string.length == 0) {
+	if (url_string.length == 0 || self.items.count == 0) {
 		return;
 	}
 
-	if (self.iconImageByHost[host_value] != nil || [self.hostsWithPendingImageRequests containsObject:host_value]) {
-		return;
-	}
-
-	NSURL *image_url = [NSURL URLWithString:url_string];
-	if (image_url == nil) {
-		return;
-	}
-
-	[self.hostsWithPendingImageRequests addObject:host_value];
-
-	NSURLSessionDataTask *task = [self.imageSession dataTaskWithURL:image_url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		#pragma unused(response)
-		NSImage *image_value = nil;
-		if (error == nil && data.length > 0) {
-			image_value = [[NSImage alloc] initWithData:data];
-		}
-
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[self.hostsWithPendingImageRequests removeObject:host_value];
-
-			if (image_value == nil) {
-				return;
-			}
-
-			self.iconImageByHost[host_value] = image_value;
-			[self reloadRowsForHost:host_value];
-		});
-	}];
-	[task resume];
-}
-
-- (void) reloadRowsForHost:(NSString *)host_value
-{
-	if (host_value.length == 0 || self.items.count == 0) {
-		return;
-	}
-
-	NSMutableIndexSet *row_indexes = [NSMutableIndexSet indexSet];
+	NSMutableIndexSet* row_indexes = [NSMutableIndexSet indexSet];
 	NSUInteger item_count = self.items.count;
 	for (NSUInteger i = 0; i < item_count; i++) {
-		MBEntry *entry = self.items[i];
-		NSString *entry_host = [self normalizedHostString:entry.feedHost ?: @""];
-		if ([entry_host isEqualToString:host_value]) {
+		MBEntry* entry = self.items[i];
+		NSString* entry_host = [self normalizedHostString:entry.feedHost ?: @""];
+		NSString* icon_url_string = self.iconURLByHost[entry_host] ?: @"";
+		if ([icon_url_string isEqualToString:url_string]) {
 			[row_indexes addIndex:i];
 		}
 	}
@@ -1347,7 +1277,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
+	NSIndexSet* column_indexes = [NSIndexSet indexSetWithIndex:0];
 	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
 }
 
