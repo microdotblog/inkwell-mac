@@ -9,7 +9,8 @@
 #import <CommonCrypto/CommonDigest.h>
 
 static NSTimeInterval const InkwellAvatarCacheExpirationInterval = (14.0 * 24.0 * 60.0 * 60.0);
-static NSString* const InkwellAvatarCacheDirectoryName = @"CachedAvatars";
+static NSString* const InkwellAvatarCacheDirectoryName = @"Icons";
+static NSString* const InkwellAvatarFallbackExtension = @"avatar";
 
 NSNotificationName const MBAvatarLoaderDidLoadImageNotification = @"MBAvatarLoaderDidLoadImageNotification";
 NSString* const MBAvatarLoaderURLStringUserInfoKey = @"url_string";
@@ -247,26 +248,51 @@ NSString* const MBAvatarLoaderURLStringUserInfoKey = @"url_string";
 
 - (NSString*) cacheFileNameForURLString:(NSString*) url_string
 {
-	NSString* hash_string = [self sha256StringForString:url_string];
+	NSString* hash_string = [self sha1StringForString:url_string];
 	if (hash_string.length == 0) {
 		return @"";
 	}
 
-	return [hash_string stringByAppendingPathExtension:@"avatar"];
+	NSString* host_string = [[NSURL URLWithString:url_string].host lowercaseString] ?: @"";
+	NSString* base_name = hash_string;
+	if (host_string.length > 0) {
+		base_name = [NSString stringWithFormat:@"%@-%@", host_string, hash_string];
+	}
+
+	NSString* extension_value = [self preferredCacheFileExtensionForURLString:url_string];
+	return [base_name stringByAppendingPathExtension:extension_value];
 }
 
-- (NSString*) sha256StringForString:(NSString*) string_value
+- (NSString*) preferredCacheFileExtensionForURLString:(NSString*) url_string
+{
+	NSString* extension_value = [[NSURL URLWithString:url_string].pathExtension lowercaseString] ?: @"";
+	NSArray* good_extensions = @[
+		@"jpg",
+		@"jpeg",
+		@"gif",
+		@"png",
+		@"ico",
+		@"webp"
+	];
+	if ([good_extensions containsObject:extension_value]) {
+		return extension_value;
+	}
+
+	return InkwellAvatarFallbackExtension;
+}
+
+- (NSString*) sha1StringForString:(NSString*) string_value
 {
 	NSData* string_data = [string_value dataUsingEncoding:NSUTF8StringEncoding];
 	if (string_data.length == 0) {
 		return @"";
 	}
 
-	unsigned char digest[CC_SHA256_DIGEST_LENGTH];
-	CC_SHA256(string_data.bytes, (CC_LONG) string_data.length, digest);
+	unsigned char digest[CC_SHA1_DIGEST_LENGTH];
+	CC_SHA1(string_data.bytes, (CC_LONG) string_data.length, digest);
 
-	NSMutableString* result_string = [NSMutableString stringWithCapacity:(CC_SHA256_DIGEST_LENGTH * 2)];
-	for (NSInteger i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) {
+	NSMutableString* result_string = [NSMutableString stringWithCapacity:(CC_SHA1_DIGEST_LENGTH * 2)];
+	for (NSInteger i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
 		[result_string appendFormat:@"%02x", digest[i]];
 	}
 	return [result_string copy];
