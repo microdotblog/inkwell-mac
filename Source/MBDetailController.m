@@ -129,7 +129,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 @end
 
-@interface MBDetailController () <WKNavigationDelegate, WKScriptMessageHandler>
+@interface MBDetailController () <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler>
 
 @property (strong) MBDetailWebView* webView;
 @property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
@@ -183,6 +183,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	MBDetailWebView* web_view = [[MBDetailWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
 	web_view.navigationDelegate = self;
+	web_view.UIDelegate = self;
 	__weak typeof(self) weak_self = self;
 	web_view.focusSidebarHandler = ^BOOL {
 		MBDetailController* strong_self = weak_self;
@@ -255,6 +256,20 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 	[[NSWorkspace sharedWorkspace] openURL:request_url];
 	decision_handler(WKNavigationActionPolicyCancel);
+}
+
+- (WKWebView*) webView:(WKWebView*) web_view createWebViewWithConfiguration:(WKWebViewConfiguration*) configuration forNavigationAction:(WKNavigationAction*) navigation_action windowFeatures:(WKWindowFeatures*) window_features
+{
+	#pragma unused(web_view)
+	#pragma unused(configuration)
+	#pragma unused(window_features)
+
+	NSURL* request_url = navigation_action.request.URL;
+	if (request_url != nil) {
+		[[NSWorkspace sharedWorkspace] openURL:request_url];
+	}
+
+	return nil;
 }
 
 - (void) webView:(WKWebView*) web_view didFinishNavigation:(WKNavigation*) navigation
