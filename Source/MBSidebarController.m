@@ -11,6 +11,7 @@
 #import "MBEntry.h"
 #import "MBRoundedImageView.h"
 #import "MBSubscription.h"
+#import "NSStrings+Extras.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSUserInterfaceItemIdentifier const InkwellSidebarRowIdentifier = @"InkwellSidebarRow";
@@ -2166,7 +2167,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
-	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:@"Open in Browser" action:@selector(openSelectedItemInBrowserAction:) keyEquivalent:@""];
+	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:[NSString mb_openInBrowserString] action:@selector(openSelectedItemInBrowserAction:) keyEquivalent:@""];
 	open_item.target = self;
 	[menu addItem:open_item];
 
