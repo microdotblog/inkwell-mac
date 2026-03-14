@@ -99,7 +99,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 @end
 
-@interface MBHighlightsController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
+@interface MBHighlightsController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation, NSSearchFieldDelegate>
 
 @property (nonatomic, strong) MBClient* client;
 @property (nonatomic, copy) NSString* token;
@@ -361,6 +361,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	search_field.translatesAutoresizingMaskIntoConstraints = NO;
 	search_field.controlSize = NSControlSizeSmall;
 	search_field.placeholderString = @"Search all highlights";
+	search_field.delegate = self;
 	[search_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 	[search_field setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 
@@ -522,6 +523,12 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		return NO;
 	}
 
+	if (self.highlights.count > 0 && self.tableView.selectedRow < 0) {
+		NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:0];
+		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+		[self.tableView scrollRowToVisible:0];
+	}
+
 	return [self.window makeFirstResponder:self.tableView];
 }
 
@@ -651,6 +658,21 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	[self updateHighlightSearchWithText:(search_field.stringValue ?: @"")];
+}
+
+- (BOOL) control:(NSControl*) control textView:(NSTextView*) text_view doCommandBySelector:(SEL) command_selector
+{
+	#pragma unused(text_view)
+
+	if (control != self.searchField) {
+		return NO;
+	}
+
+	if (command_selector == @selector(insertNewline:) || command_selector == @selector(insertLineBreak:) || command_selector == @selector(insertNewlineIgnoringFieldEditor:)) {
+		return [self focusHighlightsTable];
+	}
+
+	return NO;
 }
 
 - (void) updateHighlightSearchWithText:(NSString*) search_text
