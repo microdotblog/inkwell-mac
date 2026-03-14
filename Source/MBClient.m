@@ -1143,6 +1143,52 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[task resume];
 }
 
+- (void) updateFeedSubscription:(MBSubscription*) subscription title:(NSString*) title token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion
+{
+	if (![subscription isKindOfClass:[MBSubscription class]] || subscription.subscriptionID <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1037 userInfo:@{ NSLocalizedDescriptionKey: @"Missing subscription for rename request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1038 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for rename subscription request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* normalized_title = [title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/update.json", MBFeedSubscriptionsEndpointBase, (long) subscription.subscriptionID];
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
+	request.HTTPMethod = @"POST";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSData* body_data = [NSJSONSerialization dataWithJSONObject:@{ @"title": normalized_title } options:0 error:nil];
+	request.HTTPBody = body_data;
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Rename subscription request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
+	}];
+	[task resume];
+}
+
 - (NSArray*) cachedHighlightsForEntryID:(NSInteger) entry_id
 {
 	if (entry_id <= 0) {

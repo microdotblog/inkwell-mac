@@ -9,14 +9,19 @@
 #import "MBAvatarLoader.h"
 #import "MBClient.h"
 #import "MBSubscription.h"
+#import "NSStrings+Extras.h"
 
 static NSUserInterfaceItemIdentifier const InkwellFeedsCellIdentifier = @"InkwellFeedsCell";
+static NSUserInterfaceItemIdentifier const InkwellFeedsRowIdentifier = @"InkwellFeedsRow";
 static CGFloat const InkwellFeedsAvatarSize = 16.0;
 static CGFloat const InkwellFeedsRowHeight = 55.0;
+static CGFloat const InkwellRenameFeedSheetWidth = 360.0;
+static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 
 @interface MBFeedsTableView : NSTableView
 
 @property (copy, nullable) BOOL (^deleteSelectedFeedHandler)(void);
+@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
 
 @end
 
@@ -37,6 +42,68 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	}
 
 	[super keyDown:event];
+}
+
+- (NSMenu*) menuForEvent:(NSEvent*) event
+{
+	if (self.contextMenuHandler == nil) {
+		return [super menuForEvent:event];
+	}
+
+	NSPoint point_in_window = event.locationInWindow;
+	NSPoint point_in_table = [self convertPoint:point_in_window fromView:nil];
+	NSInteger row = [self rowAtPoint:point_in_table];
+	if (row < 0 || row >= self.numberOfRows) {
+		return nil;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+	[self selectRowIndexes:index_set byExtendingSelection:NO];
+
+	NSMenu* menu = self.contextMenuHandler();
+	if (menu != nil) {
+		return menu;
+	}
+
+	return [super menuForEvent:event];
+}
+
+@end
+
+@interface MBFeedsRowView : NSTableRowView
+
+@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
+
+@end
+
+@implementation MBFeedsRowView
+
+- (NSMenu*) menuForEvent:(NSEvent*) event
+{
+	if (self.contextMenuHandler == nil) {
+		return [super menuForEvent:event];
+	}
+
+	NSView* superview = self.superview;
+	while (superview != nil && ![superview isKindOfClass:[NSTableView class]]) {
+		superview = superview.superview;
+	}
+
+	NSTableView* table_view = [superview isKindOfClass:[NSTableView class]] ? (NSTableView*) superview : nil;
+	if (table_view != nil) {
+		NSInteger row = [table_view rowForView:self];
+		if (row >= 0) {
+			NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+			[table_view selectRowIndexes:index_set byExtendingSelection:NO];
+		}
+	}
+
+	NSMenu* menu = self.contextMenuHandler();
+	if (menu != nil) {
+		return menu;
+	}
+
+	return [super menuForEvent:event];
 }
 
 @end
@@ -176,7 +243,7 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 
 @end
 
-@interface MBFeedsController () <NSTableViewDataSource, NSTableViewDelegate>
+@interface MBFeedsController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
 @property (nonatomic, strong) MBClient* client;
 @property (nonatomic, copy) NSString* token;
@@ -187,6 +254,10 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 @property (nonatomic, strong) NSTextField* emptyStateTextField;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
+@property (nonatomic, strong) NSMenu* contextMenu;
+@property (nonatomic, strong) NSWindow* renameSheetWindow;
+@property (nonatomic, strong) NSTextField* renameSheetTextField;
+@property (nonatomic, strong) MBSubscription* renameSubscription;
 @property (nonatomic, assign) BOOL hasLoadedFeedIcons;
 @property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, assign) BOOL isFetching;
@@ -246,6 +317,14 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 		}
 
 		return [strong_self deleteSelectedFeed];
+	};
+	table_view.contextMenuHandler = ^NSMenu* {
+		MBFeedsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return nil;
+		}
+
+		return [strong_self feedsContextMenu];
 	};
 
 	NSTableColumn* table_column = [[NSTableColumn alloc] initWithIdentifier:@"FeedsColumn"];
@@ -325,7 +404,7 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 			return;
 		}
 
-		strong_self.allSubscriptions = subscriptions ?: @[];
+		strong_self.allSubscriptions = [strong_self sortedSubscriptions:(subscriptions ?: @[])];
 		strong_self.iconURLByHost = @{};
 		strong_self.hasLoadedFeedIcons = NO;
 		strong_self.isFetchingFeedIcons = NO;
@@ -388,6 +467,29 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	NSImage* avatar_image = [self avatarImageForSubscription:subscription];
 	[cell_view configureWithSubscription:subscription avatarImage:avatar_image];
 	return cell_view;
+}
+
+- (NSTableRowView*) tableView:(NSTableView*) tableView rowViewForRow:(NSInteger) row
+{
+	#pragma unused(row)
+	MBFeedsRowView* row_view = [tableView makeViewWithIdentifier:InkwellFeedsRowIdentifier owner:self];
+	if (row_view == nil) {
+		row_view = [[MBFeedsRowView alloc] initWithFrame:NSZeroRect];
+		row_view.identifier = InkwellFeedsRowIdentifier;
+		row_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
+	}
+
+	__weak typeof(self) weak_self = self;
+	row_view.contextMenuHandler = ^NSMenu* {
+		MBFeedsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return nil;
+		}
+
+		return [strong_self feedsContextMenu];
+	};
+
+	return row_view;
 }
 
 - (NSImage*) avatarImageForSubscription:(MBSubscription*) subscription
@@ -477,6 +579,81 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	return YES;
 }
 
+- (NSMenu*) feedsContextMenu
+{
+	if (self.contextMenu != nil) {
+		return self.contextMenu;
+	}
+
+	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
+
+	NSMenuItem* rename_item = [[NSMenuItem alloc] initWithTitle:@"Rename" action:@selector(renameSelectedFeedAction:) keyEquivalent:@""];
+	rename_item.target = self;
+	[menu addItem:rename_item];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+
+	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:[NSString mb_openInBrowserString] action:@selector(openSelectedFeedInBrowserAction:) keyEquivalent:@""];
+	open_item.target = self;
+	[menu addItem:open_item];
+
+	NSMenuItem* copy_item = [[NSMenuItem alloc] initWithTitle:@"Copy Feed" action:@selector(copySelectedFeedAction:) keyEquivalent:@""];
+	copy_item.target = self;
+	[menu addItem:copy_item];
+
+	self.contextMenu = menu;
+	return self.contextMenu;
+}
+
+- (IBAction) renameSelectedFeedAction:(id) sender
+{
+	#pragma unused(sender)
+
+	MBSubscription* subscription = [self selectedSubscription];
+	if (![self canRenameSubscription:subscription] || self.view.window == nil) {
+		return;
+	}
+
+	[self setupRenameSheetIfNeeded];
+	self.renameSubscription = subscription;
+	self.renameSheetTextField.stringValue = [self displayTitleForSubscription:subscription];
+	[self.view.window beginSheet:self.renameSheetWindow completionHandler:nil];
+	[self.renameSheetWindow makeFirstResponder:self.renameSheetTextField];
+	[self.renameSheetTextField selectText:nil];
+}
+
+- (IBAction) openSelectedFeedInBrowserAction:(id) sender
+{
+	#pragma unused(sender)
+
+	MBSubscription* subscription = [self selectedSubscription];
+	if (subscription == nil) {
+		return;
+	}
+
+	NSString* browser_url = [self browserURLStringForSubscription:subscription];
+	[NSString mb_openURLStringInBrowser:browser_url];
+}
+
+- (IBAction) copySelectedFeedAction:(id) sender
+{
+	#pragma unused(sender)
+
+	MBSubscription* subscription = [self selectedSubscription];
+	if (subscription == nil) {
+		return;
+	}
+
+	NSString* feed_url = [self normalizedURLString:subscription.feedURL];
+	if (feed_url.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:feed_url forType:NSPasteboardTypeString];
+}
+
 - (MBSubscription* _Nullable) selectedSubscription
 {
 	NSInteger selected_row = self.tableView.selectedRow;
@@ -490,6 +667,125 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 - (BOOL) canDeleteSubscription:(MBSubscription*) subscription
 {
 	return ([subscription isKindOfClass:[MBSubscription class]] && subscription.subscriptionID > 0 && self.token.length > 0 && !self.isFetching);
+}
+
+- (BOOL) canRenameSubscription:(MBSubscription*) subscription
+{
+	return ([subscription isKindOfClass:[MBSubscription class]] && subscription.subscriptionID > 0 && self.client != nil && self.token.length > 0 && !self.isFetching);
+}
+
+- (void) setupRenameSheetIfNeeded
+{
+	if (self.renameSheetWindow != nil) {
+		return;
+	}
+
+	NSRect content_rect = NSMakeRect(0.0, 0.0, InkwellRenameFeedSheetWidth, InkwellRenameFeedSheetHeight);
+	NSWindow* sheet_window = [[NSWindow alloc] initWithContentRect:content_rect styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+	sheet_window.releasedWhenClosed = NO;
+	sheet_window.title = @"Rename Feed";
+	sheet_window.titleVisibility = NSWindowTitleHidden;
+	sheet_window.titlebarAppearsTransparent = YES;
+	sheet_window.movable = NO;
+
+	NSView* content_view = [[NSView alloc] initWithFrame:content_rect];
+	content_view.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* title_label = [NSTextField labelWithString:@"Rename feed:"];
+	title_label.translatesAutoresizingMaskIntoConstraints = NO;
+	title_label.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	title_label.alignment = NSTextAlignmentLeft;
+
+	NSTextField* text_field = [[NSTextField alloc] initWithFrame:NSZeroRect];
+	text_field.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSButton* cancel_button = [NSButton buttonWithTitle:@"Cancel" target:self action:@selector(cancelRenameFeed:)];
+	cancel_button.translatesAutoresizingMaskIntoConstraints = NO;
+	cancel_button.bezelStyle = NSBezelStyleRounded;
+	cancel_button.keyEquivalent = @"\x1B";
+	cancel_button.keyEquivalentModifierMask = 0;
+
+	NSButton* rename_button = [NSButton buttonWithTitle:@"Rename" target:self action:@selector(confirmRenameFeed:)];
+	rename_button.translatesAutoresizingMaskIntoConstraints = NO;
+	rename_button.bezelStyle = NSBezelStyleRounded;
+	rename_button.keyEquivalent = @"\r";
+
+	[content_view addSubview:title_label];
+	[content_view addSubview:text_field];
+	[content_view addSubview:cancel_button];
+	[content_view addSubview:rename_button];
+
+	[NSLayoutConstraint activateConstraints:@[
+		[title_label.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:20.0],
+		[title_label.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:20.0],
+		[title_label.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		[text_field.topAnchor constraintEqualToAnchor:title_label.bottomAnchor constant:10.0],
+		[text_field.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:20.0],
+		[text_field.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		[text_field.heightAnchor constraintEqualToConstant:24.0],
+		[cancel_button.trailingAnchor constraintEqualToAnchor:rename_button.leadingAnchor constant:-8.0],
+		[cancel_button.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor constant:-16.0],
+		[rename_button.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
+		[rename_button.bottomAnchor constraintEqualToAnchor:cancel_button.bottomAnchor]
+	]];
+
+	sheet_window.contentView = content_view;
+	sheet_window.defaultButtonCell = rename_button.cell;
+	sheet_window.initialFirstResponder = text_field;
+
+	self.renameSheetWindow = sheet_window;
+	self.renameSheetTextField = text_field;
+}
+
+- (void) closeRenameSheet
+{
+	if (self.view.window.attachedSheet != self.renameSheetWindow) {
+		return;
+	}
+
+	[self.view.window endSheet:self.renameSheetWindow];
+}
+
+- (IBAction) cancelRenameFeed:(id) sender
+{
+	#pragma unused(sender)
+	[self closeRenameSheet];
+}
+
+- (IBAction) confirmRenameFeed:(id) sender
+{
+	#pragma unused(sender)
+
+	MBSubscription* subscription = self.renameSubscription;
+	if (![self canRenameSubscription:subscription]) {
+		[self closeRenameSheet];
+		return;
+	}
+
+	NSString* updated_title = [self normalizedURLString:self.renameSheetTextField.stringValue];
+	[self closeRenameSheet];
+
+	self.isFetching = YES;
+	[self updateEmptyState];
+
+	__weak typeof(self) weak_self = self;
+	[self.client updateFeedSubscription:subscription title:updated_title token:self.token completion:^(NSError* _Nullable error) {
+		MBFeedsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.isFetching = NO;
+		if (error != nil) {
+			[strong_self updateEmptyState];
+			[strong_self presentRenameError:error];
+			return;
+		}
+
+		subscription.title = updated_title;
+		strong_self.allSubscriptions = [strong_self sortedSubscriptions:(strong_self.allSubscriptions ?: @[])];
+		[strong_self applySearchFilterPreservingSelection:YES preferredSubscriptionID:subscription.subscriptionID];
+	}];
 }
 
 - (void) removeSubscriptionWithID:(NSInteger) subscription_id preferredRow:(NSInteger) preferred_row
@@ -536,6 +832,19 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	alert.alertStyle = NSAlertStyleWarning;
 	alert.messageText = @"Delete Failed";
 	alert.informativeText = error.localizedDescription ?: @"The feed could not be removed.";
+	[alert beginSheetModalForWindow:self.view.window completionHandler:nil];
+}
+
+- (void) presentRenameError:(NSError*) error
+{
+	if (error == nil || self.view.window == nil) {
+		return;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Rename Failed";
+	alert.informativeText = error.localizedDescription ?: @"The feed could not be renamed.";
 	[alert beginSheetModalForWindow:self.view.window completionHandler:nil];
 }
 
@@ -653,6 +962,16 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	return [self normalizedURLString:self.iconURLByHost[site_host]];
 }
 
+- (NSString*) browserURLStringForSubscription:(MBSubscription*) subscription
+{
+	NSString* site_url = [self normalizedURLString:subscription.siteURL];
+	if (site_url.length > 0) {
+		return site_url;
+	}
+
+	return [self normalizedURLString:subscription.feedURL];
+}
+
 - (NSString*) normalizedHostFromURLString:(NSString*) url_string
 {
 	if (url_string.length == 0) {
@@ -725,6 +1044,74 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 	[self updateEmptyState];
 }
 
+- (NSArray*) sortedSubscriptions:(NSArray*) subscriptions
+{
+	if (subscriptions.count < 2) {
+		return [subscriptions copy];
+	}
+
+	return [subscriptions sortedArrayUsingComparator:^NSComparisonResult(id first_object, id second_object) {
+		MBSubscription* first_subscription = [first_object isKindOfClass:[MBSubscription class]] ? first_object : nil;
+		MBSubscription* second_subscription = [second_object isKindOfClass:[MBSubscription class]] ? second_object : nil;
+		if (first_subscription == nil && second_subscription == nil) {
+			return NSOrderedSame;
+		}
+		if (first_subscription == nil) {
+			return NSOrderedDescending;
+		}
+		if (second_subscription == nil) {
+			return NSOrderedAscending;
+		}
+
+		return [self compareSubscription:first_subscription toSubscription:second_subscription];
+	}];
+}
+
+- (NSComparisonResult) compareSubscription:(MBSubscription*) first_subscription toSubscription:(MBSubscription*) second_subscription
+{
+	NSString* first_title = [self displayTitleForSubscription:first_subscription];
+	NSString* second_title = [self displayTitleForSubscription:second_subscription];
+	NSComparisonResult title_result = [first_title localizedCaseInsensitiveCompare:second_title];
+	if (title_result != NSOrderedSame) {
+		return title_result;
+	}
+
+	NSString* first_site_url = [self normalizedURLString:first_subscription.siteURL];
+	NSString* second_site_url = [self normalizedURLString:second_subscription.siteURL];
+	NSComparisonResult site_url_result = [first_site_url localizedCaseInsensitiveCompare:second_site_url];
+	if (site_url_result != NSOrderedSame) {
+		return site_url_result;
+	}
+
+	NSString* first_feed_url = [self normalizedURLString:first_subscription.feedURL];
+	NSString* second_feed_url = [self normalizedURLString:second_subscription.feedURL];
+	NSComparisonResult feed_url_result = [first_feed_url localizedCaseInsensitiveCompare:second_feed_url];
+	if (feed_url_result != NSOrderedSame) {
+		return feed_url_result;
+	}
+
+	if (first_subscription.subscriptionID == second_subscription.subscriptionID) {
+		return NSOrderedSame;
+	}
+
+	return (first_subscription.subscriptionID < second_subscription.subscriptionID) ? NSOrderedAscending : NSOrderedDescending;
+}
+
+- (NSString*) displayTitleForSubscription:(MBSubscription*) subscription
+{
+	NSString* title_value = [self normalizedURLString:subscription.title];
+	if (title_value.length > 0) {
+		return title_value;
+	}
+
+	NSString* site_url_value = [self normalizedURLString:subscription.siteURL];
+	if (site_url_value.length > 0) {
+		return site_url_value;
+	}
+
+	return [self normalizedURLString:subscription.feedURL];
+}
+
 - (void) restoreSelectionForSubscriptionID:(NSInteger) subscription_id
 {
 	if (subscription_id <= 0 || self.subscriptions.count == 0) {
@@ -741,6 +1128,22 @@ static CGFloat const InkwellFeedsRowHeight = 55.0;
 		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
 		return;
 	}
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	MBSubscription* subscription = [self selectedSubscription];
+	if (menu_item.action == @selector(renameSelectedFeedAction:)) {
+		return [self canRenameSubscription:subscription];
+	}
+	if (menu_item.action == @selector(openSelectedFeedInBrowserAction:)) {
+		return ([self browserURLStringForSubscription:subscription].length > 0);
+	}
+	if (menu_item.action == @selector(copySelectedFeedAction:)) {
+		return ([self normalizedURLString:subscription.feedURL].length > 0);
+	}
+
+	return YES;
 }
 
 - (NSImage*) defaultAvatarImage
