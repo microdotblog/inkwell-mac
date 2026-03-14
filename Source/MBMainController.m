@@ -219,7 +219,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) updateNewFeedControls;
 - (NSString*) normalizedNewFeedURLString;
 - (MBNewFeedChoice* _Nullable) selectedNewFeedChoice;
-- (void) closeNewFeedSheet;
+- (void) closeNewFeedSheetWithReturnCode:(NSModalResponse) return_code;
 - (void) presentNewFeedError:(NSError*) error;
 - (void) startAutoRefreshTimerIfNeeded;
 - (void) stopAutoRefreshTimer;
@@ -659,15 +659,17 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 	__weak typeof(self) weak_self = self;
 	[self.window beginSheet:self.feedSubscriptionSheetWindow completionHandler:^(NSModalResponse return_code) {
-		#pragma unused(return_code)
 		MBMainController* strong_self = weak_self;
 		if (strong_self == nil) {
 			return;
 		}
 
+		BOOL did_add_feed = (return_code == NSModalResponseOK);
 		[strong_self.feedSubscriptionSheetWindow orderOut:nil];
 		[strong_self resetNewFeedSheetState];
-		[strong_self.sidebarController refreshData];
+		if (did_add_feed) {
+			[strong_self.sidebarController refreshData];
+		}
 	}];
 	[self.feedSubscriptionSheetWindow makeFirstResponder:self.feedSubscriptionURLField];
 	[self.feedSubscriptionURLField selectText:nil];
@@ -680,7 +682,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
-	[self closeNewFeedSheet];
+	[self closeNewFeedSheetWithReturnCode:NSModalResponseCancel];
 }
 
 - (IBAction) subscribeNewFeed:(id) sender
@@ -732,7 +734,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 			return;
 		}
 
-		[strong_self closeNewFeedSheet];
+		[strong_self closeNewFeedSheetWithReturnCode:NSModalResponseOK];
 	}];
 }
 
@@ -1600,13 +1602,13 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	return (MBNewFeedChoice*) object;
 }
 
-- (void) closeNewFeedSheet
+- (void) closeNewFeedSheetWithReturnCode:(NSModalResponse) return_code
 {
 	if (self.window.attachedSheet != self.feedSubscriptionSheetWindow) {
 		return;
 	}
 
-	[self.window endSheet:self.feedSubscriptionSheetWindow];
+	[self.window endSheet:self.feedSubscriptionSheetWindow returnCode:return_code];
 }
 
 - (void) presentNewFeedError:(NSError*) error
