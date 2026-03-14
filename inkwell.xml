@@ -5,7 +5,7 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
-			<title>Version 1.0b4</title>
+			<title>Version 1.0b7</title>
  			<description><![CDATA[
 				<style>
 					ul {
@@ -17,15 +17,15 @@
 				</style>
  				<p>Changes in this version:</p>
  				<ul>
-					<li>More improvements...</li>
+					<li>Better caching, other things...</li>
 				</ul>
  			]]></description>
 			<pubDate>Sat, 14 Mar 2026 09:10:00 -0600</pubDate>
-			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b5.zip"
-				sparkle:shortVersionString="1.0b5"
-				sparkle:version="5"
-				sparkle:edSignature="ghABf2BIWse6oEcN+I/Rk/DIYL1qU6n9ixiRNoCQTW+10eXaPbDBEKfAJ7vQGjNDO41FoUxYL4q74PGyb3T0Aw=="
-				length="5228446"
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b7.zip"
+				sparkle:shortVersionString="1.0b7"
+				sparkle:version="7"
+				sparkle:edSignature="eyyBQ+/6OGw++pMLdGyirkgn+lUybMlLkyFWlXwdzTwUeCVQ6tRgb7i7ww8a1KpYJcm51Yz4LAI71mdUVTlyAw=="
+				length="5232654"
 				type="application/octet-stream" />
 			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
 		</item>
