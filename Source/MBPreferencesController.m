@@ -14,13 +14,15 @@ static CGFloat const InkwellPreferencesColorSwatchSize = 30.0;
 static CGFloat const InkwellPreferencesPopupMinWidth = 180.0;
 static CGFloat const InkwellPreferencesPopupMaxWidth = 240.0;
 static CGFloat const InkwellPreferencesSettingsLabelFontSize = 15.0;
-static CGFloat const InkwellPreferencesSectionLeadingInset = 33.0;
+static CGFloat const InkwellPreferencesSectionLeadingInset = 93.0;
 static CGFloat const InkwellPreferencesSectionTopSpacing = 19.0;
 static CGFloat const InkwellPreferencesRowSpacing = 16.0;
+static CGFloat const InkwellPreferencesWindowWidth = 520.0;
 static CGFloat const InkwellPreferencesWindowHeight = 600.0;
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
+static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 
 @interface MBPreferencesController () <NSSearchFieldDelegate>
 
@@ -28,16 +30,20 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 @property (nonatomic, strong) NSTextField* usernameTextField;
 @property (nonatomic, strong) NSPopUpButton* fontPopUpButton;
 @property (nonatomic, strong) NSPopUpButton* sizePopUpButton;
+@property (nonatomic, strong) NSButton* readingRecapCheckbox;
+@property (nonatomic, strong) NSPopUpButton* readingRecapPopUpButton;
 @property (nonatomic, strong) NSSearchField* feedsSearchField;
 @property (nonatomic, copy) NSArray* backgroundColorHexes;
 @property (nonatomic, copy) NSArray* fontNames;
 @property (nonatomic, copy) NSArray* sizeNames;
+@property (nonatomic, copy) NSArray* readingRecapDayNames;
 @property (nonatomic, strong) NSMutableArray* backgroundColorButtons;
 @property (nonatomic, strong) MBClient* client;
 @property (nonatomic, copy) NSString* token;
 @property (nonatomic, strong) MBFeedsController* feedsController;
 @property (nonatomic, strong) NSURLSession* avatarSession;
 @property (nonatomic, assign) BOOL didSetupContent;
+@property (nonatomic, assign) NSInteger readingRecapSyncGeneration;
 
 @end
 
@@ -55,6 +61,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		self.backgroundColorHexes = @[ @"#ffffff", @"#f1f2f4", @"#e5dcc8", @"#1c2435", @"#000000" ];
 		self.fontNames = @[ @"San Francisco", @"Avenir Next", @"Times New Roman" ];
 		self.sizeNames = @[ @"Tiny", @"Small", @"Medium", @"Large", @"Huge" ];
+		self.readingRecapDayNames = @[ @"Monday", @"Tuesday", @"Wednesday", @"Thursday", @"Friday", @"Saturday", @"Sunday" ];
 		self.backgroundColorButtons = [NSMutableArray array];
 		self.client = client ?: [[MBClient alloc] init];
 		self.token = [token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
@@ -68,12 +75,13 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 {
 	[self setupWindowIfNeeded];
 	[self setupContentIfNeeded];
-	[self applyWindowHeightIfNeeded];
+	[self applyWindowSizeIfNeeded];
 	[self reloadFromDefaults];
 	[self.feedsController reloadFeeds];
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
 	[self.window makeFirstResponder:nil];
+	[self refreshReadingRecapFromServer];
 }
 
 - (void) dealloc
@@ -89,28 +97,28 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		return;
 	}
 
-	NSRect frame = NSMakeRect(250.0, 250.0, 430.0, InkwellPreferencesWindowHeight);
+	NSRect frame = NSMakeRect(250.0, 250.0, InkwellPreferencesWindowWidth, InkwellPreferencesWindowHeight);
 	NSUInteger style_mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable;
 	NSWindow* window = [[NSWindow alloc] initWithContentRect:frame styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
 	window.title = @"Settings";
 	window.releasedWhenClosed = NO;
-	window.minSize = NSMakeSize(390.0, InkwellPreferencesWindowHeight);
+	window.minSize = NSMakeSize(InkwellPreferencesWindowWidth, InkwellPreferencesWindowHeight);
 	[window setFrameAutosaveName:@"PreferencesWindow"];
 	self.window = window;
 }
 
-- (void) applyWindowHeightIfNeeded
+- (void) applyWindowSizeIfNeeded
 {
 	if (self.window == nil || self.window.contentView == nil) {
 		return;
 	}
 
 	NSSize content_size = self.window.contentView.frame.size;
-	if (fabs(content_size.height - InkwellPreferencesWindowHeight) < 0.5) {
+	if ((fabs(content_size.width - InkwellPreferencesWindowWidth) < 0.5) && (fabs(content_size.height - InkwellPreferencesWindowHeight) < 0.5)) {
 		return;
 	}
 
-	[self.window setContentSize:NSMakeSize(content_size.width, InkwellPreferencesWindowHeight)];
+	[self.window setContentSize:NSMakeSize(InkwellPreferencesWindowWidth, InkwellPreferencesWindowHeight)];
 }
 
 - (void) setupContentIfNeeded
@@ -211,6 +219,25 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 	[content_view addSubview:size_popup_button];
 
+	NSButton* reading_recap_checkbox = [[NSButton alloc] initWithFrame:NSZeroRect];
+	reading_recap_checkbox.translatesAutoresizingMaskIntoConstraints = NO;
+	reading_recap_checkbox.buttonType = NSButtonTypeSwitch;
+	reading_recap_checkbox.title = @"Reading Recap on:";
+	reading_recap_checkbox.font = [NSFont systemFontOfSize:InkwellPreferencesSettingsLabelFontSize weight:NSFontWeightSemibold];
+	reading_recap_checkbox.lineBreakMode = NSLineBreakByClipping;
+	reading_recap_checkbox.target = self;
+	reading_recap_checkbox.action = @selector(toggleReadingRecap:);
+	[content_view addSubview:reading_recap_checkbox];
+
+	NSPopUpButton* reading_recap_popup_button = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+	reading_recap_popup_button.translatesAutoresizingMaskIntoConstraints = NO;
+	reading_recap_popup_button.target = self;
+	reading_recap_popup_button.action = @selector(selectReadingRecapDay:);
+	for (NSString* day_name in self.readingRecapDayNames) {
+		[reading_recap_popup_button addItemWithTitle:day_name];
+	}
+	[content_view addSubview:reading_recap_popup_button];
+
 	NSBox* feeds_separator_line = [[NSBox alloc] initWithFrame:NSZeroRect];
 	feeds_separator_line.translatesAutoresizingMaskIntoConstraints = NO;
 	feeds_separator_line.boxType = NSBoxSeparator;
@@ -274,7 +301,15 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 		[size_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
 		[size_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
 		[size_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
-		[feeds_separator_line.topAnchor constraintEqualToAnchor:size_popup_button.bottomAnchor constant:18.0],
+			[reading_recap_checkbox.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:38.0],
+			[reading_recap_checkbox.trailingAnchor constraintEqualToAnchor:reading_recap_popup_button.leadingAnchor constant:-12.0],
+			[reading_recap_checkbox.centerYAnchor constraintEqualToAnchor:reading_recap_popup_button.centerYAnchor],
+			[reading_recap_popup_button.topAnchor constraintEqualToAnchor:size_popup_button.bottomAnchor constant:InkwellPreferencesRowSpacing],
+			[reading_recap_popup_button.leadingAnchor constraintEqualToAnchor:size_popup_button.leadingAnchor],
+			[reading_recap_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
+			[reading_recap_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
+			[reading_recap_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
+		[feeds_separator_line.topAnchor constraintEqualToAnchor:reading_recap_popup_button.bottomAnchor constant:18.0],
 		[feeds_separator_line.leadingAnchor constraintEqualToAnchor:separator_line.leadingAnchor],
 		[feeds_separator_line.trailingAnchor constraintEqualToAnchor:separator_line.trailingAnchor],
 
@@ -296,6 +331,8 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	self.usernameTextField = username_text_field;
 	self.fontPopUpButton = font_popup_button;
 	self.sizePopUpButton = size_popup_button;
+	self.readingRecapCheckbox = reading_recap_checkbox;
+	self.readingRecapPopUpButton = reading_recap_popup_button;
 	self.feedsSearchField = feeds_search_field;
 	self.didSetupContent = YES;
 
@@ -321,6 +358,7 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	NSString* selected_size_name = [self selectedSizeNameFromDefaults];
 	[defaults setObject:selected_size_name forKey:InkwellTextSizeNameDefaultsKey];
 	[self.sizePopUpButton selectItemWithTitle:selected_size_name];
+	[self refreshReadingRecapControls];
 
 	[self refreshBackgroundColorSelection];
 }
@@ -413,6 +451,32 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	[self notifyTextSettingsChanged];
 }
 
+- (void) toggleReadingRecap:(id) sender
+{
+	#pragma unused(sender)
+	NSString* day_of_week = @"";
+	if (self.readingRecapCheckbox.state == NSControlStateValueOn) {
+		NSString* selected_day_of_week = self.readingRecapPopUpButton.selectedItem.title ?: @"";
+		day_of_week = [self normalizedReadingRecapDayOfWeek:selected_day_of_week allowBlank:NO];
+	}
+
+	[self setReadingRecapDayOfWeekInDefaults:day_of_week];
+	[self saveReadingRecapPreferenceToServer];
+}
+
+- (void) selectReadingRecapDay:(id) sender
+{
+	#pragma unused(sender)
+	if (self.readingRecapCheckbox.state != NSControlStateValueOn) {
+		return;
+	}
+
+	NSString* selected_day_of_week = self.readingRecapPopUpButton.selectedItem.title ?: @"";
+	NSString* normalized_day_of_week = [self normalizedReadingRecapDayOfWeek:selected_day_of_week allowBlank:NO];
+	[self setReadingRecapDayOfWeekInDefaults:normalized_day_of_week];
+	[self saveReadingRecapPreferenceToServer];
+}
+
 - (void) signOut:(id) sender
 {
 	#pragma unused(sender)
@@ -426,6 +490,64 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	if (self.textSettingsChangedHandler != nil) {
 		self.textSettingsChangedHandler();
 	}
+}
+
+- (void) refreshReadingRecapFromServer
+{
+	NSString* normalized_token = [self.token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_token.length == 0) {
+		return;
+	}
+
+	self.readingRecapSyncGeneration += 1;
+	NSInteger sync_generation = self.readingRecapSyncGeneration;
+	__weak typeof(self) weak_self = self;
+	[self.client fetchReadingRecapEmailDayOfWeekWithToken:normalized_token completion:^(NSString* _Nullable day_of_week, NSError* _Nullable error) {
+		MBPreferencesController* strong_self = weak_self;
+		if (strong_self == nil || error != nil) {
+			return;
+		}
+		if (sync_generation != strong_self.readingRecapSyncGeneration) {
+			return;
+		}
+
+		[strong_self setReadingRecapDayOfWeekInDefaults:(day_of_week ?: @"")];
+	}];
+}
+
+- (void) saveReadingRecapPreferenceToServer
+{
+	NSString* normalized_token = [self.token stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_token.length == 0) {
+		return;
+	}
+
+	self.readingRecapSyncGeneration += 1;
+	NSString* day_of_week = [self selectedReadingRecapDayOfWeekFromDefaults];
+	[self.client updateReadingRecapEmailDayOfWeek:day_of_week token:normalized_token completion:^(NSError* _Nullable error) {
+		#pragma unused(error)
+	}];
+}
+
+- (void) refreshReadingRecapControls
+{
+	NSString* saved_day_of_week = [self selectedReadingRecapDayOfWeekFromDefaults];
+	BOOL is_enabled = (saved_day_of_week.length > 0);
+	self.readingRecapCheckbox.state = is_enabled ? NSControlStateValueOn : NSControlStateValueOff;
+	self.readingRecapPopUpButton.enabled = is_enabled;
+
+	NSString* selected_day_of_week = saved_day_of_week;
+	if (selected_day_of_week.length == 0) {
+		selected_day_of_week = InkwellDefaultReadingRecapDayOfWeek;
+	}
+	[self.readingRecapPopUpButton selectItemWithTitle:selected_day_of_week];
+}
+
+- (void) setReadingRecapDayOfWeekInDefaults:(NSString*) day_of_week
+{
+	NSString* normalized_day_of_week = [self normalizedReadingRecapDayOfWeek:day_of_week allowBlank:YES];
+	[[NSUserDefaults standardUserDefaults] setObject:normalized_day_of_week forKey:InkwellReadingRecapDayOfWeekDefaultsKey];
+	[self refreshReadingRecapControls];
 }
 
 - (void) refreshBackgroundColorSelection
@@ -508,6 +630,28 @@ static NSString* const InkwellDefaultTextSizeName = @"Medium";
 	}
 
 	return InkwellDefaultTextSizeName;
+}
+
+- (NSString*) selectedReadingRecapDayOfWeekFromDefaults
+{
+	NSString* saved_day_of_week = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellReadingRecapDayOfWeekDefaultsKey] ?: @"";
+	return [self normalizedReadingRecapDayOfWeek:saved_day_of_week allowBlank:YES];
+}
+
+- (NSString*) normalizedReadingRecapDayOfWeek:(NSString*) day_of_week allowBlank:(BOOL) allow_blank
+{
+	NSString* normalized_day_of_week = [day_of_week stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_day_of_week.length == 0) {
+		return allow_blank ? @"" : InkwellDefaultReadingRecapDayOfWeek;
+	}
+
+	for (NSString* day_name in self.readingRecapDayNames) {
+		if ([day_name caseInsensitiveCompare:normalized_day_of_week] == NSOrderedSame) {
+			return day_name;
+		}
+	}
+
+	return allow_blank ? @"" : InkwellDefaultReadingRecapDayOfWeek;
 }
 
 - (void) applyAvatarImageFromURLString:(NSString*) avatar_url_string

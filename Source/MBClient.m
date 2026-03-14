@@ -20,6 +20,7 @@ NSString* const InkwellUserAvatarURLDefaultsKey = @"UserAvatarURL";
 NSString* const InkwellTextBackgroundColorDefaultsKey = @"TextBackgroundColor";
 NSString* const InkwellTextFontNameDefaultsKey = @"TextFontName";
 NSString* const InkwellTextSizeNameDefaultsKey = @"TextSizeName";
+NSString* const InkwellReadingRecapDayOfWeekDefaultsKey = @"ReadingRecapDayOfWeek";
 NSString* const InkwellSidebarSelectedEntryIDDefaultsKey = @"SidebarSelectedEntryID";
 
 static NSString * const MBClientIdentifierURL = @"https://micro.ink";
@@ -38,6 +39,7 @@ static NSString* const MBRecentBookmarksEndpoint = MBMicroBlogBaseURL @"/posts/b
 static NSString* const MBFeedHighlightsEndpoint = MBMicroBlogBaseURL @"/feeds/highlights";
 static NSString* const MBFeedsEndpointBase = MBMicroBlogBaseURL @"/feeds";
 static NSString* const MBFeedsRecapEndpoint = MBMicroBlogBaseURL @"/feeds/recap";
+static NSString* const MBFeedsRecapEmailEndpoint = MBMicroBlogBaseURL @"/feeds/recap/email";
 static NSInteger const MBFeedEntriesPageSize = 200;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
@@ -786,6 +788,101 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		NSString* description = [self responseDescriptionForData:data defaultMessage:@"Recap request failed."];
 		NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
 		[self finishWithRecapStatusCode:http_response.statusCode html:nil error:request_error completion:completion];
+	}];
+	[task resume];
+}
+
+- (void) fetchReadingRecapEmailDayOfWeekWithToken:(NSString*) token completion:(void (^)(NSString* _Nullable day_of_week, NSError* _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1045 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for recap email request." }];
+		[self finishWithReadingRecapDayOfWeek:nil error:error completion:completion];
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:MBFeedsRecapEmailEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1046 userInfo:@{ NSLocalizedDescriptionKey: @"Recap email endpoint URL was invalid." }];
+		[self finishWithReadingRecapDayOfWeek:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"GET";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithReadingRecapDayOfWeek:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Recap email request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithReadingRecapDayOfWeek:nil error:request_error completion:completion];
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if (![payload isKindOfClass:[NSDictionary class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1047 userInfo:@{ NSLocalizedDescriptionKey: @"Recap email response was invalid." }];
+			[self finishWithReadingRecapDayOfWeek:nil error:parse_error completion:completion];
+			return;
+		}
+
+		NSString* day_of_week = [self stringValueFromObject:payload[@"dayofweek"]];
+		[self finishWithReadingRecapDayOfWeek:day_of_week error:nil completion:completion];
+	}];
+	[task resume];
+}
+
+- (void) updateReadingRecapEmailDayOfWeek:(NSString*) day_of_week token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1048 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for recap email update." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:MBFeedsRecapEmailEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1049 userInfo:@{ NSLocalizedDescriptionKey: @"Recap email endpoint URL was invalid." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* normalized_day_of_week = [day_of_week stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* body_string = [NSString stringWithFormat:@"dayofweek=%@", [self urlEncodedString:normalized_day_of_week]];
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"POST";
+	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Recap email update failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
 	}];
 	[task resume];
 }
@@ -2439,6 +2536,17 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(status_code, html, error);
+	});
+}
+
+- (void) finishWithReadingRecapDayOfWeek:(NSString* _Nullable)day_of_week error:(NSError* _Nullable)error completion:(void (^)(NSString* _Nullable day_of_week, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(day_of_week, error);
 	});
 }
 

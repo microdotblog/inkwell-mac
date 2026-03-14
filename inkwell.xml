@@ -21,11 +21,11 @@
 				</ul>
  			]]></description>
 			<pubDate>Sat, 14 Mar 2026 09:10:00 -0600</pubDate>
-			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b7.zip"
-				sparkle:shortVersionString="1.0b7"
-				sparkle:version="7"
-				sparkle:edSignature="eyyBQ+/6OGw++pMLdGyirkgn+lUybMlLkyFWlXwdzTwUeCVQ6tRgb7i7ww8a1KpYJcm51Yz4LAI71mdUVTlyAw=="
-				length="5232654"
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b8.zip"
+				sparkle:shortVersionString="1.0b8"
+				sparkle:version="8"
+				sparkle:edSignature="0rTcnsISkBAG/oZcRF1bkL9e+qYyNwMjqU4Q0dBnrQ6tNDMiCCV5TpeMII++Ir+ziD8RIN1APfJgtBjfBQKbBQ=="
+				length="5232568"
 				type="application/octet-stream" />
 			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
 		</item>

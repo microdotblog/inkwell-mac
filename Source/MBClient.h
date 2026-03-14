@@ -22,6 +22,7 @@ extern NSString* const InkwellUserAvatarURLDefaultsKey;
 extern NSString* const InkwellTextBackgroundColorDefaultsKey;
 extern NSString* const InkwellTextFontNameDefaultsKey;
 extern NSString* const InkwellTextSizeNameDefaultsKey;
+extern NSString* const InkwellReadingRecapDayOfWeekDefaultsKey;
 extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 
 @interface MBClient : NSObject
@@ -39,6 +40,8 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (void) fetchRecentBookmarksWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion;
 - (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion;
 - (void) fetchReadingRecapForEntryIDs:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion;
+- (void) fetchReadingRecapEmailDayOfWeekWithToken:(NSString*) token completion:(void (^)(NSString* _Nullable day_of_week, NSError* _Nullable error))completion;
+- (void) updateReadingRecapEmailDayOfWeek:(NSString*) day_of_week token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion;
 - (void) beginManualNetworkingActivity;
 - (void) endManualNetworkingActivity;
 - (void) fetchAllHighlightsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion;
