@@ -114,6 +114,7 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 @property (nonatomic, strong) NSStackView* textStackView;
 @property (nonatomic, strong) NSTextField* titleTextField;
 @property (nonatomic, strong) NSTextField* siteURLTextField;
+@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
 
 - (void) configureWithSubscription:(MBSubscription*) subscription avatarImage:(NSImage*) avatar_image;
 
@@ -164,6 +165,43 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 {
 	[super setBackgroundStyle:background_style];
 	[self applyTextColors];
+}
+
+- (NSView*) hitTest:(NSPoint) point
+{
+	if (NSPointInRect(point, self.bounds)) {
+		return self;
+	}
+
+	return [super hitTest:point];
+}
+
+- (NSMenu*) menuForEvent:(NSEvent*) event
+{
+	if (self.contextMenuHandler == nil) {
+		return [super menuForEvent:event];
+	}
+
+	NSView* superview = self.superview;
+	while (superview != nil && ![superview isKindOfClass:[NSTableView class]]) {
+		superview = superview.superview;
+	}
+
+	NSTableView* table_view = [superview isKindOfClass:[NSTableView class]] ? (NSTableView*) superview : nil;
+	if (table_view != nil) {
+		NSInteger row = [table_view rowForView:self];
+		if (row >= 0) {
+			NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+			[table_view selectRowIndexes:index_set byExtendingSelection:NO];
+		}
+	}
+
+	NSMenu* menu = self.contextMenuHandler();
+	if (menu != nil) {
+		return menu;
+	}
+
+	return [super menuForEvent:event];
 }
 
 - (void) viewDidChangeEffectiveAppearance
@@ -463,6 +501,16 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 		cell_view.identifier = InkwellFeedsCellIdentifier;
 	}
 
+	__weak typeof(self) weak_self = self;
+	cell_view.contextMenuHandler = ^NSMenu* {
+		MBFeedsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return nil;
+		}
+
+		return [strong_self feedsContextMenu];
+	};
+
 	MBSubscription* subscription = self.subscriptions[(NSUInteger) row];
 	NSImage* avatar_image = [self avatarImageForSubscription:subscription];
 	[cell_view configureWithSubscription:subscription avatarImage:avatar_image];
@@ -587,7 +635,7 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 
-	NSMenuItem* rename_item = [[NSMenuItem alloc] initWithTitle:@"Rename" action:@selector(renameSelectedFeedAction:) keyEquivalent:@""];
+	NSMenuItem* rename_item = [[NSMenuItem alloc] initWithTitle:@"Rename..." action:@selector(renameSelectedFeedAction:) keyEquivalent:@""];
 	rename_item.target = self;
 	[menu addItem:rename_item];
 
