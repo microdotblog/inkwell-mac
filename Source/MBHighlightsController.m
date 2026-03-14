@@ -11,6 +11,7 @@
 #import "MBEntry.h"
 #import "MBHighlight.h"
 #import "MBHighlightCellView.h"
+#import "NSStrings+Extras.h"
 
 static NSUserInterfaceItemIdentifier const InkwellHighlightsCellIdentifier = @"InkwellHighlightsCell";
 static NSUserInterfaceItemIdentifier const InkwellHighlightsRowIdentifier = @"InkwellHighlightsRow";
@@ -189,6 +190,10 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 {
 	[self setupWindowIfNeeded];
 	[self setupContentIfNeeded];
+	if ([self hasActiveSearchQuery]) {
+		self.searchField.stringValue = @"";
+		[self updateHighlightSearchWithText:@""];
+	}
 	[super showWindow:sender];
 	[self.window makeKeyAndOrderFront:sender];
 	[self focusHighlightsTable];
@@ -936,6 +941,16 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	delete_item.target = self;
 	[menu addItem:delete_item];
 
+	[menu addItem:[NSMenuItem separatorItem]];
+
+	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:[NSString mb_openInBrowserString] action:@selector(openSelectedHighlightInBrowser:) keyEquivalent:@""];
+	open_item.target = self;
+	[menu addItem:open_item];
+
+	NSMenuItem* copy_link_item = [[NSMenuItem alloc] initWithTitle:@"Copy Link" action:@selector(copySelectedHighlightLink:) keyEquivalent:@""];
+	copy_link_item.target = self;
+	[menu addItem:copy_link_item];
+
 	NSMenuItem* copy_item = [[NSMenuItem alloc] initWithTitle:@"Copy Text" action:@selector(copySelectedHighlight:) keyEquivalent:@""];
 	copy_item.target = self;
 	[menu addItem:copy_item];
@@ -985,6 +1000,22 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 	NSString* selection_text = highlight.selectionText ?: @"";
 	return (selection_text.length > 0);
+}
+
+- (BOOL) canCopySelectedHighlightLink
+{
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return NO;
+	}
+
+	NSString* url_string = [self URLStringForHighlight:highlight];
+	return (url_string.length > 0);
+}
+
+- (BOOL) canOpenSelectedHighlightInBrowser
+{
+	return [self canCopySelectedHighlightLink];
 }
 
 - (BOOL) canCreatePostFromSelectedHighlight
@@ -1082,6 +1113,40 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
 	[pasteboard clearContents];
 	[pasteboard setString:selection_text forType:NSPasteboardTypeString];
+}
+
+- (IBAction) openSelectedHighlightInBrowser:(id) sender
+{
+	#pragma unused(sender)
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return;
+	}
+
+	NSString* url_string = [self URLStringForHighlight:highlight];
+	if (url_string.length == 0) {
+		return;
+	}
+
+	[NSString mb_openURLStringInBrowser:url_string];
+}
+
+- (IBAction) copySelectedHighlightLink:(id) sender
+{
+	#pragma unused(sender)
+	MBHighlight* highlight = [self selectedHighlight];
+	if (![highlight isKindOfClass:[MBHighlight class]]) {
+		return;
+	}
+
+	NSString* url_string = [self URLStringForHighlight:highlight];
+	if (url_string.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:url_string forType:NSPasteboardTypeString];
 }
 
 - (void) deleteHighlight:(MBHighlight*) highlight
@@ -1194,6 +1259,12 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 	if (menu_item.action == @selector(promptToDeleteSelectedHighlight:)) {
 		return [self canDeleteSelectedHighlight];
+	}
+	if (menu_item.action == @selector(openSelectedHighlightInBrowser:)) {
+		return [self canOpenSelectedHighlightInBrowser];
+	}
+	if (menu_item.action == @selector(copySelectedHighlightLink:)) {
+		return [self canCopySelectedHighlightLink];
 	}
 	if (menu_item.action == @selector(copySelectedHighlight:)) {
 		return [self canCopySelectedHighlight];
