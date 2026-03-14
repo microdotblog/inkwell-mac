@@ -547,6 +547,18 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 }
 
+- (IBAction) sortNewestAtTop:(id)sender
+{
+	#pragma unused(sender)
+	self.sidebarController.sortOrder = MBSidebarSortOrderNewestFirst;
+}
+
+- (IBAction) sortOldestAtTop:(id)sender
+{
+	#pragma unused(sender)
+	self.sidebarController.sortOrder = MBSidebarSortOrderOldestFirst;
+}
+
 - (IBAction) showReadingRecap:(id)sender
 {
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
@@ -999,6 +1011,14 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 	if (menu_item.action == @selector(showHighlights:)) {
 		return YES;
+	}
+	if (menu_item.action == @selector(sortNewestAtTop:)) {
+		menu_item.state = (self.sidebarController.sortOrder == MBSidebarSortOrderNewestFirst) ? NSControlStateValueOn : NSControlStateValueOff;
+		return (self.sidebarController != nil);
+	}
+	if (menu_item.action == @selector(sortOldestAtTop:)) {
+		menu_item.state = (self.sidebarController.sortOrder == MBSidebarSortOrderOldestFirst) ? NSControlStateValueOn : NSControlStateValueOff;
+		return (self.sidebarController != nil);
 	}
 	if (menu_item.action == @selector(toggleSelectedItemReadState:)) {
 		menu_item.title = [self.sidebarController readToggleMenuTitle];

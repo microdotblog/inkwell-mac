@@ -18,6 +18,11 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 	MBSidebarDateFilterFading = 2
 };
 
+typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
+	MBSidebarSortOrderNewestFirst = 0,
+	MBSidebarSortOrderOldestFirst = 1
+};
+
 @interface MBSidebarController : NSViewController
 
 @property (nonatomic, strong, nullable) MBClient *client;
@@ -29,6 +34,7 @@ typedef NS_ENUM(NSInteger, MBSidebarDateFilter) {
 @property (nonatomic, copy, nullable) void (^bookmarksModeChangedHandler)(BOOL is_showing_bookmarks);
 @property (nonatomic, copy, nullable) NSString* token;
 @property (nonatomic, assign) MBSidebarDateFilter dateFilter;
+@property (nonatomic, assign) MBSidebarSortOrder sortOrder;
 @property (nonatomic, copy) NSString* searchQuery;
 
 - (void) reloadData;

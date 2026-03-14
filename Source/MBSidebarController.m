@@ -34,6 +34,7 @@ static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
+static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
 static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
 static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
@@ -279,11 +280,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
+- (NSArray*) sortedItems:(NSArray*) items;
+- (NSComparisonResult) compareEntry:(MBEntry*) first_entry toEntry:(MBEntry*) second_entry;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
 - (NSAttributedString*) premiumRequiredMessageAttributedString;
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) shouldShowBookmarksBanner;
 - (BOOL) isPremiumUser;
+- (MBSidebarSortOrder) savedSortOrder;
 - (NSMenu*) sidebarContextMenu;
 - (IBAction) toggleSelectedItemReadStateAction:(id)sender;
 - (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender;
@@ -306,6 +310,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self = [super initWithNibName:nil bundle:nil];
 	if (self) {
 		self.dateFilter = MBSidebarDateFilterToday;
+		_sortOrder = [self savedSortOrder];
 		self.searchQuery = @"";
 		self.selectedRowForStyling = -1;
 		self.allItems = @[];
@@ -1156,6 +1161,17 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self applyFiltersAndReload];
 }
 
+- (void) setSortOrder:(MBSidebarSortOrder) sort_order
+{
+	if (_sortOrder == sort_order) {
+		return;
+	}
+
+	_sortOrder = sort_order;
+	[[NSUserDefaults standardUserDefaults] setInteger:sort_order forKey:InkwellSidebarSortOrderDefaultsKey];
+	[self applyFiltersAndReload];
+}
+
 - (void) applyFiltersAndReload
 {
 	NSInteger preferred_entry_id = [self preferredSelectionEntryIDForReload];
@@ -1171,11 +1187,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	else {
 		filtered_items = [self filteredItemsForDateFilter:self.dateFilter];
 	}
+	NSArray* sorted_items = [self sortedItems:(filtered_items ?: @[])];
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
-		self.items = [filtered_items copy] ?: @[];
+		self.items = [sorted_items copy] ?: @[];
 	}
 	else {
-		self.items = [self filteredItemsForReadVisibility:(filtered_items ?: @[]) selectedEntryID:selected_entry_id];
+		self.items = [self filteredItemsForReadVisibility:sorted_items selectedEntryID:selected_entry_id];
 		if (self.hideReadPosts && self.preservedVisibleEntryIDsForHiddenReadPosts == nil) {
 			NSMutableSet* visible_entry_ids = [NSMutableSet set];
 			for (MBEntry* entry in self.items) {
@@ -1528,6 +1545,21 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [defaults boolForKey:InkwellIsPremiumDefaultsKey];
 }
 
+- (MBSidebarSortOrder) savedSortOrder
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	if ([defaults objectForKey:InkwellSidebarSortOrderDefaultsKey] == nil) {
+		return MBSidebarSortOrderNewestFirst;
+	}
+
+	NSInteger raw_value = [defaults integerForKey:InkwellSidebarSortOrderDefaultsKey];
+	if (raw_value == MBSidebarSortOrderOldestFirst) {
+		return MBSidebarSortOrderOldestFirst;
+	}
+
+	return MBSidebarSortOrderNewestFirst;
+}
+
 - (IBAction) showReadingRecap:(id)sender
 {
 	#pragma unused(sender)
@@ -1707,6 +1739,52 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [filtered_items copy];
+}
+
+- (NSArray*) sortedItems:(NSArray*) items
+{
+	if (items.count < 2) {
+		return [items copy];
+	}
+
+	return [items sortedArrayUsingComparator:^NSComparisonResult(id first_object, id second_object) {
+		MBEntry* first_entry = [first_object isKindOfClass:[MBEntry class]] ? first_object : nil;
+		MBEntry* second_entry = [second_object isKindOfClass:[MBEntry class]] ? second_object : nil;
+		if (first_entry == nil || second_entry == nil) {
+			return NSOrderedSame;
+		}
+
+		return [self compareEntry:first_entry toEntry:second_entry];
+	}];
+}
+
+- (NSComparisonResult) compareEntry:(MBEntry*) first_entry toEntry:(MBEntry*) second_entry
+{
+	NSDate* first_date = first_entry.date;
+	NSDate* second_date = second_entry.date;
+	if (first_date != nil && second_date != nil) {
+		NSComparisonResult date_result = [first_date compare:second_date];
+		if (date_result != NSOrderedSame) {
+			if (self.sortOrder == MBSidebarSortOrderNewestFirst) {
+				return (date_result == NSOrderedAscending) ? NSOrderedDescending : NSOrderedAscending;
+			}
+			return date_result;
+		}
+	}
+	else if (first_date != nil || second_date != nil) {
+		return (first_date != nil) ? NSOrderedAscending : NSOrderedDescending;
+	}
+
+	if (first_entry.entryID != second_entry.entryID) {
+		if (self.sortOrder == MBSidebarSortOrderNewestFirst) {
+			return (first_entry.entryID > second_entry.entryID) ? NSOrderedAscending : NSOrderedDescending;
+		}
+		return (first_entry.entryID < second_entry.entryID) ? NSOrderedAscending : NSOrderedDescending;
+	}
+
+	NSString* first_title = first_entry.title ?: @"";
+	NSString* second_title = second_entry.title ?: @"";
+	return [first_title localizedCaseInsensitiveCompare:second_title];
 }
 
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray<NSDictionary<NSString *, id> *> *)entries subscriptions:(NSArray<MBSubscription *> *)subscriptions unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids
