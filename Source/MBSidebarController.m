@@ -44,7 +44,8 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 
 typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	MBSidebarContentModeFeeds = 0,
-	MBSidebarContentModeBookmarks = 1
+	MBSidebarContentModeBookmarks = 1,
+	MBSidebarContentModeAllPosts = 2
 };
 
 @interface MBSidebarTableView : NSTableView
@@ -220,6 +221,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSScrollView* tableScrollView;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSArray<MBEntry *> *bookmarkItems;
+@property (copy) NSArray<MBEntry *> *allPostsItems;
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
 @property (strong) MBAvatarLoader* avatarLoader;
 @property (strong) NSImage *defaultAvatarImage;
@@ -233,14 +235,19 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSLayoutConstraint* recapToTableTopConstraint;
 @property (assign) BOOL isRecapFetching;
 @property (assign) BOOL isFetchingBookmarks;
+@property (assign) BOOL isFetchingAllPosts;
 @property (assign) NSInteger recapRequestIdentifier;
 @property (assign) NSInteger bookmarksRequestIdentifier;
+@property (assign) NSInteger allPostsRequestIdentifier;
 @property (weak) NSWindow* observedWindowForSelectionStyling;
 @property (strong) NSView* premiumRequiredView;
 @property (assign) BOOL hideReadPosts;
 @property (assign) BOOL isPreservingSelectionDuringReload;
 @property (assign) BOOL suppressSelectionChangedHandler;
 @property (assign) MBSidebarContentMode contentMode;
+@property (assign) NSInteger allPostsFeedID;
+@property (copy) NSString* allPostsSiteName;
+@property (copy) NSString* allPostsFeedHost;
 @property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
@@ -249,6 +256,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 - (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
+- (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id;
 - (NSInteger) preferredSelectionEntryIDForReload;
 - (NSInteger) currentSelectedEntryID;
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
@@ -275,7 +283,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
 - (void) fetchBookmarksIfNeeded;
 - (void) fetchBookmarks;
-- (void) ensureBookmarksSelectionIfNeeded;
+- (void) fetchAllPostsIfNeeded;
+- (void) fetchAllPosts;
+- (void) ensureSpecialModeSelectionIfNeeded;
+- (void) resetBookmarksModeState;
+- (void) resetAllPostsModeState;
 - (void) cacheRecentEntries;
 - (NSURL* _Nullable) applicationSupportDirectoryURL;
 - (NSURL* _Nullable) recentEntriesCacheURL;
@@ -285,13 +297,18 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSString*) iso8601StringFromDate:(NSDate* _Nullable) date;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
+- (NSArray*) cachedItemsForFeedID:(NSInteger) feed_id;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
 - (NSArray*) sortedItems:(NSArray*) items;
 - (NSComparisonResult) compareEntry:(MBEntry*) first_entry toEntry:(MBEntry*) second_entry;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
 - (NSAttributedString*) premiumRequiredMessageAttributedString;
 - (BOOL) shouldShowPremiumRequiredView;
-- (BOOL) shouldShowBookmarksBanner;
+- (BOOL) shouldShowSpecialModeBanner;
+- (BOOL) isShowingAllPostsMode;
+- (NSString*) specialModeBannerTitle;
+- (NSString*) siteNameForEntry:(MBEntry*) entry;
+- (NSString*) feedHostForEntry:(MBEntry*) entry;
 - (BOOL) isPremiumUser;
 - (MBSidebarSortOrder) savedSortOrder;
 - (NSMenu*) sidebarContextMenu;
@@ -299,13 +316,17 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender;
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
-- (IBAction) clearBookmarksAction:(id)sender;
+- (IBAction) clearSpecialModeAction:(id)sender;
 - (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 - (void) avatarImageDidLoad:(NSNotification*) notification;
 - (void) reloadRowsForAvatarURLString:(NSString*) url_string;
 - (void) reloadRowsForIconURLString:(NSString*) url_string;
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
+- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date;
+- (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date;
 - (NSString*) bookmarksDisplayDateString:(NSDate* _Nullable) date;
 
 @end
@@ -322,10 +343,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.selectedRowForStyling = -1;
 		self.allItems = @[];
 		self.bookmarkItems = @[];
+		self.allPostsItems = @[];
 		self.iconURLByHost = @{};
 		self.avatarLoader = [MBAvatarLoader sharedLoader];
 		self.items = @[];
 		self.contentMode = MBSidebarContentModeFeeds;
+		self.allPostsSiteName = @"";
+		self.allPostsFeedHost = @"";
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -383,19 +407,24 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[recap_box addSubview:recap_button];
 	[recap_box addSubview:recap_label];
 
-	NSTextField* bookmarks_label = [NSTextField labelWithString:@"Showing recent bookmarks"];
+	NSTextField* bookmarks_label = [NSTextField labelWithString:@""];
 	bookmarks_label.translatesAutoresizingMaskIntoConstraints = NO;
 	bookmarks_label.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
 	bookmarks_label.textColor = [NSColor labelColor];
 	bookmarks_label.lineBreakMode = NSLineBreakByTruncatingTail;
 	bookmarks_label.maximumNumberOfLines = 1;
+	bookmarks_label.usesSingleLineMode = YES;
+	[bookmarks_label setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[bookmarks_label setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 	bookmarks_label.hidden = YES;
 
-	NSButton* clear_button = [NSButton buttonWithTitle:@"Clear" target:self action:@selector(clearBookmarksAction:)];
+	NSButton* clear_button = [NSButton buttonWithTitle:@"Clear" target:self action:@selector(clearSpecialModeAction:)];
 	clear_button.translatesAutoresizingMaskIntoConstraints = NO;
 	clear_button.bezelStyle = NSBezelStyleRounded;
 	clear_button.controlSize = NSControlSizeSmall;
 	clear_button.font = [NSFont systemFontOfSize:13.0];
+	[clear_button setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[clear_button setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 	clear_button.hidden = YES;
 
 	[recap_box addSubview:bookmarks_label];
@@ -587,6 +616,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		[self fetchBookmarksIfNeeded];
 	}
+	else if (self.contentMode == MBSidebarContentModeAllPosts) {
+		[self fetchAllPostsIfNeeded];
+	}
 	else {
 		[self fetchEntriesIfNeeded];
 	}
@@ -596,6 +628,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		[self fetchBookmarks];
+		return;
+	}
+	if (self.contentMode == MBSidebarContentModeAllPosts) {
+		[self fetchAllPosts];
 		return;
 	}
 
@@ -609,38 +645,82 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	BOOL was_showing_special_mode = [self isShowingSpecialMode];
 	if (self.contentMode != MBSidebarContentModeBookmarks) {
 		[self clearPreservedHiddenReadState];
+		[self resetAllPostsModeState];
 		self.contentMode = MBSidebarContentModeBookmarks;
-		if (self.bookmarksModeChangedHandler != nil) {
-			self.bookmarksModeChangedHandler(YES);
-		}
 	}
 
 	[self applyFiltersAndReload];
-	[self ensureBookmarksSelectionIfNeeded];
+	[self ensureSpecialModeSelectionIfNeeded];
 	[self fetchBookmarks];
+	if (!was_showing_special_mode && self.specialModeChangedHandler != nil) {
+		self.specialModeChangedHandler(YES);
+	}
 }
 
-- (void) clearBookmarksMode
+- (void) showAllPostsForSelectedSite
 {
-	if (self.contentMode != MBSidebarContentModeBookmarks) {
+	if (self.client == nil || self.token.length == 0) {
 		return;
 	}
 
-	[self clearPreservedHiddenReadState];
-	self.contentMode = MBSidebarContentModeFeeds;
-	self.isFetchingBookmarks = NO;
-	self.bookmarksRequestIdentifier += 1;
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil || selected_item.feedID <= 0) {
+		return;
+	}
+
+	BOOL was_showing_special_mode = [self isShowingSpecialMode];
+	if (self.contentMode != MBSidebarContentModeAllPosts) {
+		[self clearPreservedHiddenReadState];
+		[self resetBookmarksModeState];
+		self.contentMode = MBSidebarContentModeAllPosts;
+	}
+
+	self.allPostsFeedID = selected_item.feedID;
+	self.allPostsSiteName = [self siteNameForEntry:selected_item];
+	self.allPostsFeedHost = [self feedHostForEntry:selected_item];
+	self.allPostsItems = [self cachedItemsForFeedID:selected_item.feedID];
 	[self applyFiltersAndReload];
-	if (self.bookmarksModeChangedHandler != nil) {
-		self.bookmarksModeChangedHandler(NO);
+	[self ensureSpecialModeSelectionIfNeeded];
+	[self fetchAllPosts];
+	if (!was_showing_special_mode && self.specialModeChangedHandler != nil) {
+		self.specialModeChangedHandler(YES);
+	}
+}
+
+- (void) clearSpecialMode
+{
+	if (self.contentMode == MBSidebarContentModeFeeds) {
+		return;
+	}
+
+	NSInteger preferred_entry_id = [self savedSelectedEntryID];
+	[self clearPreservedHiddenReadState];
+	[self resetBookmarksModeState];
+	[self resetAllPostsModeState];
+	self.contentMode = MBSidebarContentModeFeeds;
+	[self applyFiltersAndReloadPreservingSelectionEntryID:preferred_entry_id];
+	if (self.specialModeChangedHandler != nil) {
+		self.specialModeChangedHandler(NO);
 	}
 }
 
 - (BOOL) isShowingBookmarks
 {
 	return (self.contentMode == MBSidebarContentModeBookmarks);
+}
+
+- (BOOL) isShowingSpecialMode
+{
+	return (self.contentMode != MBSidebarContentModeFeeds);
+}
+
+- (BOOL) canShowAllPostsForSelectedSite
+{
+	MBEntry* selected_item = [self selectedItem];
+	return (selected_item != nil && selected_item.feedID > 0 && self.client != nil && self.token.length > 0);
 }
 
 - (void) focusAndSelectFirstItem
@@ -925,13 +1005,58 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 		strong_self.bookmarkItems = [strong_self sidebarItemsForBookmarks:items ?: @[]];
 		[strong_self applyFiltersAndReload];
-		[strong_self ensureBookmarksSelectionIfNeeded];
+		[strong_self ensureSpecialModeSelectionIfNeeded];
 	}];
 }
 
-- (void) ensureBookmarksSelectionIfNeeded
+- (void) fetchAllPostsIfNeeded
 {
-	if (self.contentMode != MBSidebarContentModeBookmarks || self.tableView == nil) {
+	if (self.allPostsItems.count > 0 || self.isFetchingAllPosts) {
+		return;
+	}
+
+	[self fetchAllPosts];
+}
+
+- (void) fetchAllPosts
+{
+	if (self.client == nil || self.token.length == 0 || self.isFetchingAllPosts || self.allPostsFeedID <= 0) {
+		return;
+	}
+
+	self.isFetchingAllPosts = YES;
+	self.allPostsRequestIdentifier += 1;
+	NSInteger request_identifier = self.allPostsRequestIdentifier;
+	NSString* site_name = [self.allPostsSiteName copy];
+	NSString* feed_host = [self.allPostsFeedHost copy];
+	__weak typeof(self) weak_self = self;
+	[self.client fetchAllEntriesForFeedID:self.allPostsFeedID token:self.token completion:^(NSArray* _Nullable entries, NSSet* _Nullable unread_entry_ids, BOOL is_finished, NSError* _Nullable error) {
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (request_identifier != strong_self.allPostsRequestIdentifier) {
+			return;
+		}
+
+		if (is_finished) {
+			strong_self.isFetchingAllPosts = NO;
+		}
+
+		if (error != nil || strong_self.contentMode != MBSidebarContentModeAllPosts || strong_self.allPostsFeedID <= 0) {
+			return;
+		}
+
+		strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:unread_entry_ids];
+		[strong_self applyFiltersAndReload];
+		[strong_self ensureSpecialModeSelectionIfNeeded];
+	}];
+}
+
+- (void) ensureSpecialModeSelectionIfNeeded
+{
+	if (![self isShowingSpecialMode] || self.tableView == nil) {
 		return;
 	}
 
@@ -944,6 +1069,22 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.selectedRowForStyling = 0;
 	[self.tableView scrollRowToVisible:0];
 	[self notifySelectionChanged];
+}
+
+- (void) resetBookmarksModeState
+{
+	self.isFetchingBookmarks = NO;
+	self.bookmarksRequestIdentifier += 1;
+}
+
+- (void) resetAllPostsModeState
+{
+	self.isFetchingAllPosts = NO;
+	self.allPostsRequestIdentifier += 1;
+	self.allPostsItems = @[];
+	self.allPostsFeedID = 0;
+	self.allPostsSiteName = @"";
+	self.allPostsFeedHost = @"";
 }
 
 - (void) fetchFeedIcons
@@ -1329,12 +1470,19 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) applyFiltersAndReload
 {
-	NSInteger preferred_entry_id = [self preferredSelectionEntryIDForReload];
+	[self applyFiltersAndReloadPreservingSelectionEntryID:[self preferredSelectionEntryIDForReload]];
+}
+
+- (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id
+{
 	NSInteger selected_entry_id = [self currentSelectedEntryID];
 	BOOL is_searching = (self.contentMode == MBSidebarContentModeFeeds && self.searchQuery.length > 0);
 	NSArray* filtered_items = nil;
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		filtered_items = [self.bookmarkItems copy];
+	}
+	else if (self.contentMode == MBSidebarContentModeAllPosts) {
+		filtered_items = [self.allPostsItems copy];
 	}
 	else if (is_searching) {
 		filtered_items = [self filteredItemsForSearchQuery:self.searchQuery];
@@ -1343,7 +1491,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		filtered_items = [self filteredItemsForDateFilter:self.dateFilter];
 	}
 	NSArray* sorted_items = [self sortedItems:(filtered_items ?: @[])];
-	if (self.contentMode == MBSidebarContentModeBookmarks) {
+	if ([self isShowingSpecialMode]) {
 		self.items = [sorted_items copy] ?: @[];
 	}
 	else {
@@ -1360,7 +1508,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	[self reloadTablePreservingSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
-	if (is_searching || self.contentMode == MBSidebarContentModeBookmarks) {
+	if (is_searching || [self isShowingSpecialMode]) {
 		[self scrollTableToTop];
 	}
 	[self updateRecapUI];
@@ -1527,6 +1675,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) saveSelectedEntryIDForCurrentSelection
 {
+	if ([self isShowingSpecialMode]) {
+		return;
+	}
+
 	NSInteger selected_row = self.tableView.selectedRow;
 	if (selected_row < 0 || selected_row >= self.items.count) {
 		return;
@@ -1573,13 +1725,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) updateRecapUI
 {
-	BOOL should_show_bookmarks = [self shouldShowBookmarksBanner];
-	BOOL should_show_recap = !should_show_bookmarks && (self.dateFilter == MBSidebarDateFilterFading) && ![self shouldShowPremiumRequiredView];
+	BOOL should_show_special_mode = [self shouldShowSpecialModeBanner];
+	BOOL should_show_recap = !should_show_special_mode && (self.dateFilter == MBSidebarDateFilterFading) && ![self shouldShowPremiumRequiredView];
 	if (self.recapBoxView != nil) {
-		self.recapBoxView.hidden = !(should_show_recap || should_show_bookmarks);
+		self.recapBoxView.hidden = !(should_show_recap || should_show_special_mode);
 	}
 	if (self.recapBoxHeightConstraint != nil) {
-		if (should_show_bookmarks) {
+		if (should_show_special_mode) {
 			self.recapBoxHeightConstraint.constant = InkwellSidebarBookmarksBoxHeight;
 		}
 		else {
@@ -1587,7 +1739,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		}
 	}
 	if (self.recapToTableTopConstraint != nil) {
-		self.recapToTableTopConstraint.constant = (should_show_recap || should_show_bookmarks) ? 8.0 : 0.0;
+		self.recapToTableTopConstraint.constant = (should_show_recap || should_show_special_mode) ? 8.0 : 0.0;
 	}
 
 	NSInteger fading_count = [self fadingItems].count;
@@ -1602,10 +1754,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.recapCountLabel.hidden = !should_show_recap;
 	}
 	if (self.bookmarksTitleLabel != nil) {
-		self.bookmarksTitleLabel.hidden = !should_show_bookmarks;
+		self.bookmarksTitleLabel.hidden = !should_show_special_mode;
+		self.bookmarksTitleLabel.stringValue = should_show_special_mode ? [self specialModeBannerTitle] : @"";
 	}
 	if (self.bookmarksClearButton != nil) {
-		self.bookmarksClearButton.hidden = !should_show_bookmarks;
+		self.bookmarksClearButton.hidden = !should_show_special_mode;
 	}
 }
 
@@ -1647,6 +1800,22 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [entry_ids copy];
+}
+
+- (NSArray*) cachedItemsForFeedID:(NSInteger) feed_id
+{
+	if (feed_id <= 0 || self.allItems.count == 0) {
+		return @[];
+	}
+
+	NSMutableArray* filtered_items = [NSMutableArray array];
+	for (MBEntry* item in self.allItems) {
+		if (item.feedID == feed_id) {
+			[filtered_items addObject:item];
+		}
+	}
+
+	return [filtered_items copy];
 }
 
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count
@@ -1707,9 +1876,63 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return (self.dateFilter == MBSidebarDateFilterFading) && ![self isPremiumUser];
 }
 
-- (BOOL) shouldShowBookmarksBanner
+- (BOOL) shouldShowSpecialModeBanner
 {
-	return (self.contentMode == MBSidebarContentModeBookmarks);
+	return [self isShowingSpecialMode];
+}
+
+- (BOOL) isShowingAllPostsMode
+{
+	return (self.contentMode == MBSidebarContentModeAllPosts);
+}
+
+- (NSString*) specialModeBannerTitle
+{
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		return @"Showing recent bookmarks";
+	}
+
+	NSString* site_name = [self.allPostsSiteName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (site_name.length == 0) {
+		site_name = @"this site";
+	}
+
+	return [NSString stringWithFormat:@"Showing posts from %@", site_name];
+}
+
+- (NSString*) siteNameForEntry:(MBEntry*) entry
+{
+	NSString* site_name = [entry.subscriptionTitle stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (site_name.length > 0) {
+		return site_name;
+	}
+
+	NSString* feed_host = [self feedHostForEntry:entry];
+	if (feed_host.length > 0) {
+		return feed_host;
+	}
+
+	NSString* url_string = [entry.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length > 0) {
+		return [self normalizedHostFromURLString:url_string];
+	}
+
+	return @"";
+}
+
+- (NSString*) feedHostForEntry:(MBEntry*) entry
+{
+	NSString* feed_host = [entry.feedHost stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (feed_host.length > 0) {
+		return feed_host;
+	}
+
+	NSString* url_string = [entry.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return @"";
+	}
+
+	return [self normalizedHostFromURLString:url_string];
 }
 
 - (BOOL) isPremiumUser
@@ -1752,10 +1975,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self pollReadingRecapForEntryIDs:entry_ids attempt:1 requestIdentifier:request_identifier];
 }
 
-- (IBAction) clearBookmarksAction:(id)sender
+- (IBAction) clearSpecialModeAction:(id)sender
 {
 	#pragma unused(sender)
-	[self clearBookmarksMode];
+	[self clearSpecialMode];
 }
 
 - (IBAction) openPlansAction:(id)sender
@@ -1990,57 +2213,88 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	for (NSDictionary<NSString *, id> *entry in entries) {
-		NSString *title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
-		NSString *summary_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"summary"]]];
-		NSString *author_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"author"]]];
-		NSString *content_html_value = [self stringValueFromObject:entry[@"content_html"]];
-		if (content_html_value.length == 0) {
-			content_html_value = [self stringValueFromObject:entry[@"content"]];
-		}
-		NSString *source_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"source"]]];
-		NSDate *entry_date = [self dateValueFromEntry:entry];
-		NSInteger entry_id_value = [self integerValueFromObject:entry[@"id"]];
-		id read_object = entry[@"is_read"] ?: entry[@"read"];
-		BOOL is_read_value = [self boolValueFromObject:read_object];
-		id bookmarked_object = entry[@"is_bookmarked"] ?: entry[@"is_starred"];
-		if (bookmarked_object == nil) {
-			bookmarked_object = entry[@"bookmarked"] ?: entry[@"starred"];
-		}
-		BOOL is_bookmarked_value = [self boolValueFromObject:bookmarked_object];
-		if (unread_entry_ids != nil && entry_id_value > 0) {
-			is_read_value = ![unread_entry_ids containsObject:@(entry_id_value)];
-		}
 		NSInteger feed_id_value = [self integerValueFromObject:entry[@"feed_id"]];
 		NSString *subscription_title = subscription_titles_by_feed_id[@(feed_id_value)] ?: @"";
 		NSString *feed_host = feed_hosts_by_feed_id[@(feed_id_value)] ?: @"";
-
-		NSString *resolved_source = source_value;
-		if (resolved_source.length == 0) {
-			resolved_source = author_value;
+		MBEntry* sidebar_entry = [self sidebarItemForEntryDictionary:entry subscriptionTitle:subscription_title feedHost:feed_host unreadEntryIDs:unread_entry_ids];
+		if (sidebar_entry != nil) {
+			[sidebar_items addObject:sidebar_entry];
 		}
-		if (resolved_source.length == 0) {
-			resolved_source = @"";
-		}
-
-		MBEntry *sidebar_entry = [[MBEntry alloc] init];
-		sidebar_entry.title = title_value;
-		sidebar_entry.url = [self stringValueFromObject:entry[@"url"]];
-		sidebar_entry.subscriptionTitle = subscription_title;
-		sidebar_entry.summary = summary_value;
-		sidebar_entry.text = content_html_value;
-		sidebar_entry.source = resolved_source;
-		sidebar_entry.author = author_value;
-		sidebar_entry.entryID = entry_id_value;
-		sidebar_entry.feedID = feed_id_value;
-		sidebar_entry.feedHost = feed_host;
-		sidebar_entry.date = entry_date;
-		sidebar_entry.isRead = is_read_value;
-		sidebar_entry.isBookmarked = is_bookmarked_value;
-
-		[sidebar_items addObject:sidebar_entry];
 	}
 
 	return [sidebar_items copy];
+}
+
+- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
+{
+	NSMutableArray* sidebar_items = [NSMutableArray array];
+	for (id object in entries) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		MBEntry* sidebar_entry = [self sidebarItemForEntryDictionary:(NSDictionary*) object subscriptionTitle:subscription_title feedHost:feed_host unreadEntryIDs:unread_entry_ids];
+		if (sidebar_entry != nil) {
+			if (sidebar_entry.feedID <= 0) {
+				sidebar_entry.feedID = self.allPostsFeedID;
+			}
+			if (sidebar_entry.feedHost.length == 0) {
+				sidebar_entry.feedHost = feed_host ?: @"";
+			}
+			[sidebar_items addObject:sidebar_entry];
+		}
+	}
+
+	return [sidebar_items copy];
+}
+
+- (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
+{
+	NSString* title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
+	NSString* summary_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"summary"]]];
+	NSString* author_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"author"]]];
+	NSString* content_html_value = [self stringValueFromObject:entry[@"content_html"]];
+	if (content_html_value.length == 0) {
+		content_html_value = [self stringValueFromObject:entry[@"content"]];
+	}
+	NSString* source_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"source"]]];
+	NSDate* entry_date = [self dateValueFromEntry:entry];
+	NSInteger entry_id_value = [self integerValueFromObject:entry[@"id"]];
+	id read_object = entry[@"is_read"] ?: entry[@"read"];
+	BOOL is_read_value = [self boolValueFromObject:read_object];
+	id bookmarked_object = entry[@"is_bookmarked"] ?: entry[@"is_starred"];
+	if (bookmarked_object == nil) {
+		bookmarked_object = entry[@"bookmarked"] ?: entry[@"starred"];
+	}
+	BOOL is_bookmarked_value = [self boolValueFromObject:bookmarked_object];
+	if (unread_entry_ids != nil && entry_id_value > 0) {
+		is_read_value = ![unread_entry_ids containsObject:@(entry_id_value)];
+	}
+
+	NSString* resolved_source = source_value;
+	if (resolved_source.length == 0) {
+		resolved_source = author_value;
+	}
+	if (resolved_source.length == 0) {
+		resolved_source = @"";
+	}
+
+	MBEntry* sidebar_entry = [[MBEntry alloc] init];
+	sidebar_entry.title = title_value;
+	sidebar_entry.url = [self stringValueFromObject:entry[@"url"]];
+	sidebar_entry.subscriptionTitle = subscription_title ?: @"";
+	sidebar_entry.summary = summary_value;
+	sidebar_entry.text = content_html_value;
+	sidebar_entry.source = resolved_source;
+	sidebar_entry.author = author_value;
+	sidebar_entry.entryID = entry_id_value;
+	sidebar_entry.feedID = [self integerValueFromObject:entry[@"feed_id"]];
+	sidebar_entry.feedHost = feed_host ?: @"";
+	sidebar_entry.date = entry_date;
+	sidebar_entry.isRead = is_read_value;
+	sidebar_entry.isBookmarked = is_bookmarked_value;
+
+	return sidebar_entry;
 }
 
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items
@@ -2145,6 +2399,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	SEL toggle_bookmark_selector = NSSelectorFromString(@"toggleSelectedItemBookmarkedState:");
 	SEL show_conversation_selector = NSSelectorFromString(@"showConversation:");
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
+	SEL show_all_posts_selector = NSSelectorFromString(@"showAllPosts:");
 
 	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:new_post_selector keyEquivalent:@""];
 	new_post_item.target = nil;
@@ -2167,6 +2422,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSMenuItem* show_highlights_item = [[NSMenuItem alloc] initWithTitle:@"Show Highlights" action:show_highlights_selector keyEquivalent:@""];
 	show_highlights_item.target = nil;
 	[menu addItem:show_highlights_item];
+
+	NSMenuItem* show_all_posts_item = [[NSMenuItem alloc] initWithTitle:@"Show All Posts" action:show_all_posts_selector keyEquivalent:@""];
+	show_all_posts_item.target = nil;
+	[menu addItem:show_all_posts_item];
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
@@ -2330,6 +2589,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		menu_item.title = [self bookmarkToggleMenuTitleForSelectedItem:selected_item];
 		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
 	}
+	if (menu_item.action == NSSelectorFromString(@"showAllPosts:")) {
+		return [self canShowAllPostsForSelectedSite];
+	}
 	if (menu_item.action == NSSelectorFromString(@"showHighlights:")) {
 		return YES;
 	}
@@ -2407,6 +2669,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			cached_entry.isRead = is_read;
 		}
 	}
+
+	for (MBEntry* cached_entry in self.allPostsItems) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isRead = is_read;
+		}
+	}
 }
 
 - (void) updateCachedReadState:(BOOL) is_read forEntryIDs:(NSArray*) entry_ids
@@ -2434,6 +2702,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			cached_entry.isRead = is_read;
 		}
 	}
+
+	for (MBEntry* cached_entry in self.allPostsItems) {
+		if ([entry_ids_to_update containsObject:@(cached_entry.entryID)]) {
+			cached_entry.isRead = is_read;
+		}
+	}
 }
 
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id
@@ -2455,6 +2729,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	for (MBEntry* cached_entry in self.bookmarkItems) {
+		if (cached_entry.entryID == entry_id) {
+			cached_entry.isBookmarked = is_bookmarked;
+		}
+	}
+
+	for (MBEntry* cached_entry in self.allPostsItems) {
 		if (cached_entry.entryID == entry_id) {
 			cached_entry.isBookmarked = is_bookmarked;
 		}
@@ -2618,7 +2898,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (subtitle_value.length == 0) {
 		subtitle_value = item.source ?: @"";
 	}
-	NSString* date_value = (self.contentMode == MBSidebarContentModeBookmarks) ? [self bookmarksDisplayDateString:item.date] : [self displayDateString:item.date];
+	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
 
 	NSString* raw_title_value = item.title ?: @"";
 	BOOL has_post_title = (raw_title_value.length > 0);
@@ -2703,7 +2983,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (subtitle_value.length == 0) {
 		subtitle_value = item.source ?: @"";
 	}
-	NSString *date_value = (self.contentMode == MBSidebarContentModeBookmarks) ? [self bookmarksDisplayDateString:item.date] : [self displayDateString:item.date];
+	NSString *date_value = [self displayDateStringForCurrentMode:item.date];
 	NSFont *title_font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
 	NSFont *subtitle_font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
 	NSFont *date_font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
@@ -2823,6 +3103,48 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		});
 
 		return [today_time_formatter stringFromDate:date];
+	}
+
+	return [self displayDateString:date];
+}
+
+- (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date
+{
+	if (date == nil) {
+		return @"";
+	}
+
+	static NSDateFormatter* month_day_formatter;
+	static NSDateFormatter* time_formatter;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		month_day_formatter = [[NSDateFormatter alloc] init];
+		[month_day_formatter setLocalizedDateFormatFromTemplate:@"MMM d"];
+
+		time_formatter = [[NSDateFormatter alloc] init];
+		time_formatter.dateStyle = NSDateFormatterNoStyle;
+		time_formatter.timeStyle = NSDateFormatterShortStyle;
+	});
+
+	NSString* date_part = [month_day_formatter stringFromDate:date];
+	NSString* time_part = [time_formatter stringFromDate:date];
+	if (date_part.length == 0) {
+		return time_part ?: @"";
+	}
+	if (time_part.length == 0) {
+		return date_part;
+	}
+
+	return [NSString stringWithFormat:@"%@, %@", date_part, time_part];
+}
+
+- (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date
+{
+	if (self.contentMode == MBSidebarContentModeBookmarks) {
+		return [self bookmarksDisplayDateString:date];
+	}
+	if (self.contentMode == MBSidebarContentModeAllPosts) {
+		return [self allPostsDisplayDateString:date];
 	}
 
 	return [self displayDateString:date];

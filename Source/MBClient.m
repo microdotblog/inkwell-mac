@@ -32,6 +32,7 @@ static NSString * const MBVerifyEndpoint = MBMicroBlogBaseURL @"/account/verify"
 static NSString * const MBFeedSubscriptionsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/subscriptions.json";
 static NSString* const MBFeedSubscriptionsEndpointBase = MBMicroBlogBaseURL @"/feeds/v2/subscriptions";
 static NSString * const MBFeedEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/entries.json";
+static NSString* const MBFeedEntriesByFeedEndpointBase = MBMicroBlogBaseURL @"/v2/feeds";
 static NSString * const MBFeedUnreadEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/unread_entries.json";
 static NSString * const MBFeedStarredEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/starred_entries.json";
 static NSString * const MBFeedIconsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/icons.json";
@@ -296,6 +297,62 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	[unread_task resume];
 }
 
+- (void) fetchAllEntriesForFeedID:(NSInteger) feed_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable entries, NSSet* _Nullable unread_entry_ids, BOOL is_finished, NSError* _Nullable error))completion
+{
+	if (feed_id <= 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1045 userInfo:@{ NSLocalizedDescriptionKey: @"Missing feed ID for entries request." }];
+		[self finishWithAllEntries:nil unreadEntryIDs:nil isFinished:YES error:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1046 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for entries request." }];
+		[self finishWithAllEntries:nil unreadEntryIDs:nil isFinished:YES error:error completion:completion];
+		return;
+	}
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	NSMutableURLRequest* unread_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
+	unread_request.HTTPMethod = @"GET";
+	[unread_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[unread_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* unread_task = [self trackedDataTaskWithRequest:unread_request completionHandler:^(NSData* _Nullable unread_data, NSURLResponse* _Nullable unread_response, NSError* _Nullable unread_error) {
+		NSSet* unread_entry_ids = nil;
+		if (unread_error == nil) {
+			NSHTTPURLResponse* unread_http_response = (NSHTTPURLResponse*) unread_response;
+			if (unread_http_response.statusCode >= 200 && unread_http_response.statusCode < 300) {
+				id unread_payload = [NSJSONSerialization JSONObjectWithData:unread_data options:0 error:nil];
+				if ([unread_payload isKindOfClass:[NSArray class]]) {
+					unread_entry_ids = [self unreadEntryIDsFromPayload:(NSArray*) unread_payload];
+				}
+			}
+		}
+
+		if (unread_entry_ids == nil) {
+			unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
+		}
+		else {
+			self.cachedUnreadEntryIDs = unread_entry_ids;
+			[self cacheUnreadEntryIDs:self.cachedUnreadEntryIDs];
+		}
+
+		NSMutableArray* accumulated_entries = [NSMutableArray array];
+		NSMutableSet* seen_entry_ids = [NSMutableSet set];
+		[self fetchPagedEntriesForFeedID:feed_id authorizationValue:authorization_value pageNumber:1 accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
+			[self finishWithAllEntries:updated_entries unreadEntryIDs:unread_entry_ids isFinished:NO error:nil completion:completion];
+		} completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
+			if (entries_error != nil) {
+				[self finishWithAllEntries:nil unreadEntryIDs:nil isFinished:YES error:entries_error completion:completion];
+				return;
+			}
+
+			[self finishWithAllEntries:entries unreadEntryIDs:unread_entry_ids isFinished:YES error:nil completion:completion];
+		}];
+	}];
+	[unread_task resume];
+}
+
 - (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion
 {
 	if (token.length == 0) {
@@ -524,6 +581,108 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 		}
 
 		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:(page_number + 1) cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:update completion:completion];
+	}];
+	[entries_task resume];
+}
+
+- (void) fetchPagedEntriesForFeedID:(NSInteger) feed_id authorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
+{
+	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/entries.json", MBFeedEntriesByFeedEndpointBase, (long) feed_id];
+	NSURLComponents* components = [NSURLComponents componentsWithString:endpoint];
+	if (components == nil) {
+		NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1047 userInfo:@{ NSLocalizedDescriptionKey: @"Entries endpoint URL was invalid." }];
+		[self finishWithPagedEntries:nil error:parse_error completion:completion];
+		return;
+	}
+
+	NSMutableArray* query_items = [NSMutableArray array];
+	[query_items addObject:[NSURLQueryItem queryItemWithName:@"page" value:[NSString stringWithFormat:@"%ld", (long) page_number]]];
+	[query_items addObject:[NSURLQueryItem queryItemWithName:@"per_page" value:[NSString stringWithFormat:@"%ld", (long) MBFeedEntriesPageSize]]];
+	components.queryItems = [query_items copy];
+
+	NSURL* entries_url = components.URL;
+	if (entries_url == nil) {
+		NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1047 userInfo:@{ NSLocalizedDescriptionKey: @"Entries endpoint URL was invalid." }];
+		[self finishWithPagedEntries:nil error:parse_error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* entries_request = [NSMutableURLRequest requestWithURL:entries_url];
+	entries_request.HTTPMethod = @"GET";
+	[entries_request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[entries_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* entries_task = [self trackedDataTaskWithRequest:entries_request completionHandler:^(NSData* _Nullable entries_data, NSURLResponse* _Nullable entries_response, NSError* _Nullable entries_error) {
+		if (entries_error != nil) {
+			[self finishWithPagedEntries:nil error:entries_error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* entries_http_response = (NSHTTPURLResponse*) entries_response;
+		if (entries_http_response.statusCode == 404 && page_number > 1) {
+			[self finishWithPagedEntries:[accumulated_entries copy] error:nil completion:completion];
+			return;
+		}
+
+		if (entries_http_response.statusCode < 200 || entries_http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:entries_data defaultMessage:@"Entries request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:entries_http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithPagedEntries:nil error:request_error completion:completion];
+			return;
+		}
+
+		id entries_payload = [NSJSONSerialization JSONObjectWithData:entries_data options:0 error:nil];
+		if (![entries_payload isKindOfClass:[NSArray class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1047 userInfo:@{ NSLocalizedDescriptionKey: @"Entries response was invalid." }];
+			[self finishWithPagedEntries:nil error:parse_error completion:completion];
+			return;
+		}
+
+		NSArray* page_payload = (NSArray*) entries_payload;
+		NSInteger added_count = 0;
+		for (id object in page_payload) {
+			if (![object isKindOfClass:[NSDictionary class]]) {
+				continue;
+			}
+
+			NSDictionary* entry_dictionary = (NSDictionary*) object;
+			NSInteger entry_id_value = [self integerValueFromObject:entry_dictionary[@"id"]];
+			BOOL should_add_entry = YES;
+			if (entry_id_value > 0) {
+				NSNumber* entry_id_number = @(entry_id_value);
+				if ([seen_entry_ids containsObject:entry_id_number]) {
+					should_add_entry = NO;
+				}
+				else {
+					[seen_entry_ids addObject:entry_id_number];
+				}
+			}
+
+			if (should_add_entry) {
+				[accumulated_entries addObject:entry_dictionary];
+				added_count += 1;
+			}
+		}
+
+		BOOL should_send_update = (page_number == 1 || added_count > 0);
+		if (should_send_update) {
+			[self finishWithPagedEntriesUpdate:[accumulated_entries copy] update:update];
+		}
+
+		BOOL should_continue = YES;
+		if (page_payload.count == 0 || added_count == 0) {
+			should_continue = NO;
+		}
+		if (page_payload.count < MBFeedEntriesPageSize) {
+			should_continue = NO;
+		}
+
+		if (!should_continue) {
+			[self finishWithPagedEntries:[accumulated_entries copy] error:nil completion:completion];
+			return;
+		}
+
+		[self fetchPagedEntriesForFeedID:feed_id authorizationValue:authorization_value pageNumber:(page_number + 1) accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:update completion:completion];
 	}];
 	[entries_task resume];
 }
@@ -2505,6 +2664,17 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(subscriptions, entries, unread_entry_ids, is_finished, error);
+	});
+}
+
+- (void) finishWithAllEntries:(NSArray* _Nullable) entries unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids isFinished:(BOOL) is_finished error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable entries, NSSet* _Nullable unread_entry_ids, BOOL is_finished, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(entries, unread_entry_ids, is_finished, error);
 	});
 }
 

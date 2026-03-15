@@ -31,7 +31,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 @property (nonatomic, copy, nullable) void (^readingRecapHandler)(NSString* html);
 @property (nonatomic, copy, nullable) void (^syncCompletedHandler)(void);
 @property (nonatomic, copy, nullable) BOOL (^focusDetailHandler)(void);
-@property (nonatomic, copy, nullable) void (^bookmarksModeChangedHandler)(BOOL is_showing_bookmarks);
+@property (nonatomic, copy, nullable) void (^specialModeChangedHandler)(BOOL is_showing_special_mode);
 @property (nonatomic, copy, nullable) NSString* token;
 @property (nonatomic, assign) MBSidebarDateFilter dateFilter;
 @property (nonatomic, assign) MBSidebarSortOrder sortOrder;
@@ -41,10 +41,13 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) loadCachedRecentEntries;
 - (void) refreshData;
 - (void) showBookmarks;
-- (void) clearBookmarksMode;
+- (void) showAllPostsForSelectedSite;
+- (void) clearSpecialMode;
 - (void) focusAndSelectFirstItem;
 - (BOOL) focusSidebar;
 - (BOOL) isShowingBookmarks;
+- (BOOL) isShowingSpecialMode;
+- (BOOL) canShowAllPostsForSelectedSite;
 - (BOOL) canToggleSelectedItemReadState;
 - (BOOL) canMarkAllItemsAsRead;
 - (BOOL) canToggleSelectedItemBookmarkedState;

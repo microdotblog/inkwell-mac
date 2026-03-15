@@ -394,8 +394,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 		[strong_self syncHighlightsFromServer];
 	};
-	self.sidebarController.bookmarksModeChangedHandler = ^(BOOL is_showing_bookmarks) {
-		#pragma unused(is_showing_bookmarks)
+	self.sidebarController.specialModeChangedHandler = ^(BOOL is_showing_special_mode) {
+		#pragma unused(is_showing_special_mode)
 		[weak_self updateFilterSegmentedControlEnabledState];
 	};
 	self.detailController.selectionChangedHandler = ^(BOOL has_selection) {
@@ -513,7 +513,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
-	[self.sidebarController clearBookmarksMode];
+	[self.sidebarController clearSpecialMode];
 	self.sidebarController.dateFilter = [self sidebarDateFilterForSegmentIndex:segment_index];
 
 	if (self.filterSegmentedControl == nil) {
@@ -533,7 +533,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
-	self.filterSegmentedControl.enabled = ![self.sidebarController isShowingBookmarks];
+	self.filterSegmentedControl.enabled = ![self.sidebarController isShowingSpecialMode];
 }
 
 - (IBAction) filterSegmentChanged:(id)sender
@@ -587,6 +587,18 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 	self.sidebarController.searchQuery = @"";
 	[self.sidebarController showBookmarks];
+	[self updateFilterSegmentedControlEnabledState];
+}
+
+- (IBAction) showAllPosts:(id)sender
+{
+	#pragma unused(sender)
+
+	if (self.toolbarSearchField != nil && self.toolbarSearchField.stringValue.length > 0) {
+		self.toolbarSearchField.stringValue = @"";
+	}
+	self.sidebarController.searchQuery = @"";
+	[self.sidebarController showAllPostsForSelectedSite];
 	[self updateFilterSegmentedControlEnabledState];
 }
 
@@ -1056,6 +1068,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (menu_item.action == @selector(showBookmarks:)) {
 		return (self.client != nil && self.token.length > 0);
 	}
+	if (menu_item.action == @selector(showAllPosts:)) {
+		return [self.sidebarController canShowAllPostsForSelectedSite];
+	}
 	if (menu_item.action == @selector(highlightSelectedItem:)) {
 		return [self canHighlightSelectedItem];
 	}
@@ -1121,8 +1136,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	NSString* search_query = [search_field.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (search_query.length > 0 && [self.sidebarController isShowingBookmarks]) {
-		[self.sidebarController clearBookmarksMode];
+	if (search_query.length > 0 && [self.sidebarController isShowingSpecialMode]) {
+		[self.sidebarController clearSpecialMode];
 		[self updateFilterSegmentedControlEnabledState];
 	}
 
