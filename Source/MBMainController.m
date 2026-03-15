@@ -746,6 +746,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 			return;
 		}
 
+		[strong_self.client invalidateFeedIconsCache];
 		[strong_self closeNewFeedSheetWithReturnCode:NSModalResponseOK];
 	}];
 }

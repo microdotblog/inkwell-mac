@@ -53,6 +53,10 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 @property (assign) NSInteger activeRequestCount;
 @property (copy) NSSet* cachedUnreadEntryIDs;
 @property (copy) NSArray* cachedHighlights;
+@property (copy) NSDictionary<NSString*, NSString*>* cachedFeedIconsByHostMap;
+@property (assign) BOOL hasLoadedFeedIcons;
+@property (assign) BOOL isFetchingFeedIcons;
+@property (strong) NSMutableArray* pendingFeedIconsCompletions;
 
 @end
 
@@ -66,6 +70,8 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		self.session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.cachedUnreadEntryIDs = [self loadCachedUnreadEntryIDs];
 		self.cachedHighlights = [self loadCachedHighlights];
+		self.cachedFeedIconsByHostMap = @{};
+		self.pendingFeedIconsCompletions = [NSMutableArray array];
 	}
 	return self;
 }
@@ -711,6 +717,30 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	return [filtered_entries copy];
 }
 
+- (NSDictionary<NSString*, NSString*>*) cachedFeedIconsByHost
+{
+	return [self.cachedFeedIconsByHostMap copy] ?: @{};
+}
+
+- (void) primeFeedIconsCacheWithMap:(NSDictionary<NSString*, NSString*>*) icons_by_host
+{
+	NSDictionary* normalized_icons_by_host = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
+	if (normalized_icons_by_host.count == 0) {
+		return;
+	}
+
+	NSMutableDictionary* merged_icons_by_host = [NSMutableDictionary dictionaryWithDictionary:(self.cachedFeedIconsByHostMap ?: @{})];
+	[merged_icons_by_host addEntriesFromDictionary:normalized_icons_by_host];
+	self.cachedFeedIconsByHostMap = [merged_icons_by_host copy];
+	self.hasLoadedFeedIcons = YES;
+}
+
+- (void) invalidateFeedIconsCache
+{
+	self.cachedFeedIconsByHostMap = @{};
+	self.hasLoadedFeedIcons = NO;
+}
+
 - (void) fetchFeedIconsWithToken:(NSString *)token completion:(void (^)(NSDictionary<NSString *,NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion
 {
 	if (token.length == 0) {
@@ -718,6 +748,21 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		[self finishWithIconsByHost:nil error:error completion:completion];
 		return;
 	}
+
+	if (self.hasLoadedFeedIcons) {
+		[self finishWithIconsByHost:self.cachedFeedIconsByHostMap ?: @{} error:nil completion:completion];
+		return;
+	}
+
+	if (completion != nil) {
+		[self.pendingFeedIconsCompletions addObject:[completion copy]];
+	}
+
+	if (self.isFetchingFeedIcons) {
+		return;
+	}
+
+	self.isFetchingFeedIcons = YES;
 
 	NSMutableURLRequest *icons_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedIconsEndpoint]];
 	icons_request.HTTPMethod = @"GET";
@@ -728,7 +773,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 
 	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:icons_request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
-			[self finishWithIconsByHost:nil error:error completion:completion];
+			[self finishPendingFeedIconsWithIconsByHost:nil error:error];
 			return;
 		}
 
@@ -736,14 +781,14 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 			NSString *description = [self responseDescriptionForData:data defaultMessage:@"Icons request failed."];
 			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithIconsByHost:nil error:request_error completion:completion];
+			[self finishPendingFeedIconsWithIconsByHost:nil error:request_error];
 			return;
 		}
 
 		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 		if (![payload isKindOfClass:[NSArray class]]) {
 			NSError *parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1009 userInfo:@{ NSLocalizedDescriptionKey: @"Icons response was invalid." }];
-			[self finishWithIconsByHost:nil error:parse_error completion:completion];
+			[self finishPendingFeedIconsWithIconsByHost:nil error:parse_error];
 			return;
 		}
 
@@ -763,7 +808,10 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 			icons_by_host[host_value] = url_value;
 		}
 
-		[self finishWithIconsByHost:[icons_by_host copy] error:nil completion:completion];
+		NSDictionary* normalized_icons_by_host = [self normalizedIconURLByHostFromMap:[icons_by_host copy]];
+		self.cachedFeedIconsByHostMap = normalized_icons_by_host ?: @{};
+		self.hasLoadedFeedIcons = YES;
+		[self finishPendingFeedIconsWithIconsByHost:self.cachedFeedIconsByHostMap error:nil];
 	}];
 	[task resume];
 }
@@ -814,6 +862,55 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		[self finishWithBookmarks:[items_object copy] error:nil completion:completion];
 	}];
 	[task resume];
+}
+
+- (NSDictionary<NSString*, NSString*>*) normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host
+{
+	if (icons_by_host.count == 0) {
+		return @{};
+	}
+
+	NSMutableDictionary* normalized_icons_by_host = [NSMutableDictionary dictionary];
+	for (NSString* host_value in icons_by_host) {
+		NSString* normalized_host = [self normalizedHostString:host_value];
+		if (normalized_host.length == 0) {
+			continue;
+		}
+
+		NSString* url_value = [self stringValueFromObject:icons_by_host[host_value]];
+		url_value = [url_value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (url_value.length == 0) {
+			continue;
+		}
+
+		normalized_icons_by_host[normalized_host] = url_value;
+	}
+
+	return [normalized_icons_by_host copy];
+}
+
+- (NSString*) normalizedHostString:(NSString*) host_string
+{
+	NSString* normalized_host = [[host_string lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if ([normalized_host hasPrefix:@"www."]) {
+		normalized_host = [normalized_host substringFromIndex:4];
+	}
+	if ([normalized_host hasSuffix:@"."]) {
+		normalized_host = [normalized_host substringToIndex:(normalized_host.length - 1)];
+	}
+
+	return normalized_host;
+}
+
+- (void) finishPendingFeedIconsWithIconsByHost:(NSDictionary<NSString*, NSString*>* _Nullable) icons_by_host error:(NSError* _Nullable) error
+{
+	self.isFetchingFeedIcons = NO;
+	NSArray* completions = [self.pendingFeedIconsCompletions copy] ?: @[];
+	[self.pendingFeedIconsCompletions removeAllObjects];
+	for (id object in completions) {
+		void (^completion)(NSDictionary<NSString *, NSString *> * _Nullable, NSError * _Nullable) = object;
+		[self finishWithIconsByHost:icons_by_host error:error completion:completion];
+	}
 }
 
 - (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion

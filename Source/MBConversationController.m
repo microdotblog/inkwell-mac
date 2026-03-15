@@ -32,8 +32,6 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
-@property (nonatomic, assign) BOOL hasLoadedFeedIcons;
-@property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, assign) BOOL didSetupContent;
 
 @end
@@ -57,7 +55,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.headerTitle = @"Conversation";
 		self.headerAvatarImage = [self defaultHeaderAvatarImage];
 		self.headerFeedHost = @"";
-		self.iconURLByHost = @{};
+		self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -110,6 +108,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 	self.headerTitle = title_string;
 	self.headerFeedHost = [self normalizedHostString:entry.feedHost ?: @""];
+	self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
 	self.headerAvatarImage = [self headerAvatarImageForHost:self.headerFeedHost];
 	[self applyHeaderIfNeeded];
 	[self fetchFeedIconsIfNeeded];
@@ -269,20 +268,19 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		return;
 	}
 
-	if (self.hasLoadedFeedIcons || self.isFetchingFeedIcons) {
-		return;
-	}
-
-	self.isFetchingFeedIcons = YES;
+	__weak typeof(self) weak_self = self;
 	[self.client fetchFeedIconsWithToken:self.token completion:^(NSDictionary* _Nullable icons_by_host, NSError* _Nullable error) {
-		self.isFetchingFeedIcons = NO;
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
 		if (error != nil) {
 			return;
 		}
 
-		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
-		self.hasLoadedFeedIcons = YES;
-		[self updateHeaderAvatarImage];
+		strong_self.iconURLByHost = icons_by_host ?: @{};
+		[strong_self updateHeaderAvatarImage];
 	}];
 }
 

@@ -296,8 +296,6 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 @property (nonatomic, strong) NSWindow* renameSheetWindow;
 @property (nonatomic, strong) NSTextField* renameSheetTextField;
 @property (nonatomic, strong) MBSubscription* renameSubscription;
-@property (nonatomic, assign) BOOL hasLoadedFeedIcons;
-@property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, assign) BOOL isFetching;
 
 @end
@@ -319,7 +317,7 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 		self.subscriptions = @[];
 		self.searchQuery = @"";
 		self.avatarLoader = [MBAvatarLoader sharedLoader];
-		self.iconURLByHost = @{};
+		self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -443,9 +441,7 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 		}
 
 		strong_self.allSubscriptions = [strong_self sortedSubscriptions:(subscriptions ?: @[])];
-		strong_self.iconURLByHost = @{};
-		strong_self.hasLoadedFeedIcons = NO;
-		strong_self.isFetchingFeedIcons = NO;
+		strong_self.iconURLByHost = [strong_self.client cachedFeedIconsByHost] ?: @{};
 		[strong_self applySearchFilterPreservingSelection:NO preferredSubscriptionID:0];
 		[strong_self fetchFeedIconsIfNeeded];
 	}];
@@ -933,11 +929,10 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 		return;
 	}
 
-	if (![self needsFeedIcons] || self.hasLoadedFeedIcons || self.isFetchingFeedIcons) {
+	if (![self needsFeedIcons]) {
 		return;
 	}
 
-	self.isFetchingFeedIcons = YES;
 	__weak typeof(self) weak_self = self;
 	[self.client fetchFeedIconsWithToken:self.token completion:^(NSDictionary* _Nullable icons_by_host, NSError* _Nullable error) {
 		MBFeedsController* strong_self = weak_self;
@@ -945,13 +940,11 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 			return;
 		}
 
-		strong_self.isFetchingFeedIcons = NO;
 		if (error != nil) {
 			return;
 		}
 
 		strong_self.iconURLByHost = [strong_self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
-		strong_self.hasLoadedFeedIcons = YES;
 		[strong_self.tableView reloadData];
 	}];
 }

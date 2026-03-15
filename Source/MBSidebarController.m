@@ -607,6 +607,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.allItems = [cached_items copy];
 	if ([icons_by_host isKindOfClass:[NSDictionary class]]) {
 		self.iconURLByHost = [self normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host];
+		[self.client primeFeedIconsCacheWithMap:self.iconURLByHost];
 	}
 	[self applyFiltersAndReload];
 }

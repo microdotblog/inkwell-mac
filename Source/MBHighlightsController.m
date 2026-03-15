@@ -124,8 +124,6 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 @property (nonatomic, copy) NSDictionary<NSString*, NSString*>* iconURLByHost;
 @property (nonatomic, copy) NSArray* allPostsAvatarHosts;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
-@property (nonatomic, assign) BOOL hasLoadedFeedIcons;
-@property (nonatomic, assign) BOOL isFetchingFeedIcons;
 @property (nonatomic, assign) BOOL didSetupContent;
 @property (nonatomic, assign) BOOL isFetching;
 
@@ -172,7 +170,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		self.headerFeedHost = @"";
 		self.entryTitleForPost = @"";
 		self.entryURLString = @"";
-		self.iconURLByHost = @{};
+		self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
 		self.allPostsAvatarImageViews = @[];
 		self.allPostsAvatarHosts = @[];
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
@@ -561,6 +559,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 	self.headerTitle = title_string;
 	self.headerFeedHost = [self normalizedHostString:entry.feedHost ?: @""];
+	self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
 	self.headerAvatarImage = [self avatarImageForHost:self.headerFeedHost];
 	self.entryTitleForPost = title_string;
 	self.entryURLString = [entry.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
@@ -609,21 +608,20 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		return;
 	}
 
-	if (self.hasLoadedFeedIcons || self.isFetchingFeedIcons) {
-		return;
-	}
-
-	self.isFetchingFeedIcons = YES;
+	__weak typeof(self) weak_self = self;
 	[self.client fetchFeedIconsWithToken:self.token completion:^(NSDictionary<NSString *,NSString *> * _Nullable icons_by_host, NSError * _Nullable error) {
-		self.isFetchingFeedIcons = NO;
+		MBHighlightsController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
 		if (error != nil) {
 			return;
 		}
 
-		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
-		self.hasLoadedFeedIcons = YES;
-		[self refreshAllPostsAvatarHosts];
-		[self updateHeaderAvatarImage];
+		strong_self.iconURLByHost = icons_by_host ?: @{};
+		[strong_self refreshAllPostsAvatarHosts];
+		[strong_self updateHeaderAvatarImage];
 	}];
 }
 
