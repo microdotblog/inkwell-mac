@@ -145,6 +145,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
 - (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
 - (NSString*) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
+- (NSURL*) baseURLForEntry:(MBEntry* _Nullable) entry;
 - (NSString*) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
 - (NSString*) normalizedRecapColorString:(NSString*) color_hex;
@@ -179,6 +180,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	[user_content_controller addUserScript:scroll_script];
 
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+	configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
 	configuration.userContentController = user_content_controller;
 
 	MBDetailWebView* web_view = [[MBDetailWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
@@ -255,7 +257,8 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	#pragma unused(web_view)
 	NSURL* request_url = navigation_action.request.URL;
 	BOOL is_link_activated = (navigation_action.navigationType == WKNavigationTypeLinkActivated);
-	if (!is_link_activated || request_url == nil) {
+	BOOL is_main_frame_navigation = navigation_action.targetFrame.isMainFrame;
+	if (!is_link_activated || request_url == nil || !is_main_frame_navigation) {
 		decision_handler(WKNavigationActionPolicyAllow);
 		return;
 	}
@@ -295,7 +298,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	if (item == nil) {
 		self.currentEntryID = 0;
 		NSString* html = [self htmlForPostTitle:@"" author:@"" siteTitle:@"" content:@""];
-		[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
+		[self.webView loadHTMLString:html baseURL:[self baseURLForEntry:nil]];
 		return;
 	}
 
@@ -320,7 +323,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	}
 
 	NSString* html = [self htmlForPostTitle:safe_title author:item.author siteTitle:item.subscriptionTitle content:content_value];
-	[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
+	[self.webView loadHTMLString:html baseURL:[self baseURLForEntry:item]];
 }
 
 - (void) showReadingRecapHTML:(NSString*) html
@@ -331,7 +334,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
-	[self.webView loadHTMLString:recap_html baseURL:[NSBundle mainBundle].resourceURL];
+	[self.webView loadHTMLString:recap_html baseURL:[self baseURLForEntry:nil]];
 }
 
 - (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
@@ -682,6 +685,25 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	}
 
 	return [tag substringWithRange:[match rangeAtIndex:2]];
+}
+
+- (NSURL*) baseURLForEntry:(MBEntry* _Nullable) entry
+{
+	NSString* feed_host = [entry.feedHost stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (feed_host.length == 0) {
+		NSURL* post_url = [NSURL URLWithString:(entry.url ?: @"")];
+		feed_host = [post_url.host stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	if (feed_host.length == 0) {
+		return [NSURL URLWithString:@"https://example.com/"];
+	}
+
+	NSURLComponents* components = [[NSURLComponents alloc] init];
+	components.scheme = @"https";
+	components.host = feed_host;
+	components.path = @"/";
+	return components.URL ?: [NSURL URLWithString:@"https://example.com/"];
 }
 
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations
