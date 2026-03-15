@@ -17,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *summary;
 @property (nonatomic, copy, nullable) NSString *text;
 @property (nonatomic, copy, nullable) NSString *source;
+@property (nonatomic, copy, nullable) NSString *author;
 @property (nonatomic, copy, nullable) NSString *avatarURL;
 @property (nonatomic, assign) NSInteger entryID;
 @property (nonatomic, assign) NSInteger feedID;

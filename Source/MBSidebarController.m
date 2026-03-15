@@ -1047,6 +1047,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	dictionary[@"summary"] = entry.summary ?: @"";
 	dictionary[@"text"] = entry.text ?: @"";
 	dictionary[@"source"] = entry.source ?: @"";
+	dictionary[@"author"] = entry.author ?: @"";
 	dictionary[@"avatar_url"] = entry.avatarURL ?: @"";
 	dictionary[@"entry_id"] = @(entry.entryID);
 	dictionary[@"feed_id"] = @(entry.feedID);
@@ -1084,6 +1085,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	entry.summary = [self stringValueFromObject:dictionary[@"summary"]];
 	entry.text = [self stringValueFromObject:dictionary[@"text"]];
 	entry.source = [self stringValueFromObject:dictionary[@"source"]];
+	entry.author = [self stringValueFromObject:dictionary[@"author"]];
 	entry.avatarURL = [self stringValueFromObject:dictionary[@"avatar_url"]];
 	entry.entryID = entry_id;
 	entry.feedID = [self integerValueFromObject:dictionary[@"feed_id"]];
@@ -2027,6 +2029,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		sidebar_entry.summary = summary_value;
 		sidebar_entry.text = content_html_value;
 		sidebar_entry.source = resolved_source;
+		sidebar_entry.author = author_value;
 		sidebar_entry.entryID = entry_id_value;
 		sidebar_entry.feedID = feed_id_value;
 		sidebar_entry.feedHost = feed_host;

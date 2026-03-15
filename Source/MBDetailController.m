@@ -16,6 +16,7 @@ static NSString* const InkwellPostTemplateName = @"PostTemplate";
 static NSString* const InkwellRecapTemplateName = @"RecapTemplate";
 static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
+static NSString* const InkwellPostAuthorToken = @"[AUTHOR]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
 static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
 static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
@@ -293,7 +294,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 	if (item == nil) {
 		self.currentEntryID = 0;
-		NSString* html = [self htmlForPostTitle:@"" content:@""];
+		NSString* html = [self htmlForPostTitle:@"" author:@"" siteTitle:@"" content:@""];
 		[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
 		return;
 	}
@@ -318,7 +319,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		content_value = [self escapedHTMLString:fallback_text];
 	}
 
-	NSString* html = [self htmlForPostTitle:safe_title content:content_value];
+	NSString* html = [self htmlForPostTitle:safe_title author:item.author siteTitle:item.subscriptionTitle content:content_value];
 	[self.webView loadHTMLString:html baseURL:[NSBundle mainBundle].resourceURL];
 }
 
@@ -776,12 +777,22 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	return [base_color stringByAppendingString:normalized_opacity];
 }
 
-- (NSString *) htmlForPostTitle:(NSString *)title content:(NSString *)content
+- (NSString*) htmlForPostTitle:(NSString*) title author:(NSString*) author siteTitle:(NSString*) site_title content:(NSString*) content
 {
 	NSString* template_html = [self postHTMLTemplate];
 	NSString* safe_title = title ?: @"";
+	NSString* raw_author = author ?: @"";
 	NSString* safe_content = content ?: @"";
 	NSString* html = [template_html stringByReplacingOccurrencesOfString:InkwellPostTitleToken withString:safe_title];
+	NSString* trimmed_author = [raw_author stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* trimmed_site_title = [site_title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* safe_author = [self escapedHTMLString:trimmed_author];
+	BOOL should_hide_author = (trimmed_author.length == 0);
+	if (!should_hide_author && trimmed_site_title.length > 0) {
+		should_hide_author = ([trimmed_author localizedCaseInsensitiveCompare:trimmed_site_title] == NSOrderedSame);
+	}
+
+	html = [html stringByReplacingOccurrencesOfString:InkwellPostAuthorToken withString:(should_hide_author ? @"" : safe_author)];
 	return [html stringByReplacingOccurrencesOfString:InkwellPostContentToken withString:safe_content];
 }
 
@@ -799,15 +810,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	dispatch_once(&once_token, ^{
 		NSString* path = [[NSBundle mainBundle] pathForResource:InkwellPostTemplateName ofType:InkwellPostTemplateType];
 		if (path.length > 0) {
-			NSError* read_error = nil;
-			NSString* template_html = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&read_error];
-			if (template_html.length > 0) {
-				cached_template = template_html;
-			}
-		}
-
-		if (cached_template.length == 0) {
-			cached_template = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}.content{max-width:600px;margin-left:auto;margin-right:auto;}.post-title{font-size:30px;line-height:1.2;margin:0 0 12px;}.post-title:empty{display:none;}.post-content{font-size:16px;line-height:1.6;}.post-content:empty{display:none;}p{font-size:16px;line-height:1.5;color:#1d1d1f;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}blockquote{border-left:3px solid #d2d2d7;margin:1em 0;padding-left:1em;color:#4d4d4f;}</style></head><body><div class='content'><h1 class='post-title'>[TITLE]</h1><article class='post-content'>[CONTENT]</article></div></body></html>";
+			cached_template = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
 		}
 	});
 
@@ -821,15 +824,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	dispatch_once(&once_token, ^{
 		NSString* path = [[NSBundle mainBundle] pathForResource:InkwellRecapTemplateName ofType:InkwellPostTemplateType];
 		if (path.length > 0) {
-			NSError* read_error = nil;
-			NSString* template_html = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&read_error];
-			if (template_html.length > 0) {
-				cached_template = template_html;
-			}
-		}
-
-		if (cached_template.length == 0) {
-			cached_template = @"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;margin-top:40px;padding:40px;color:#1d1d1f;}.content{max-width:680px;margin-left:auto;margin-right:auto;}img,video{max-width:100%%;height:auto;}pre{white-space:pre-wrap;}</style></head><body><div class='content'>[CONTENT]</div></body></html>";
+			cached_template = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
 		}
 	});
 
