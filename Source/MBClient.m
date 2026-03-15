@@ -7,6 +7,7 @@
 
 #import "MBClient.h"
 #import "MBHighlight.h"
+#import "MBPathUtilities.h"
 #import "MBSessionController.h"
 #import "MBSubscription.h"
 
@@ -43,8 +44,8 @@ static NSString* const MBFeedsRecapEndpoint = MBMicroBlogBaseURL @"/feeds/recap"
 static NSString* const MBFeedsRecapEmailEndpoint = MBMicroBlogBaseURL @"/feeds/recap/email";
 static NSInteger const MBFeedEntriesPageSize = 200;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
-static NSString* const MBUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
-static NSString* const MBHighlightsCacheFilename = @"highlights.json";
+static NSString* const MBUnreadEntryIDsCacheFilename = @"UnreadEntryIDs.json";
+static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 
 @interface MBClient ()
 
@@ -61,6 +62,7 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 {
 	self = [super init];
 	if (self) {
+		[MBPathUtilities cleanupLegacyFiles];
 		self.session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.cachedUnreadEntryIDs = [self loadCachedUnreadEntryIDs];
 		self.cachedHighlights = [self loadCachedHighlights];
@@ -1855,48 +1857,14 @@ static NSString* const MBHighlightsCacheFilename = @"highlights.json";
 	return [unread_entry_ids copy];
 }
 
-- (NSURL * _Nullable) applicationSupportDirectoryURL
-{
-	NSFileManager* file_manager = [NSFileManager defaultManager];
-	NSArray* application_support_urls = [file_manager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
-	NSURL* application_support_url = [application_support_urls firstObject];
-	if (application_support_url == nil) {
-		return nil;
-	}
-
-	NSString* bundle_identifier = [[NSBundle mainBundle] bundleIdentifier];
-	if (bundle_identifier.length == 0) {
-		bundle_identifier = @"Inkwell";
-	}
-
-	NSURL* directory_url = [application_support_url URLByAppendingPathComponent:bundle_identifier isDirectory:YES];
-	NSError* directory_error = nil;
-	BOOL is_directory_ready = [file_manager createDirectoryAtURL:directory_url withIntermediateDirectories:YES attributes:nil error:&directory_error];
-	if (!is_directory_ready) {
-		return nil;
-	}
-
-	return directory_url;
-}
-
 - (NSURL * _Nullable) unreadEntryIDsCacheURL
 {
-	NSURL* directory_url = [self applicationSupportDirectoryURL];
-	if (directory_url == nil) {
-		return nil;
-	}
-
-	return [directory_url URLByAppendingPathComponent:MBUnreadEntryIDsCacheFilename isDirectory:NO];
+	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:MBUnreadEntryIDsCacheFilename createDirectoryIfNeeded:YES];
 }
 
 - (NSURL * _Nullable) highlightsCacheURL
 {
-	NSURL* directory_url = [self applicationSupportDirectoryURL];
-	if (directory_url == nil) {
-		return nil;
-	}
-
-	return [directory_url URLByAppendingPathComponent:MBHighlightsCacheFilename isDirectory:NO];
+	return [MBPathUtilities appFileURLForSearchPathDirectory:NSApplicationSupportDirectory filename:MBHighlightsCacheFilename createDirectoryIfNeeded:YES];
 }
 
 - (NSSet*) loadCachedUnreadEntryIDs

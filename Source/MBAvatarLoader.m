@@ -6,6 +6,7 @@
 //
 
 #import "MBAvatarLoader.h"
+#import "MBPathUtilities.h"
 #import <CommonCrypto/CommonDigest.h>
 
 static NSTimeInterval const InkwellAvatarCacheExpirationInterval = (14.0 * 24.0 * 60.0 * 60.0);
@@ -45,6 +46,7 @@ NSString* const MBAvatarLoaderURLStringUserInfoKey = @"url_string";
 {
 	self = [super init];
 	if (self) {
+		[MBPathUtilities cleanupLegacyFiles];
 		self.imageSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.imageByURL = [NSMutableDictionary dictionary];
 		self.cacheDateByURL = [NSMutableDictionary dictionary];
@@ -229,21 +231,7 @@ NSString* const MBAvatarLoaderURLStringUserInfoKey = @"url_string";
 
 - (NSURL* _Nullable) cacheDirectoryURLCreatingIfNeeded:(BOOL) create_directory
 {
-	NSFileManager* file_manager = [NSFileManager defaultManager];
-	NSArray* application_support_urls = [file_manager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
-	NSURL* application_support_url = [application_support_urls firstObject];
-	if (application_support_url == nil) {
-		return nil;
-	}
-
-	NSString* bundle_identifier = [[NSBundle mainBundle] bundleIdentifier] ?: @"Inkwell";
-	NSURL* app_directory_url = [application_support_url URLByAppendingPathComponent:bundle_identifier isDirectory:YES];
-	NSURL* cache_directory_url = [app_directory_url URLByAppendingPathComponent:InkwellAvatarCacheDirectoryName isDirectory:YES];
-	if (create_directory) {
-		[file_manager createDirectoryAtURL:cache_directory_url withIntermediateDirectories:YES attributes:nil error:nil];
-	}
-
-	return cache_directory_url;
+	return [MBPathUtilities appSubdirectoryURLForSearchPathDirectory:NSCachesDirectory relativePath:InkwellAvatarCacheDirectoryName createIfNeeded:create_directory];
 }
 
 - (NSString*) cacheFileNameForURLString:(NSString*) url_string

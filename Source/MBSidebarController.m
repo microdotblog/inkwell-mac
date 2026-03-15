@@ -9,6 +9,7 @@
 #import "MBAvatarLoader.h"
 #import "MBClient.h"
 #import "MBEntry.h"
+#import "MBPathUtilities.h"
 #import "MBRoundedImageView.h"
 #import "MBSubscription.h"
 #import "NSStrings+Extras.h"
@@ -289,7 +290,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) resetBookmarksModeState;
 - (void) resetAllPostsModeState;
 - (void) cacheRecentEntries;
-- (NSURL* _Nullable) applicationSupportDirectoryURL;
 - (NSURL* _Nullable) recentEntriesCacheURL;
 - (NSDictionary*) serializedRecentEntriesPayload;
 - (NSDictionary*) dictionaryFromEntry:(MBEntry*) entry;
@@ -337,6 +337,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	self = [super initWithNibName:nil bundle:nil];
 	if (self) {
+		[MBPathUtilities cleanupLegacyFiles];
 		self.dateFilter = MBSidebarDateFilterToday;
 		_sortOrder = [self savedSortOrder];
 		self.searchQuery = @"";
@@ -1104,36 +1105,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}];
 }
 
-- (NSURL* _Nullable) applicationSupportDirectoryURL
-{
-	NSFileManager* file_manager = [NSFileManager defaultManager];
-	NSArray* application_support_urls = [file_manager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
-	NSURL* application_support_url = [application_support_urls firstObject];
-	if (application_support_url == nil) {
-		return nil;
-	}
-
-	NSString* bundle_identifier = [[NSBundle mainBundle] bundleIdentifier];
-	if (bundle_identifier.length == 0) {
-		bundle_identifier = @"Inkwell";
-	}
-
-	NSURL* directory_url = [application_support_url URLByAppendingPathComponent:bundle_identifier isDirectory:YES];
-	if (![file_manager createDirectoryAtURL:directory_url withIntermediateDirectories:YES attributes:nil error:nil]) {
-		return nil;
-	}
-
-	return directory_url;
-}
-
 - (NSURL* _Nullable) recentEntriesCacheURL
 {
-	NSURL* directory_url = [self applicationSupportDirectoryURL];
-	if (directory_url == nil) {
-		return nil;
-	}
-
-	return [directory_url URLByAppendingPathComponent:InkwellRecentEntriesCacheFilename isDirectory:NO];
+	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:InkwellRecentEntriesCacheFilename createDirectoryIfNeeded:YES];
 }
 
 - (void) cacheRecentEntries
