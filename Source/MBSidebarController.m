@@ -205,8 +205,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 @interface MBSidebarCellView : NSTableCellView
 
+@property (strong) NSLayoutConstraint* subscriptionTopWithSubtitleConstraint;
+@property (strong) NSLayoutConstraint* subscriptionTopWithoutSubtitleConstraint;
 @property (strong) NSLayoutConstraint* dateTopWithSubscriptionConstraint;
-@property (strong) NSLayoutConstraint* dateTopWithoutSubscriptionConstraint;
+@property (strong) NSLayoutConstraint* dateTopWithSubtitleConstraint;
+@property (strong) NSLayoutConstraint* dateTopWithoutSecondaryTextConstraint;
 
 @end
 
@@ -294,6 +297,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSDictionary*) serializedRecentEntriesPayload;
 - (NSDictionary*) dictionaryFromEntry:(MBEntry*) entry;
 - (MBEntry* _Nullable) entryFromDictionary:(NSDictionary*) dictionary;
+- (NSString*) normalizedContentHTMLString:(NSString*) string;
 - (NSString*) iso8601StringFromDate:(NSDate* _Nullable) date;
 - (NSArray*) fadingItems;
 - (NSArray*) fadingEntryIDs;
@@ -1199,7 +1203,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	entry.url = [self stringValueFromObject:dictionary[@"url"]];
 	entry.subscriptionTitle = [self stringValueFromObject:dictionary[@"subscription_title"]];
 	entry.summary = [self stringValueFromObject:dictionary[@"summary"]];
-	entry.text = [self stringValueFromObject:dictionary[@"text"]];
+	entry.text = [self normalizedContentHTMLString:[self stringValueFromObject:dictionary[@"text"]]];
 	entry.source = [self stringValueFromObject:dictionary[@"source"]];
 	entry.author = [self stringValueFromObject:dictionary[@"author"]];
 	entry.avatarURL = [self stringValueFromObject:dictionary[@"avatar_url"]];
@@ -2232,6 +2236,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (content_html_value.length == 0) {
 		content_html_value = [self stringValueFromObject:entry[@"content"]];
 	}
+	content_html_value = [self normalizedContentHTMLString:content_html_value];
 	NSString* source_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"source"]]];
 	NSDate* entry_date = [self dateValueFromEntry:entry];
 	NSInteger entry_id_value = [self integerValueFromObject:entry[@"id"]];
@@ -2831,8 +2836,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		NSLayoutConstraint* bottom_constraint = [date_field.bottomAnchor constraintLessThanOrEqualToAnchor:cell_view.bottomAnchor constant:-8.0];
 		bottom_constraint.priority = NSLayoutPriorityDefaultHigh;
 
+		NSLayoutConstraint* subscription_top_with_subtitle_constraint = [subscription_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
+		NSLayoutConstraint* subscription_top_without_subtitle_constraint = [subscription_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
 		NSLayoutConstraint* date_top_with_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subscription_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		NSLayoutConstraint* date_top_without_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
+		NSLayoutConstraint* date_top_with_subtitle_constraint = [date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
+		NSLayoutConstraint* date_top_without_secondary_text_constraint = [date_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
 
 		[NSLayoutConstraint activateConstraints:@[
 			[avatar_view.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:InkwellSidebarAvatarInset],
@@ -2845,7 +2853,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
 			[subtitle_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[subtitle_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			[subscription_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
 			[subscription_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
 			[subscription_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
 			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
@@ -2855,10 +2862,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			bottom_constraint
 		]];
 
+		subscription_top_with_subtitle_constraint.active = NO;
+		subscription_top_without_subtitle_constraint.active = NO;
 		date_top_with_subscription_constraint.active = NO;
-		date_top_without_subscription_constraint.active = YES;
+		date_top_with_subtitle_constraint.active = YES;
+		date_top_without_secondary_text_constraint.active = NO;
+		cell_view.subscriptionTopWithSubtitleConstraint = subscription_top_with_subtitle_constraint;
+		cell_view.subscriptionTopWithoutSubtitleConstraint = subscription_top_without_subtitle_constraint;
 		cell_view.dateTopWithSubscriptionConstraint = date_top_with_subscription_constraint;
-		cell_view.dateTopWithoutSubscriptionConstraint = date_top_without_subscription_constraint;
+		cell_view.dateTopWithSubtitleConstraint = date_top_with_subtitle_constraint;
+		cell_view.dateTopWithoutSecondaryTextConstraint = date_top_without_secondary_text_constraint;
 	}
 
 	MBEntry* item = self.items[(NSUInteger) row];
@@ -2869,10 +2882,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSTextField* date_field = [cell_view viewWithTag:InkwellSidebarDateTag];
 	NSTextField* bookmark_field = [cell_view viewWithTag:InkwellSidebarBookmarkTag];
 
-	NSString* subtitle_value = item.summary;
-	if (subtitle_value.length == 0) {
-		subtitle_value = item.source ?: @"";
-	}
+	NSString* subtitle_value = item.summary ?: @"";
 	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
 
 	NSString* raw_title_value = item.title ?: @"";
@@ -2883,10 +2893,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	NSString* subscription_value = has_post_title ? (item.subscriptionTitle ?: @"") : @"";
+	BOOL should_show_subtitle = (subtitle_value.length > 0);
 	BOOL should_show_subscription = (subscription_value.length > 0);
 
 	title_field.stringValue = title_value;
 	subtitle_field.stringValue = subtitle_value;
+	subtitle_field.hidden = !should_show_subtitle;
 	subscription_field.stringValue = subscription_value;
 	subscription_field.hidden = !should_show_subscription;
 	date_field.stringValue = date_value;
@@ -2894,11 +2906,17 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	bookmark_field.stringValue = item.isBookmarked ? @"★ Bookmarked" : @"";
 	avatar_view.image = [self avatarImageForEntry:item];
 
+	NSLayoutConstraint* subscription_top_with_subtitle_constraint = cell_view.subscriptionTopWithSubtitleConstraint;
+	NSLayoutConstraint* subscription_top_without_subtitle_constraint = cell_view.subscriptionTopWithoutSubtitleConstraint;
 	NSLayoutConstraint* date_top_with_subscription_constraint = cell_view.dateTopWithSubscriptionConstraint;
-	NSLayoutConstraint* date_top_without_subscription_constraint = cell_view.dateTopWithoutSubscriptionConstraint;
-	if (date_top_with_subscription_constraint != nil && date_top_without_subscription_constraint != nil) {
+	NSLayoutConstraint* date_top_with_subtitle_constraint = cell_view.dateTopWithSubtitleConstraint;
+	NSLayoutConstraint* date_top_without_secondary_text_constraint = cell_view.dateTopWithoutSecondaryTextConstraint;
+	if (subscription_top_with_subtitle_constraint != nil && subscription_top_without_subtitle_constraint != nil && date_top_with_subscription_constraint != nil && date_top_with_subtitle_constraint != nil && date_top_without_secondary_text_constraint != nil) {
+		subscription_top_with_subtitle_constraint.active = (should_show_subscription && should_show_subtitle);
+		subscription_top_without_subtitle_constraint.active = (should_show_subscription && !should_show_subtitle);
 		date_top_with_subscription_constraint.active = should_show_subscription;
-		date_top_without_subscription_constraint.active = !should_show_subscription;
+		date_top_with_subtitle_constraint.active = (!should_show_subscription && should_show_subtitle);
+		date_top_without_secondary_text_constraint.active = (!should_show_subscription && !should_show_subtitle);
 	}
 
 	BOOL is_selected_row = (row == self.selectedRowForStyling);
@@ -2954,10 +2972,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	MBEntry *item = self.items[(NSUInteger) row];
 	CGFloat content_width = MAX(120.0, tableView.bounds.size.width - (InkwellSidebarAvatarInset + InkwellSidebarAvatarSize + InkwellSidebarTextInset + InkwellSidebarRightInset));
-	NSString *subtitle_value = item.summary;
-	if (subtitle_value.length == 0) {
-		subtitle_value = item.source ?: @"";
-	}
+	NSString *subtitle_value = item.summary ?: @"";
 	NSString *date_value = [self displayDateStringForCurrentMode:item.date];
 	NSFont *title_font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
 	NSFont *subtitle_font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
@@ -2974,11 +2989,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	CGFloat subtitle_height = [self heightForText:subtitle_value font:subtitle_font width:content_width maxLines:2];
 	CGFloat subscription_height = [self heightForText:subscription_value font:subtitle_font width:content_width maxLines:1];
 	CGFloat date_height = [self heightForText:date_value font:date_font width:content_width maxLines:1];
-	CGFloat row_height = 8.0 + title_height + InkwellSidebarVerticalSpacing + subtitle_height + InkwellSidebarVerticalSpacing;
-	if (subscription_height > 0.0) {
-		row_height += subscription_height + InkwellSidebarVerticalSpacing;
+	CGFloat row_height = 8.0 + title_height;
+	if (subtitle_height > 0.0) {
+		row_height += InkwellSidebarVerticalSpacing + subtitle_height;
 	}
-	row_height += date_height + 8.0;
+	if (subscription_height > 0.0) {
+		row_height += InkwellSidebarVerticalSpacing + subscription_height;
+	}
+	row_height += InkwellSidebarVerticalSpacing + date_height + 8.0;
 
 	return MAX(50.0, ceil(row_height));
 }
@@ -3179,6 +3197,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [tokens componentsJoinedByString:@" "];
+}
+
+- (NSString*) normalizedContentHTMLString:(NSString*) string
+{
+	NSString* trimmed_string = [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if ([trimmed_string isEqualToString:@"<p></p>"]) {
+		return @"";
+	}
+
+	return trimmed_string;
 }
 
 - (void) startObservingWindowKeyState
