@@ -5,7 +5,7 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
-			<title>Version 1.0b9</title>
+			<title>Version 1.0</title>
  			<description><![CDATA[
 				<style>
 					ul {
@@ -17,15 +17,15 @@
 				</style>
  				<p>Changes in this version:</p>
  				<ul>
-					<li>Fixed YouTube embeds, added Show All Posts, many other changes. Last beta!</li>
+					<li>First version!</li>
 				</ul>
  			]]></description>
-			<pubDate>Sun, 15 Mar 2026 17:30:00 -0600</pubDate>
-			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0b9.zip"
-				sparkle:shortVersionString="1.0b9"
-				sparkle:version="9"
-				sparkle:edSignature="8o190484cy6MyHCVFWwgFvz7SLkqHF5q5g59jdolslIRSByHAQS0IOj2EkcbxqnPPu2TV6mH1TSh71U2c3LBAQ=="
-				length="5271266"
+			<pubDate>Mon, 16 Mar 2026 14:44:00 -0600</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0.zip"
+				sparkle:shortVersionString="1.0"
+				sparkle:version="10"
+				sparkle:edSignature="w88f0LTyn1d+UbmDm6t1XZ26XHEAg+LRzDkesD9jE+U7HjWIgfdcLqKqQhWXKsHAWqdo91LrzhDi63qNpHnEDw=="
+				length="5272454"
 				type="application/octet-stream" />
 			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
 		</item>
