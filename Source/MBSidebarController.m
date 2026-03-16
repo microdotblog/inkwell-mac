@@ -2582,6 +2582,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (menu_item.action == NSSelectorFromString(@"showHighlights:")) {
 		return YES;
 	}
+	if (menu_item.action == @selector(showReadingRecap:)) {
+		return [self canShowReadingRecap];
+	}
 
 	if (menu_item.action != @selector(openSelectedItemInBrowserAction:) && menu_item.action != @selector(copySelectedItemLinkAction:)) {
 		return YES;
