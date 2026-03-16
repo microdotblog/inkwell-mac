@@ -642,6 +642,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	self.hasLoadedRemoteItems = NO;
+	[self updateRecapUI];
 	[self fetchEntriesIfNeeded];
 }
 
@@ -945,10 +946,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	self.isFetching = YES;
+	[self updateRecapUI];
 	__block BOOL did_fetch_icons = NO;
 	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
 		if (is_finished) {
 			self.isFetching = NO;
+			[self updateRecapUI];
 		}
 
 		if (error != nil) {
@@ -1840,6 +1843,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	if (self.client == nil || self.token.length == 0 || self.isRecapFetching) {
+		return NO;
+	}
+
+	if (!self.hasLoadedRemoteItems || self.isFetching) {
 		return NO;
 	}
 
