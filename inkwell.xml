@@ -5,6 +5,35 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.0.1</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Added "Delete Highlight" when right-clicking on a highlight. This is also available from the Window menu → Highlights.</li>
+					<li>Improved showing last selected post when app starts up.</li>
+					<li>Fixed highlights background color in dark mode.</li>
+					<li>Fixed white flicker when changing selected post in dark mode.</li>
+					<li>Fixed remembering "Hide Read Posts" preference.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Tue, 17 Mar 2026 10:41:00 -0600</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0.1.zip"
+				sparkle:shortVersionString="1.0.1"
+				sparkle:version="11"
+				sparkle:edSignature="XEaV772GzYQgbKDC4CfgWtoNWrjHpdD71wb1v4YhPFRXDg1ZHclF/U7nBst57IQoOcTs/SGsxdGaAWS1IhjyAA=="
+				length="5284673"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.0</title>
  			<description><![CDATA[
 				<style>
