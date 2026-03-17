@@ -23,6 +23,10 @@ static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
+static NSString* const InkwellReaderHighlightLightBackgroundHex = @"#FFF9D6";
+static NSString* const InkwellReaderHighlightDarkBackgroundHex = @"#A96733";
+static NSString* const InkwellPreferencesDarkBlueBackgroundHex = @"#1c2435";
+static NSString* const InkwellPreferencesBlackBackgroundHex = @"#000000";
 static NSInteger const InkwellDetailHighlightContextMenuItemTag = 7101;
 static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
@@ -150,6 +154,8 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
 - (NSString*) normalizedRecapColorString:(NSString*) color_hex;
 - (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
+- (BOOL) hasStoredTextBackgroundPreference;
+- (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex;
 - (BOOL) prefersDarkSystemAppearance;
 
 @end
@@ -442,10 +448,12 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	CGFloat content_font_size = [self preferredTextPointSize];
 	CGFloat title_font_size = content_font_size;
 	BOOL is_dark_background = [self isDarkColorHexString:background_hex];
+	BOOL should_use_dark_reader_highlight = [self shouldUseDarkReaderHighlightBackgroundForBackgroundHex:background_hex];
 	NSString* text_color = is_dark_background ? @"#f2f3f5" : @"#1d1d1f";
 	NSString* link_color = is_dark_background ? @"#9ec5ff" : @"#0b57d0";
 	NSString* quote_color = is_dark_background ? @"#b8c0cc" : @"#4d4d4f";
 	NSString* quote_border_color = is_dark_background ? @"#4f5b73" : @"#d2d2d7";
+	NSString* reader_highlight_background = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkBackgroundHex : InkwellReaderHighlightLightBackgroundHex;
 
 	NSString* escaped_background_hex = [self escapedJavaScriptString:background_hex];
 	NSString* escaped_font_css = [self escapedJavaScriptString:font_css];
@@ -453,6 +461,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	NSString* escaped_link_color = [self escapedJavaScriptString:link_color];
 	NSString* escaped_quote_color = [self escapedJavaScriptString:quote_color];
 	NSString* escaped_quote_border_color = [self escapedJavaScriptString:quote_border_color];
+	NSString* escaped_reader_highlight_background = [self escapedJavaScriptString:reader_highlight_background];
 
 	NSString* script = [NSString stringWithFormat:@"(function(){"
 		"var bg='%@';"
@@ -461,10 +470,12 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		"var link='%@';"
 		"var quote='%@';"
 		"var quoteBorder='%@';"
+		"var readerHighlightBg='%@';"
 		"var contentSize=%0.2f;"
 		"var titleSize=%0.2f;"
 		"var body=document.body;"
 		"if(!body){return;}"
+		"document.documentElement.style.setProperty('--reader-highlight-background',readerHighlightBg);"
 		"body.style.backgroundColor=bg;"
 		"body.style.color=text;"
 		"body.style.fontFamily=font;"
@@ -498,6 +509,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		escaped_link_color,
 		escaped_quote_color,
 		escaped_quote_border_color,
+		escaped_reader_highlight_background,
 		content_font_size,
 		title_font_size];
 
@@ -951,6 +963,27 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	}
 
 	return InkwellDefaultTextBackgroundHex;
+}
+
+- (BOOL) hasStoredTextBackgroundPreference
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	return ([defaults objectForKey:InkwellTextBackgroundColorDefaultsKey] != nil);
+}
+
+- (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex
+{
+	NSString* normalized_hex = [[background_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] lowercaseString] ?: @"";
+	if (normalized_hex.length == 0) {
+		return NO;
+	}
+
+	if (![self hasStoredTextBackgroundPreference]) {
+		return [self isDarkColorHexString:normalized_hex];
+	}
+
+	return ([normalized_hex isEqualToString:InkwellPreferencesDarkBlueBackgroundHex] ||
+		[normalized_hex isEqualToString:InkwellPreferencesBlackBackgroundHex]);
 }
 
 - (BOOL) prefersDarkSystemAppearance
