@@ -1757,7 +1757,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	NSInteger selected_row = self.tableView.selectedRow;
 	if (selected_row < 0 || selected_row >= self.items.count) {
-		[self removeCachedSelectedEntry];
+		[self clearSavedSelectedEntryID];
 		return;
 	}
 
