@@ -39,6 +39,7 @@ static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
 static NSString* const InkwellSidebarSelectedEntryCacheFilename = @"SidebarSelectedEntry.json";
+static NSString* const InkwellHideReadPostsDefaultsKey = @"HideReadPosts";
 static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
 static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
@@ -320,6 +321,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSString*) siteNameForEntry:(MBEntry*) entry;
 - (NSString*) feedHostForEntry:(MBEntry*) entry;
 - (BOOL) isPremiumUser;
+- (BOOL) savedHideReadPosts;
 - (MBSidebarSortOrder) savedSortOrder;
 - (NSMenu*) sidebarContextMenu;
 - (IBAction) toggleSelectedItemReadStateAction:(id)sender;
@@ -349,6 +351,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (self) {
 		[MBPathUtilities cleanupLegacyFiles];
 		self.dateFilter = MBSidebarDateFilterToday;
+		self.hideReadPosts = [self savedHideReadPosts];
 		_sortOrder = [self savedSortOrder];
 		self.searchQuery = @"";
 		self.selectedRowForStyling = -1;
@@ -864,6 +867,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) toggleReadPostsVisibility
 {
 	self.hideReadPosts = !self.hideReadPosts;
+	[[NSUserDefaults standardUserDefaults] setBool:self.hideReadPosts forKey:InkwellHideReadPostsDefaultsKey];
 	if (self.hideReadPosts) {
 		self.preservedVisibleEntryIDsForHiddenReadPosts = nil;
 	}
@@ -2029,6 +2033,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [defaults boolForKey:InkwellIsPremiumDefaultsKey];
+}
+
+- (BOOL) savedHideReadPosts
+{
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	if ([defaults objectForKey:InkwellHideReadPostsDefaultsKey] == nil) {
+		return NO;
+	}
+
+	return [defaults boolForKey:InkwellHideReadPostsDefaultsKey];
 }
 
 - (MBSidebarSortOrder) savedSortOrder
