@@ -18,6 +18,7 @@ static NSString* const InkwellPostTemplateType = @"html";
 static NSString* const InkwellPostTitleToken = @"[TITLE]";
 static NSString* const InkwellPostAuthorToken = @"[AUTHOR]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
+static NSString* const InkwellInitialThemeStyleToken = @"[INITIAL_THEME_STYLE]";
 static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
 static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellHighlightHoverScriptMessageName = @"highlightHover";
@@ -185,8 +186,12 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
 - (NSString*) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
 - (NSURL*) baseURLForEntry:(MBEntry* _Nullable) entry;
+- (void) updateWebViewUnderPageBackgroundColor;
+- (NSColor*) colorFromHexString:(NSString*) color_hex;
 - (NSString*) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
+- (NSString*) initialThemeStyleBlockForPosts;
+- (NSString*) initialThemeStyleBlockForReadingRecap;
 - (NSString*) normalizedRecapColorString:(NSString*) color_hex;
 - (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
 - (BOOL) hasStoredTextBackgroundPreference;
@@ -199,6 +204,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (void) deleteHighlight:(MBHighlight*) highlight;
 - (void) presentDeleteError:(NSError*) error;
 - (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex;
+- (BOOL) systemInterfaceStyleIsDark;
 - (BOOL) prefersDarkSystemAppearance;
 
 @end
@@ -294,6 +300,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	]];
 
 	self.webView = web_view;
+	[self updateWebViewUnderPageBackgroundColor];
 	self.topBarView = top_bar_view;
 	self.view = root_view;
 }
@@ -372,6 +379,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	[self updateSelectionState:NO];
 	[self updateTopBarMaterialForScrolledDown:NO];
 	[self clearHoveredHighlight];
+	[self updateWebViewUnderPageBackgroundColor];
 
 	if (item == nil) {
 		self.currentEntryID = 0;
@@ -409,6 +417,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	[self updateSelectionState:NO];
 	[self updateTopBarMaterialForScrolledDown:NO];
 	[self clearHoveredHighlight];
+	[self updateWebViewUnderPageBackgroundColor];
 	self.currentEntryID = 0;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
@@ -688,6 +697,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	}
 
 	NSString* background_hex = [self preferredTextBackgroundHex];
+	[self updateWebViewUnderPageBackgroundColor];
 	NSString* font_css = [self preferredTextFontCSS];
 	CGFloat content_font_size = [self preferredTextPointSize];
 	CGFloat title_font_size = content_font_size;
@@ -720,6 +730,8 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		"var body=document.body;"
 		"if(!body){return;}"
 		"document.documentElement.style.setProperty('--reader-highlight-background',readerHighlightBg);"
+		"document.documentElement.style.backgroundColor=bg;"
+		"document.documentElement.style.color=text;"
 		"body.style.backgroundColor=bg;"
 		"body.style.color=text;"
 		"body.style.fontFamily=font;"
@@ -962,6 +974,98 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	return components.URL ?: [NSURL URLWithString:@"https://example.com/"];
 }
 
+- (void) updateWebViewUnderPageBackgroundColor
+{
+	if (self.webView == nil) {
+		return;
+	}
+
+	self.webView.underPageBackgroundColor = [self colorFromHexString:[self preferredTextBackgroundHex]];
+}
+
+- (NSColor*) colorFromHexString:(NSString*) color_hex
+{
+	NSString* normalized_hex = [[color_hex stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+	if ([normalized_hex hasPrefix:@"#"]) {
+		normalized_hex = [normalized_hex substringFromIndex:1];
+	}
+	if (normalized_hex.length != 6) {
+		return NSColor.whiteColor;
+	}
+
+	unsigned int hex_value = 0;
+	NSScanner* scanner = [NSScanner scannerWithString:normalized_hex];
+	if (![scanner scanHexInt:&hex_value]) {
+		return NSColor.whiteColor;
+	}
+
+	CGFloat red = ((hex_value >> 16) & 0xFF) / 255.0;
+	CGFloat green = ((hex_value >> 8) & 0xFF) / 255.0;
+	CGFloat blue = (hex_value & 0xFF) / 255.0;
+	return [NSColor colorWithRed:red green:green blue:blue alpha:1.0];
+}
+
+- (NSString*) initialThemeStyleBlockForPosts
+{
+	NSString* background_hex = [self preferredTextBackgroundHex];
+	NSString* font_css = [self preferredTextFontCSS];
+	CGFloat content_font_size = [self preferredTextPointSize];
+	CGFloat title_font_size = content_font_size;
+	BOOL is_dark_background = [self isDarkColorHexString:background_hex];
+	BOOL should_use_dark_reader_highlight = [self shouldUseDarkReaderHighlightBackgroundForBackgroundHex:background_hex];
+	NSString* text_color = is_dark_background ? @"#f2f3f5" : @"#1d1d1f";
+	NSString* link_color = is_dark_background ? @"#9ec5ff" : @"#0b57d0";
+	NSString* quote_color = is_dark_background ? @"#b8c0cc" : @"#4d4d4f";
+	NSString* quote_border_color = is_dark_background ? @"#4f5b73" : @"#d2d2d7";
+	NSString* reader_highlight_background = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkBackgroundHex : InkwellReaderHighlightLightBackgroundHex;
+
+	return [NSString stringWithFormat:
+		@"\n\t\t:root {\n\t\t\t--reader-highlight-background: %@;\n\t\t}\n"
+		"\t\thtml, body {\n\t\t\tbackground-color: %@;\n\t\t\tcolor: %@;\n\t\t}\n"
+		"\t\tbody, .content {\n\t\t\tfont-family: %@;\n\t\t\tfont-size: %.2fpx;\n\t\t}\n"
+		"\t\t.post-title {\n\t\t\tfont-family: %@;\n\t\t\tfont-size: %.2fpx;\n\t\t\tcolor: %@;\n\t\t}\n"
+		"\t\t.post-content, p, li, td, th, pre {\n\t\t\tfont-family: %@;\n\t\t\tfont-size: %.2fpx;\n\t\t\tcolor: %@;\n\t\t}\n"
+		"\t\tblockquote {\n\t\t\tcolor: %@;\n\t\t\tborder-left-color: %@;\n\t\t}\n"
+		"\t\ta {\n\t\t\tcolor: %@;\n\t\t}\n",
+		reader_highlight_background,
+		background_hex,
+		text_color,
+		font_css,
+		content_font_size,
+		font_css,
+		title_font_size,
+		text_color,
+		font_css,
+		content_font_size,
+		text_color,
+		quote_color,
+		quote_border_color,
+		link_color
+	];
+}
+
+- (NSString*) initialThemeStyleBlockForReadingRecap
+{
+	NSString* background_hex = [self preferredTextBackgroundHex];
+	NSString* font_css = [self preferredTextFontCSS];
+	CGFloat content_font_size = [self preferredTextPointSize];
+	BOOL is_dark_background = [self isDarkColorHexString:background_hex];
+	NSString* text_color = is_dark_background ? @"#f2f3f5" : @"#1d1d1f";
+	NSString* link_color = is_dark_background ? @"#9ec5ff" : @"#0b57d0";
+
+	return [NSString stringWithFormat:
+		@"\n\t\thtml, body {\n\t\t\tbackground-color: %@;\n\t\t\tcolor: %@;\n\t\t}\n"
+		"\t\tbody, .content, .reading-recap {\n\t\t\tfont-family: %@;\n\t\t\tfont-size: %.2fpx;\n\t\t\tcolor: %@;\n\t\t}\n"
+		"\t\t.reading-recap a {\n\t\t\tcolor: %@;\n\t\t}\n",
+		background_hex,
+		text_color,
+		font_css,
+		content_font_size,
+		text_color,
+		link_color
+	];
+}
+
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations
 {
 	if (tag.length == 0 || style_declarations.length == 0) {
@@ -1058,10 +1162,11 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) htmlForPostTitle:(NSString*) title author:(NSString*) author siteTitle:(NSString*) site_title content:(NSString*) content
 {
 	NSString* template_html = [self postHTMLTemplate];
+	NSString* themed_template_html = [template_html stringByReplacingOccurrencesOfString:InkwellInitialThemeStyleToken withString:[self initialThemeStyleBlockForPosts]];
 	NSString* safe_title = title ?: @"";
 	NSString* raw_author = author ?: @"";
 	NSString* safe_content = content ?: @"";
-	NSString* html = [template_html stringByReplacingOccurrencesOfString:InkwellPostTitleToken withString:safe_title];
+	NSString* html = [themed_template_html stringByReplacingOccurrencesOfString:InkwellPostTitleToken withString:safe_title];
 	NSString* trimmed_author = [raw_author stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* trimmed_site_title = [site_title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* safe_author = [self escapedHTMLString:trimmed_author];
@@ -1077,8 +1182,9 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) htmlForReadingRecapContent:(NSString*) content
 {
 	NSString* template_html = [self recapHTMLTemplate];
+	NSString* themed_template_html = [template_html stringByReplacingOccurrencesOfString:InkwellInitialThemeStyleToken withString:[self initialThemeStyleBlockForReadingRecap]];
 	NSString* safe_content = content ?: @"";
-	return [template_html stringByReplacingOccurrencesOfString:InkwellPostContentToken withString:safe_content];
+	return [themed_template_html stringByReplacingOccurrencesOfString:InkwellPostContentToken withString:safe_content];
 }
 
 - (NSString *) postHTMLTemplate
@@ -1232,16 +1338,32 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 - (BOOL) prefersDarkSystemAppearance
 {
-	NSAppearance* appearance = self.view.effectiveAppearance ?: NSApp.effectiveAppearance;
-	if (appearance == nil) {
-		return NO;
+	if (self.view.window == nil) {
+		return [self systemInterfaceStyleIsDark];
 	}
 
-	NSAppearanceName matched_appearance = [appearance bestMatchFromAppearancesWithNames:@[
-		NSAppearanceNameAqua,
-		NSAppearanceNameDarkAqua
-	]];
-	return [matched_appearance isEqualToString:NSAppearanceNameDarkAqua];
+	NSAppearance* appearance = self.view.effectiveAppearance ?: NSApp.effectiveAppearance;
+	if (appearance != nil) {
+		NSAppearanceName matched_appearance = [appearance bestMatchFromAppearancesWithNames:@[
+			NSAppearanceNameAqua,
+			NSAppearanceNameDarkAqua
+		]];
+		if ([matched_appearance isEqualToString:NSAppearanceNameDarkAqua]) {
+			return YES;
+		}
+		if ([matched_appearance isEqualToString:NSAppearanceNameAqua]) {
+			return NO;
+		}
+	}
+
+	return [self systemInterfaceStyleIsDark];
+}
+
+- (BOOL) systemInterfaceStyleIsDark
+{
+	NSString* interface_style = [[NSUserDefaults standardUserDefaults] stringForKey:@"AppleInterfaceStyle"] ?: @"";
+	NSString* normalized_style = [interface_style stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return ([normalized_style caseInsensitiveCompare:@"Dark"] == NSOrderedSame);
 }
 
 - (NSString*) preferredTextFontCSS
