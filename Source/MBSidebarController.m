@@ -38,6 +38,7 @@ static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
+static NSString* const InkwellSidebarSelectedEntryCacheFilename = @"SidebarSelectedEntry.json";
 static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
 static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
@@ -294,9 +295,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) resetAllPostsModeState;
 - (void) cacheRecentEntries;
 - (NSURL* _Nullable) recentEntriesCacheURL;
+- (NSURL* _Nullable) selectedEntryCacheURL;
 - (NSDictionary*) serializedRecentEntriesPayload;
 - (NSDictionary*) dictionaryFromEntry:(MBEntry*) entry;
 - (MBEntry* _Nullable) entryFromDictionary:(NSDictionary*) dictionary;
+- (MBEntry* _Nullable) cachedSelectedEntry;
+- (void) cacheSelectedEntry:(MBEntry*) entry;
+- (void) removeCachedSelectedEntry;
+- (void) showCachedSelectedEntryIfNeeded;
 - (NSString*) normalizedContentHTMLString:(NSString*) string;
 - (NSString*) iso8601StringFromDate:(NSDate* _Nullable) date;
 - (NSArray*) fadingItems;
@@ -566,54 +572,48 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	NSURL* cache_url = [self recentEntriesCacheURL];
-	if (cache_url == nil) {
-		return;
-	}
+	if (cache_url != nil) {
+		NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+		if (data.length > 0) {
+			id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+			NSArray* serialized_items = nil;
+			NSDictionary* icons_by_host = nil;
+			if ([payload isKindOfClass:[NSDictionary class]]) {
+				serialized_items = [(NSDictionary*) payload objectForKey:@"items"];
+				icons_by_host = [(NSDictionary*) payload objectForKey:@"icons_by_host"];
+			}
+			else if ([payload isKindOfClass:[NSArray class]]) {
+				serialized_items = (NSArray*) payload;
+			}
 
-	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
-	if (data.length == 0) {
-		return;
-	}
+			if ([serialized_items isKindOfClass:[NSArray class]]) {
+				NSMutableArray* cached_items = [NSMutableArray array];
+				for (id object in serialized_items) {
+					if (![object isKindOfClass:[NSDictionary class]]) {
+						continue;
+					}
 
-	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-	NSArray* serialized_items = nil;
-	NSDictionary* icons_by_host = nil;
-	if ([payload isKindOfClass:[NSDictionary class]]) {
-		serialized_items = [(NSDictionary*) payload objectForKey:@"items"];
-		icons_by_host = [(NSDictionary*) payload objectForKey:@"icons_by_host"];
-	}
-	else if ([payload isKindOfClass:[NSArray class]]) {
-		serialized_items = (NSArray*) payload;
-	}
+					MBEntry* entry = [self entryFromDictionary:(NSDictionary*) object];
+					if (entry == nil) {
+						continue;
+					}
 
-	if (![serialized_items isKindOfClass:[NSArray class]]) {
-		return;
-	}
+					[cached_items addObject:entry];
+				}
 
-	NSMutableArray* cached_items = [NSMutableArray array];
-	for (id object in serialized_items) {
-		if (![object isKindOfClass:[NSDictionary class]]) {
-			continue;
+				if (cached_items.count > 0) {
+					self.allItems = [cached_items copy];
+					if ([icons_by_host isKindOfClass:[NSDictionary class]]) {
+						self.iconURLByHost = [self normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host];
+						[self.client primeFeedIconsCacheWithMap:self.iconURLByHost];
+					}
+					[self applyFiltersAndReload];
+				}
+			}
 		}
-
-		MBEntry* entry = [self entryFromDictionary:(NSDictionary*) object];
-		if (entry == nil) {
-			continue;
-		}
-
-		[cached_items addObject:entry];
 	}
 
-	if (cached_items.count == 0) {
-		return;
-	}
-
-	self.allItems = [cached_items copy];
-	if ([icons_by_host isKindOfClass:[NSDictionary class]]) {
-		self.iconURLByHost = [self normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host];
-		[self.client primeFeedIconsCacheWithMap:self.iconURLByHost];
-	}
-	[self applyFiltersAndReload];
+	[self showCachedSelectedEntryIfNeeded];
 }
 
 - (void) reloadData
@@ -1118,6 +1118,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:InkwellRecentEntriesCacheFilename createDirectoryIfNeeded:YES];
 }
 
+- (NSURL* _Nullable) selectedEntryCacheURL
+{
+	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:InkwellSidebarSelectedEntryCacheFilename createDirectoryIfNeeded:YES];
+}
+
 - (void) cacheRecentEntries
 {
 	NSURL* cache_url = [self recentEntriesCacheURL];
@@ -1132,6 +1137,98 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	[data writeToURL:cache_url atomically:YES];
+}
+
+- (MBEntry* _Nullable) cachedSelectedEntry
+{
+	NSInteger saved_entry_id = [self savedSelectedEntryID];
+	if (saved_entry_id <= 0) {
+		return nil;
+	}
+
+	NSURL* cache_url = [self selectedEntryCacheURL];
+	if (cache_url == nil) {
+		return nil;
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+	if (data.length == 0) {
+		return nil;
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSDictionary* entry_dictionary = nil;
+	NSDictionary* payload_dictionary = (NSDictionary*) payload;
+	if ([payload_dictionary[@"entry"] isKindOfClass:[NSDictionary class]]) {
+		entry_dictionary = payload_dictionary[@"entry"];
+	}
+	else {
+		entry_dictionary = payload_dictionary;
+	}
+
+	MBEntry* entry = [self entryFromDictionary:entry_dictionary];
+	if (entry == nil || entry.entryID != saved_entry_id) {
+		return nil;
+	}
+
+	return entry;
+}
+
+- (void) cacheSelectedEntry:(MBEntry*) entry
+{
+	if (![entry isKindOfClass:[MBEntry class]] || entry.entryID <= 0 || entry.isBookmarkEntry) {
+		return;
+	}
+
+	NSURL* cache_url = [self selectedEntryCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	NSDictionary* entry_dictionary = [self dictionaryFromEntry:entry];
+	if (entry_dictionary.count == 0) {
+		return;
+	}
+
+	NSData* data = [NSJSONSerialization dataWithJSONObject:entry_dictionary options:0 error:nil];
+	if (data.length == 0) {
+		return;
+	}
+
+	[data writeToURL:cache_url atomically:YES];
+}
+
+- (void) removeCachedSelectedEntry
+{
+	NSURL* cache_url = [self selectedEntryCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	[[NSFileManager defaultManager] removeItemAtURL:cache_url error:nil];
+}
+
+- (void) showCachedSelectedEntryIfNeeded
+{
+	if (self.contentMode != MBSidebarContentModeFeeds || self.selectionChangedHandler == nil) {
+		return;
+	}
+
+	MBEntry* cached_entry = [self cachedSelectedEntry];
+	if (cached_entry == nil) {
+		return;
+	}
+
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item != nil && selected_item.entryID > 0 && selected_item.entryID != cached_entry.entryID) {
+		return;
+	}
+
+	self.selectionChangedHandler(cached_entry);
 }
 
 - (NSDictionary*) serializedRecentEntriesPayload
@@ -1653,16 +1750,18 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
 	[defaults removeObjectForKey:InkwellSidebarSelectedEntryIDDefaultsKey];
+	[self removeCachedSelectedEntry];
 }
 
 - (void) saveSelectedEntryIDForCurrentSelection
 {
-	if ([self isShowingSpecialMode]) {
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.items.count) {
+		[self removeCachedSelectedEntry];
 		return;
 	}
 
-	NSInteger selected_row = self.tableView.selectedRow;
-	if (selected_row < 0 || selected_row >= self.items.count) {
+	if ([self isShowingSpecialMode]) {
 		return;
 	}
 
@@ -1673,6 +1772,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
 	[defaults setInteger:selected_item.entryID forKey:InkwellSidebarSelectedEntryIDDefaultsKey];
+	[self cacheSelectedEntry:selected_item];
 }
 
 - (void) deselectSidebarSelectionPreservingDetail
@@ -2604,6 +2704,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSInteger selected_row = self.tableView.selectedRow;
 	if (selected_row >= 0 && selected_row < self.items.count) {
 		MBEntry *item = self.items[(NSUInteger) selected_row];
+		if (![self isShowingSpecialMode] && item.entryID > 0 && !item.isBookmarkEntry) {
+			[self cacheSelectedEntry:item];
+		}
 		[self markSelectedItemAsReadIfNeeded:item atRow:selected_row];
 		if (self.selectionChangedHandler != nil) {
 			self.selectionChangedHandler(item);
