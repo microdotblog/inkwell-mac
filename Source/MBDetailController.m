@@ -20,6 +20,7 @@ static NSString* const InkwellPostAuthorToken = @"[AUTHOR]";
 static NSString* const InkwellPostContentToken = @"[CONTENT]";
 static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
 static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
+static NSString* const InkwellHighlightHoverScriptMessageName = @"highlightHover";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -27,13 +28,16 @@ static NSString* const InkwellReaderHighlightLightBackgroundHex = @"#FFF9D6";
 static NSString* const InkwellReaderHighlightDarkBackgroundHex = @"#A96733";
 static NSString* const InkwellPreferencesDarkBlueBackgroundHex = @"#1c2435";
 static NSString* const InkwellPreferencesBlackBackgroundHex = @"#000000";
+static NSInteger const InkwellDetailDeleteHighlightContextMenuItemTag = 7100;
 static NSInteger const InkwellDetailHighlightContextMenuItemTag = 7101;
 static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 @interface MBDetailWebView : WKWebView
 
 @property (copy, nullable) BOOL (^focusSidebarHandler)(void);
+@property (copy, nullable) void (^deleteHoveredHighlightHandler)(void);
 @property (copy, nullable) BOOL (^shouldShowHighlightMenuItemHandler)(void);
+@property (copy, nullable) BOOL (^shouldShowDeleteHighlightMenuItemHandler)(void);
 
 @end
 
@@ -64,6 +68,11 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		return;
 	}
 
+	while ([menu indexOfItemWithTag:InkwellDetailDeleteHighlightContextMenuItemTag] != -1) {
+		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailDeleteHighlightContextMenuItemTag];
+		[menu removeItemAtIndex:existing_index];
+	}
+
 	while ([menu indexOfItemWithTag:InkwellDetailHighlightContextMenuItemTag] != -1) {
 		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailHighlightContextMenuItemTag];
 		[menu removeItemAtIndex:existing_index];
@@ -74,24 +83,47 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		[menu removeItemAtIndex:existing_index];
 	}
 
+	BOOL should_show_delete_highlight_item = NO;
+	if (self.shouldShowDeleteHighlightMenuItemHandler != nil) {
+		should_show_delete_highlight_item = self.shouldShowDeleteHighlightMenuItemHandler();
+	}
+
 	BOOL should_show_highlight_item = NO;
 	if (self.shouldShowHighlightMenuItemHandler != nil) {
 		should_show_highlight_item = self.shouldShowHighlightMenuItemHandler();
 	}
-	if (!should_show_highlight_item) {
+	if (!should_show_delete_highlight_item && !should_show_highlight_item) {
 		return;
 	}
 
-	SEL highlight_selector = NSSelectorFromString(@"highlightSelectedItem:");
-	NSMenuItem* highlight_item = [[NSMenuItem alloc] initWithTitle:@"Highlight" action:highlight_selector keyEquivalent:@""];
-	highlight_item.target = nil;
-	highlight_item.tag = InkwellDetailHighlightContextMenuItemTag;
-	highlight_item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
 	NSMenuItem* separator_item = [NSMenuItem separatorItem];
 	separator_item.tag = InkwellDetailHighlightContextMenuSeparatorTag;
 
 	[menu insertItem:separator_item atIndex:0];
-	[menu insertItem:highlight_item atIndex:0];
+	if (should_show_highlight_item) {
+		SEL highlight_selector = NSSelectorFromString(@"highlightSelectedItem:");
+		NSMenuItem* highlight_item = [[NSMenuItem alloc] initWithTitle:@"Highlight" action:highlight_selector keyEquivalent:@""];
+		highlight_item.target = nil;
+		highlight_item.tag = InkwellDetailHighlightContextMenuItemTag;
+		highlight_item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
+		[menu insertItem:highlight_item atIndex:0];
+	}
+	if (should_show_delete_highlight_item) {
+		NSMenuItem* delete_item = [[NSMenuItem alloc] initWithTitle:@"Delete Highlight" action:@selector(deleteHoveredHighlight:) keyEquivalent:@""];
+		delete_item.target = self;
+		delete_item.tag = InkwellDetailDeleteHighlightContextMenuItemTag;
+		[menu insertItem:delete_item atIndex:0];
+	}
+}
+
+- (IBAction) deleteHoveredHighlight:(id) sender
+{
+	#pragma unused(sender)
+	if (self.deleteHoveredHighlightHandler == nil) {
+		return;
+	}
+
+	self.deleteHoveredHighlightHandler();
 }
 
 @end
@@ -139,6 +171,9 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 @property (strong) MBDetailWebView* webView;
 @property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
 @property (strong) MBWeakScriptMessageHandler* scrollScriptMessageHandler;
+@property (strong) MBWeakScriptMessageHandler* highlightHoverScriptMessageHandler;
+@property (strong, nullable) MBHighlight* hoveredHighlight;
+@property (assign) BOOL isDeletingHighlight;
 @property (strong) NSVisualEffectView* topBarView;
 @property (assign) BOOL hasTextSelection;
 @property (assign) BOOL isTopBarMaterialVisible;
@@ -155,12 +190,29 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (NSString*) normalizedRecapColorString:(NSString*) color_hex;
 - (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
 - (BOOL) hasStoredTextBackgroundPreference;
+- (BOOL) canDeleteHighlight:(MBHighlight*) highlight;
+- (BOOL) canDeleteHoveredHighlight;
+- (MBHighlight* _Nullable) highlightForHoverIdentifier:(NSString*) highlight_id;
+- (void) clearHoveredHighlight;
+- (void) updateHoveredHighlightWithScriptMessageBody:(id) body;
+- (void) promptToDeleteHoveredHighlight:(id) sender;
+- (void) deleteHighlight:(MBHighlight*) highlight;
+- (void) presentDeleteError:(NSError*) error;
 - (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex;
 - (BOOL) prefersDarkSystemAppearance;
 
 @end
 
 @implementation MBDetailController
+
+- (instancetype) init
+{
+	self = [super init];
+	if (self) {
+		self.token = @"";
+	}
+	return self;
+}
 
 - (void) loadView
 {
@@ -177,8 +229,10 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	WKUserContentController* user_content_controller = [[WKUserContentController alloc] init];
 	self.selectionScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	self.scrollScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
+	self.highlightHoverScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	[user_content_controller addScriptMessageHandler:self.selectionScriptMessageHandler name:InkwellSelectionChangedScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.scrollScriptMessageHandler name:InkwellScrollChangedScriptMessageName];
+	[user_content_controller addScriptMessageHandler:self.highlightHoverScriptMessageHandler name:InkwellHighlightHoverScriptMessageName];
 
 	WKUserScript* selection_script = [[WKUserScript alloc] initWithSource:[self selectionObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:selection_script];
@@ -210,6 +264,22 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 		return (strong_self.hasTextSelection && strong_self.currentEntryID > 0);
 	};
+	web_view.shouldShowDeleteHighlightMenuItemHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self canDeleteHoveredHighlight];
+	};
+	web_view.deleteHoveredHighlightHandler = ^{
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self promptToDeleteHoveredHighlight:nil];
+	};
 	[root_view addSubview:web_view];
 	[root_view addSubview:top_bar_view];
 	[NSLayoutConstraint activateConstraints:@[
@@ -232,6 +302,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 {
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellSelectionChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellScrollChangedScriptMessageName];
+	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellHighlightHoverScriptMessageName];
 }
 
 - (BOOL) hasSelection
@@ -300,6 +371,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 {
 	[self updateSelectionState:NO];
 	[self updateTopBarMaterialForScrolledDown:NO];
+	[self clearHoveredHighlight];
 
 	if (item == nil) {
 		self.currentEntryID = 0;
@@ -336,6 +408,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 {
 	[self updateSelectionState:NO];
 	[self updateTopBarMaterialForScrolledDown:NO];
+	[self clearHoveredHighlight];
 	self.currentEntryID = 0;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
@@ -347,15 +420,22 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 {
 	#pragma unused(user_content_controller)
 
-	if (![script_message.name isEqualToString:InkwellSelectionChangedScriptMessageName]) {
-		if ([script_message.name isEqualToString:InkwellScrollChangedScriptMessageName]) {
-			BOOL is_scrolled_down = NO;
-			if ([script_message.body respondsToSelector:@selector(boolValue)]) {
-				is_scrolled_down = [(id) script_message.body boolValue];
-			}
-
-			[self updateTopBarMaterialForScrolledDown:is_scrolled_down];
+	if ([script_message.name isEqualToString:InkwellScrollChangedScriptMessageName]) {
+		BOOL is_scrolled_down = NO;
+		if ([script_message.body respondsToSelector:@selector(boolValue)]) {
+			is_scrolled_down = [(id) script_message.body boolValue];
 		}
+
+		[self updateTopBarMaterialForScrolledDown:is_scrolled_down];
+		return;
+	}
+
+	if ([script_message.name isEqualToString:InkwellHighlightHoverScriptMessageName]) {
+		[self updateHoveredHighlightWithScriptMessageBody:script_message.body];
+		return;
+	}
+
+	if (![script_message.name isEqualToString:InkwellSelectionChangedScriptMessageName]) {
 		return;
 	}
 
@@ -392,6 +472,8 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 - (void) refreshHighlights
 {
+	[self clearHoveredHighlight];
+
 	NSArray* highlights = @[];
 	if (self.currentEntryID > 0 && self.highlightsProvider != nil) {
 		NSArray* provided_highlights = self.highlightsProvider(self.currentEntryID);
@@ -417,10 +499,14 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 			continue;
 		}
 
-		NSDictionary* dictionary = @{
+		NSMutableDictionary* dictionary = [@{
 			@"start_offset": @(start_offset),
-			@"end_offset": @(end_offset)
-		};
+			@"end_offset": @(end_offset),
+			@"id": highlight.localID ?: @""
+		} mutableCopy];
+		if (highlight.highlightID.length > 0) {
+			dictionary[@"highlight_id"] = highlight.highlightID;
+		}
 		[range_payload addObject:dictionary];
 	}
 
@@ -435,6 +521,164 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 	NSString* script = [NSString stringWithFormat:@"if (window.inkwellHighlights && window.inkwellHighlights.restoreHighlights) { window.inkwellHighlights.restoreHighlights(%@); }", json_string];
 	[self.webView evaluateJavaScript:script completionHandler:nil];
+}
+
+- (BOOL) canDeleteHighlight:(MBHighlight*) highlight
+{
+	if (self.isDeletingHighlight || self.client == nil || self.token.length == 0) {
+		return NO;
+	}
+	if (![highlight isKindOfClass:[MBHighlight class]] || highlight.entryID <= 0) {
+		return NO;
+	}
+
+	NSString* highlight_id = [highlight.highlightID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (highlight_id.length > 0);
+}
+
+- (BOOL) canDeleteHoveredHighlight
+{
+	return [self canDeleteHighlight:self.hoveredHighlight];
+}
+
+- (MBHighlight* _Nullable) highlightForHoverIdentifier:(NSString*) highlight_id
+{
+	NSString* trimmed_highlight_id = [highlight_id stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_highlight_id.length == 0 || self.currentEntryID <= 0 || self.highlightsProvider == nil) {
+		return nil;
+	}
+
+	NSArray* highlights = self.highlightsProvider(self.currentEntryID);
+	if (![highlights isKindOfClass:[NSArray class]]) {
+		return nil;
+	}
+
+	for (id object in highlights) {
+		if (![object isKindOfClass:[MBHighlight class]]) {
+			continue;
+		}
+
+		MBHighlight* highlight = (MBHighlight*) object;
+		if (highlight.entryID != self.currentEntryID) {
+			continue;
+		}
+
+		NSString* remote_highlight_id = [highlight.highlightID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		NSString* local_highlight_id = [highlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([remote_highlight_id isEqualToString:trimmed_highlight_id] || [local_highlight_id isEqualToString:trimmed_highlight_id]) {
+			return highlight;
+		}
+	}
+
+	return nil;
+}
+
+- (void) clearHoveredHighlight
+{
+	self.hoveredHighlight = nil;
+}
+
+- (void) updateHoveredHighlightWithScriptMessageBody:(id) body
+{
+	if (![body isKindOfClass:[NSDictionary class]]) {
+		[self clearHoveredHighlight];
+		return;
+	}
+
+	NSDictionary* payload = (NSDictionary*) body;
+	NSString* event_name = [[payload[@"event"] description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* highlight_id = [[payload[@"highlight_id"] description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (event_name.length == 0 || highlight_id.length == 0) {
+		[self clearHoveredHighlight];
+		return;
+	}
+
+	if ([event_name isEqualToString:@"mouseover"]) {
+		self.hoveredHighlight = [self highlightForHoverIdentifier:highlight_id];
+		return;
+	}
+
+	if ([event_name isEqualToString:@"mouseout"]) {
+		NSString* hovered_highlight_id = [self.hoveredHighlight.highlightID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		NSString* hovered_local_id = [self.hoveredHighlight.localID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([hovered_highlight_id isEqualToString:highlight_id] || [hovered_local_id isEqualToString:highlight_id]) {
+			[self clearHoveredHighlight];
+		}
+	}
+}
+
+- (IBAction) promptToDeleteHoveredHighlight:(id) sender
+{
+	#pragma unused(sender)
+	MBHighlight* highlight = self.hoveredHighlight;
+	NSWindow* window = self.view.window ?: self.webView.window;
+	if (![self canDeleteHighlight:highlight] || window == nil) {
+		return;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Delete Highlight?";
+	alert.informativeText = @"This will delete the selected highlight from your account.";
+	[alert addButtonWithTitle:@"Delete"];
+	[alert addButtonWithTitle:@"Cancel"];
+
+	__weak typeof(self) weak_self = self;
+	[alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse return_code) {
+		if (return_code != NSAlertFirstButtonReturn) {
+			return;
+		}
+
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self deleteHighlight:highlight];
+	}];
+}
+
+- (void) deleteHighlight:(MBHighlight*) highlight
+{
+	if (![self canDeleteHighlight:highlight]) {
+		return;
+	}
+
+	self.isDeletingHighlight = YES;
+	[self clearHoveredHighlight];
+
+	__weak typeof(self) weak_self = self;
+	[self.client deleteHighlight:highlight token:self.token completion:^(NSError* _Nullable error) {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.isDeletingHighlight = NO;
+		if (error != nil) {
+			[strong_self presentDeleteError:error];
+			return;
+		}
+
+		[strong_self refreshHighlights];
+		if (strong_self.highlightDeletedHandler != nil) {
+			strong_self.highlightDeletedHandler(highlight);
+		}
+	}];
+}
+
+- (void) presentDeleteError:(NSError*) error
+{
+	NSWindow* window = self.view.window ?: self.webView.window;
+	if (error == nil || window == nil) {
+		return;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Delete Failed";
+	alert.informativeText = error.localizedDescription ?: @"The highlight could not be deleted.";
+	[alert beginSheetModalForWindow:window completionHandler:nil];
 }
 
 - (void) applyPreferredTextSettings

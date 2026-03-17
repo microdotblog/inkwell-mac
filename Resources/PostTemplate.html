@@ -179,6 +179,18 @@
 				content.normalize();
 			}
 
+			function parseHighlightID(item) {
+				if (!item || typeof item != "object") {
+					return "";
+				}
+
+				const raw_id = (item.highlight_id != null)
+					? item.highlight_id
+					: ((item.id != null) ? item.id : item.local_id);
+				const highlight_id = String(raw_id ?? "").trim();
+				return highlight_id;
+			}
+
 			function parseOffsetRange(item) {
 				if (!item || typeof item != "object") {
 					return null;
@@ -204,7 +216,8 @@
 
 				return {
 					start_offset: normalized_start,
-					end_offset: normalized_end
+					end_offset: normalized_end,
+					highlight_id: parseHighlightID(item)
 				};
 			}
 
@@ -221,7 +234,8 @@
 				for (let i = 1; i < ranges.length; i++) {
 					const range = ranges[i];
 					const last_range = merged[merged.length - 1];
-					if (range.start_offset > last_range.end_offset) {
+					const same_highlight_id = range.highlight_id == last_range.highlight_id;
+					if (!same_highlight_id || range.start_offset > last_range.end_offset) {
 						merged.push(range);
 						continue;
 					}
@@ -263,7 +277,8 @@
 								node: node,
 								start_offset: overlap_start - node_start,
 								end_offset: overlap_end - node_start,
-								absolute_start: overlap_start
+								absolute_start: overlap_start,
+								highlight_id: range.highlight_id
 							});
 						});
 					}
@@ -275,9 +290,12 @@
 				return segments;
 			}
 
-			function wrapReaderHighlightRange(range) {
+			function wrapReaderHighlightRange(range, highlight_id) {
 				const span = document.createElement("span");
 				span.className = "reader-highlight-text";
+				if (highlight_id && highlight_id.length > 0) {
+					span.dataset.highlightId = highlight_id;
+				}
 				try {
 					range.surroundContents(span);
 				}
@@ -322,9 +340,67 @@
 					const range = document.createRange();
 					range.setStart(segment.node, start_offset);
 					range.setEnd(segment.node, end_offset);
-					wrapReaderHighlightRange(range);
+					wrapReaderHighlightRange(range, segment.highlight_id);
 				});
 			}
+
+			function highlightNodeForEventTarget(target) {
+				if (!target) {
+					return null;
+				}
+
+				if (target.nodeType == Node.ELEMENT_NODE) {
+					return target.closest("span.reader-highlight-text");
+				}
+				if (target.parentElement) {
+					return target.parentElement.closest("span.reader-highlight-text");
+				}
+
+				return null;
+			}
+
+			function handleHighlightMouseEvent(event_name, event) {
+				const highlight_node = highlightNodeForEventTarget(event.target);
+				if (!highlight_node) {
+					return;
+				}
+
+				const highlight_id = highlight_node.dataset.highlightId;
+				if (!highlight_id) {
+					return;
+				}
+
+				const related_highlight_node = highlightNodeForEventTarget(event.relatedTarget);
+				if (related_highlight_node?.dataset.highlightId == highlight_id) {
+					return;
+				}
+
+				const message_handler = window.webkit?.messageHandlers?.highlightHover;
+				if (!message_handler || typeof message_handler.postMessage != "function") {
+					return;
+				}
+
+				message_handler.postMessage({
+					event: event_name,
+					highlight_id: highlight_id
+				});
+			}
+
+			function installReaderHighlightLogging() {
+				if (window.__inkwellReaderHighlightLoggingInstalled) {
+					return;
+				}
+
+				document.addEventListener("mouseover", (event) => {
+					handleHighlightMouseEvent("mouseover", event);
+				});
+				document.addEventListener("mouseout", (event) => {
+					handleHighlightMouseEvent("mouseout", event);
+				});
+				window.__inkwellReaderHighlightLoggingInstalled = true;
+			}
+
+			installReaderHighlightLogging();
 
 			window.inkwellHighlights = {
 				getSelectionPayload: getSelectionPayload,

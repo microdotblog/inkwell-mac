@@ -364,6 +364,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 {
 	self.sidebarController = [[MBSidebarController alloc] init];
 	self.detailController = [[MBDetailController alloc] init];
+	self.detailController.client = self.client;
+	self.detailController.token = self.token ?: @"";
 
 	__weak typeof(self) weak_self = self;
 	self.sidebarController.selectionChangedHandler = ^(MBEntry * _Nullable item) {
@@ -412,6 +414,15 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	};
 	self.detailController.highlightsProvider = ^NSArray* (NSInteger entry_id) {
 		return [weak_self.client cachedHighlightsForEntryID:entry_id];
+	};
+	self.detailController.highlightDeletedHandler = ^(MBHighlight* highlight) {
+		#pragma unused(highlight)
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil || strong_self.highlightsController == nil) {
+			return;
+		}
+
+		[strong_self.highlightsController reloadHighlights];
 	};
 	self.sidebarController.readingRecapHandler = ^(NSString* html) {
 		[weak_self.detailController showReadingRecapHTML:html];
