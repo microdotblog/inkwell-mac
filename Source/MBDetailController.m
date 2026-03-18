@@ -38,6 +38,7 @@ static CGFloat const InkwellDetailLinkBubbleHorizontalInset = 14.0;
 static CGFloat const InkwellDetailLinkBubbleBottomInset = 14.0;
 static CGFloat const InkwellDetailLinkBubbleHorizontalPadding = 12.0;
 static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
+static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 @interface MBDetailWebView : WKWebView
 
@@ -332,6 +333,7 @@ static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
 		[hovered_link_bubble_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor constant:InkwellDetailLinkBubbleHorizontalInset],
 		[hovered_link_bubble_view.bottomAnchor constraintEqualToAnchor:root_view.safeAreaLayoutGuide.bottomAnchor constant:-InkwellDetailLinkBubbleBottomInset],
 		[hovered_link_bubble_view.trailingAnchor constraintLessThanOrEqualToAnchor:root_view.trailingAnchor constant:-InkwellDetailLinkBubbleHorizontalInset],
+		[hovered_link_bubble_view.widthAnchor constraintLessThanOrEqualToConstant:InkwellDetailLinkBubbleMaxWidth],
 		[hovered_link_text_field.topAnchor constraintEqualToAnchor:hovered_link_bubble_view.topAnchor constant:InkwellDetailLinkBubbleVerticalPadding],
 		[hovered_link_text_field.bottomAnchor constraintEqualToAnchor:hovered_link_bubble_view.bottomAnchor constant:-InkwellDetailLinkBubbleVerticalPadding],
 		[hovered_link_text_field.leadingAnchor constraintEqualToAnchor:hovered_link_bubble_view.leadingAnchor constant:InkwellDetailLinkBubbleHorizontalPadding],
