@@ -9,6 +9,7 @@
 #import "MBClient.h"
 #import "MBEntry.h"
 #import "MBHighlight.h"
+#import "MBLinkHoverBubble.h"
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellDetailTopBarHeight = 52.0;
@@ -23,7 +24,6 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellHighlightHoverScriptMessageName = @"highlightHover";
 static NSString* const InkwellLinkHoverScriptMessageName = @"linkHover";
-static NSString* const InkwellHoverBackgroundColorName = @"color_hover_background";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -34,7 +34,6 @@ static NSString* const InkwellPreferencesBlackBackgroundHex = @"#000000";
 static NSInteger const InkwellDetailDeleteHighlightContextMenuItemTag = 7100;
 static NSInteger const InkwellDetailHighlightContextMenuItemTag = 7101;
 static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
-static CGFloat const InkwellDetailLinkBubbleCornerRadius = 14.0;
 static CGFloat const InkwellDetailLinkBubbleHorizontalInset = 14.0;
 static CGFloat const InkwellDetailLinkBubbleBottomInset = 14.0;
 static CGFloat const InkwellDetailLinkBubbleHorizontalPadding = 12.0;
@@ -148,44 +147,6 @@ static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
 
 @end
 
-@interface MBDetailLinkHoverBubbleView : NSView
-@end
-
-@implementation MBDetailLinkHoverBubbleView
-
-- (instancetype) initWithFrame:(NSRect) frame_rect
-{
-	self = [super initWithFrame:frame_rect];
-	if (self) {
-		self.translatesAutoresizingMaskIntoConstraints = NO;
-		self.wantsLayer = YES;
-		self.layer.cornerRadius = InkwellDetailLinkBubbleCornerRadius;
-		self.layer.masksToBounds = YES;
-		[self updateBubbleBackgroundColor];
-	}
-	return self;
-}
-
-- (NSView*) hitTest:(NSPoint) point
-{
-	#pragma unused(point)
-	return nil;
-}
-
-- (void) viewDidChangeEffectiveAppearance
-{
-	[super viewDidChangeEffectiveAppearance];
-	[self updateBubbleBackgroundColor];
-}
-
-- (void) updateBubbleBackgroundColor
-{
-	NSColor* bubble_background_color = [NSColor colorNamed:InkwellHoverBackgroundColorName];
-	self.layer.backgroundColor = bubble_background_color.CGColor;
-}
-
-@end
-
 @interface MBWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
@@ -222,7 +183,7 @@ static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
 @property (strong, nullable) MBHighlight* hoveredHighlight;
 @property (assign) BOOL isDeletingHighlight;
 @property (strong) NSVisualEffectView* topBarView;
-@property (strong) MBDetailLinkHoverBubbleView* hoveredLinkBubbleView;
+@property (strong) MBLinkHoverBubble* hoveredLinkBubbleView;
 @property (strong) NSTextField* hoveredLinkTextField;
 @property (copy) NSString* hoveredLinkURLString;
 @property (assign) BOOL hasTextSelection;
@@ -342,7 +303,7 @@ static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
 		[strong_self promptToDeleteHoveredHighlight:nil];
 	};
 
-	MBDetailLinkHoverBubbleView* hovered_link_bubble_view = [[MBDetailLinkHoverBubbleView alloc] initWithFrame:NSZeroRect];
+	MBLinkHoverBubble* hovered_link_bubble_view = [[MBLinkHoverBubble alloc] initWithFrame:NSZeroRect];
 	hovered_link_bubble_view.hidden = YES;
 
 	NSTextField* hovered_link_text_field = [NSTextField labelWithString:@""];
