@@ -11,17 +11,12 @@
 #import "MBEntry.h"
 #import "MBPathUtilities.h"
 #import "MBRoundedImageView.h"
+#import "MBSidebarCell.h"
 #import "MBSubscription.h"
 #import "NSStrings+Extras.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSUserInterfaceItemIdentifier const InkwellSidebarRowIdentifier = @"InkwellSidebarRow";
-static NSInteger const InkwellSidebarAvatarTag = 1000;
-static NSInteger const InkwellSidebarTitleTag = 1001;
-static NSInteger const InkwellSidebarSubtitleTag = 1002;
-static NSInteger const InkwellSidebarSubscriptionTag = 1003;
-static NSInteger const InkwellSidebarDateTag = 1004;
-static NSInteger const InkwellSidebarBookmarkTag = 1005;
 static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarAvatarInset = 3.0;
 static CGFloat const InkwellSidebarTextInset = 10.0;
@@ -203,19 +198,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[super drawSelectionInRect:dirty_rect];
 }
 
-@end
-
-@interface MBSidebarCellView : NSTableCellView
-
-@property (strong) NSLayoutConstraint* subscriptionTopWithSubtitleConstraint;
-@property (strong) NSLayoutConstraint* subscriptionTopWithoutSubtitleConstraint;
-@property (strong) NSLayoutConstraint* dateTopWithSubscriptionConstraint;
-@property (strong) NSLayoutConstraint* dateTopWithSubtitleConstraint;
-@property (strong) NSLayoutConstraint* dateTopWithoutSecondaryTextConstraint;
-
-@end
-
-@implementation MBSidebarCellView
 @end
 
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
@@ -2901,131 +2883,20 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
 	#pragma unused(tableColumn)
-	MBSidebarCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
+	MBSidebarCell* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
 
 	if (cell_view == nil) {
-		cell_view = [[MBSidebarCellView alloc] initWithFrame:NSZeroRect];
+		cell_view = [[MBSidebarCell alloc] initWithFrame:NSZeroRect];
 		cell_view.identifier = InkwellSidebarCellIdentifier;
-
-		MBRoundedImageView* avatar_view = [[MBRoundedImageView alloc] initWithFrame:NSZeroRect];
-		avatar_view.translatesAutoresizingMaskIntoConstraints = NO;
-		avatar_view.tag = InkwellSidebarAvatarTag;
-
-		NSTextField* title_field = [NSTextField labelWithString:@""];
-		title_field.translatesAutoresizingMaskIntoConstraints = NO;
-		title_field.tag = InkwellSidebarTitleTag;
-		title_field.font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
-		title_field.lineBreakMode = NSLineBreakByWordWrapping;
-		title_field.maximumNumberOfLines = 2;
-		title_field.usesSingleLineMode = NO;
-			if ([title_field.cell isKindOfClass:[NSTextFieldCell class]]) {
-				NSTextFieldCell* title_cell = (NSTextFieldCell*) title_field.cell;
-				title_cell.wraps = YES;
-				title_cell.scrollable = NO;
-				title_cell.usesSingleLineMode = NO;
-				title_cell.lineBreakMode = NSLineBreakByWordWrapping;
-				title_cell.truncatesLastVisibleLine = YES;
-			}
-
-		NSTextField* subtitle_field = [NSTextField labelWithString:@""];
-		subtitle_field.translatesAutoresizingMaskIntoConstraints = NO;
-		subtitle_field.tag = InkwellSidebarSubtitleTag;
-		subtitle_field.font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
-		subtitle_field.textColor = [NSColor secondaryLabelColor];
-		subtitle_field.lineBreakMode = NSLineBreakByWordWrapping;
-		subtitle_field.maximumNumberOfLines = 2;
-		subtitle_field.usesSingleLineMode = NO;
-		if ([subtitle_field.cell isKindOfClass:[NSTextFieldCell class]]) {
-			NSTextFieldCell* subtitle_cell = (NSTextFieldCell*) subtitle_field.cell;
-			subtitle_cell.wraps = YES;
-			subtitle_cell.scrollable = NO;
-			subtitle_cell.usesSingleLineMode = NO;
-			subtitle_cell.lineBreakMode = NSLineBreakByWordWrapping;
-			subtitle_cell.truncatesLastVisibleLine = YES;
-		}
-
-		NSTextField* subscription_field = [NSTextField labelWithString:@""];
-		subscription_field.translatesAutoresizingMaskIntoConstraints = NO;
-		subscription_field.tag = InkwellSidebarSubscriptionTag;
-		subscription_field.font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
-		subscription_field.textColor = [NSColor secondaryLabelColor];
-		subscription_field.lineBreakMode = NSLineBreakByTruncatingTail;
-		subscription_field.maximumNumberOfLines = 1;
-		subscription_field.hidden = YES;
-
-		NSTextField* date_field = [NSTextField labelWithString:@""];
-		date_field.translatesAutoresizingMaskIntoConstraints = NO;
-		date_field.tag = InkwellSidebarDateTag;
-		date_field.font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
-		date_field.textColor = [NSColor tertiaryLabelColor];
-		date_field.lineBreakMode = NSLineBreakByTruncatingTail;
-		date_field.maximumNumberOfLines = 1;
-
-		NSTextField* bookmark_field = [NSTextField labelWithString:@""];
-		bookmark_field.translatesAutoresizingMaskIntoConstraints = NO;
-		bookmark_field.tag = InkwellSidebarBookmarkTag;
-		bookmark_field.font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
-		bookmark_field.textColor = [NSColor tertiaryLabelColor];
-		bookmark_field.lineBreakMode = NSLineBreakByTruncatingTail;
-		bookmark_field.maximumNumberOfLines = 1;
-		bookmark_field.hidden = YES;
-		[bookmark_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
-
-		[cell_view addSubview:avatar_view];
-		[cell_view addSubview:title_field];
-		[cell_view addSubview:subtitle_field];
-		[cell_view addSubview:subscription_field];
-		[cell_view addSubview:date_field];
-		[cell_view addSubview:bookmark_field];
-
-		NSLayoutConstraint* bottom_constraint = [date_field.bottomAnchor constraintLessThanOrEqualToAnchor:cell_view.bottomAnchor constant:-8.0];
-		bottom_constraint.priority = NSLayoutPriorityDefaultHigh;
-
-		NSLayoutConstraint* subscription_top_with_subtitle_constraint = [subscription_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		NSLayoutConstraint* subscription_top_without_subtitle_constraint = [subscription_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		NSLayoutConstraint* date_top_with_subscription_constraint = [date_field.topAnchor constraintEqualToAnchor:subscription_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		NSLayoutConstraint* date_top_with_subtitle_constraint = [date_field.topAnchor constraintEqualToAnchor:subtitle_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-		NSLayoutConstraint* date_top_without_secondary_text_constraint = [date_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing];
-
-		[NSLayoutConstraint activateConstraints:@[
-			[avatar_view.leadingAnchor constraintEqualToAnchor:cell_view.leadingAnchor constant:InkwellSidebarAvatarInset],
-			[avatar_view.topAnchor constraintEqualToAnchor:cell_view.topAnchor constant:8.0],
-			[avatar_view.widthAnchor constraintEqualToConstant:InkwellSidebarAvatarSize],
-			[avatar_view.heightAnchor constraintEqualToConstant:InkwellSidebarAvatarSize],
-			[title_field.topAnchor constraintEqualToAnchor:cell_view.topAnchor constant:8.0],
-			[title_field.leadingAnchor constraintEqualToAnchor:avatar_view.trailingAnchor constant:InkwellSidebarTextInset],
-			[title_field.trailingAnchor constraintEqualToAnchor:cell_view.trailingAnchor constant:-InkwellSidebarRightInset],
-			[subtitle_field.topAnchor constraintEqualToAnchor:title_field.bottomAnchor constant:InkwellSidebarVerticalSpacing],
-			[subtitle_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
-			[subtitle_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			[subscription_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
-			[subscription_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			[date_field.leadingAnchor constraintEqualToAnchor:title_field.leadingAnchor],
-			[date_field.trailingAnchor constraintLessThanOrEqualToAnchor:bookmark_field.leadingAnchor constant:-8.0],
-			[bookmark_field.centerYAnchor constraintEqualToAnchor:date_field.centerYAnchor],
-			[bookmark_field.trailingAnchor constraintEqualToAnchor:title_field.trailingAnchor],
-			bottom_constraint
-		]];
-
-		subscription_top_with_subtitle_constraint.active = NO;
-		subscription_top_without_subtitle_constraint.active = NO;
-		date_top_with_subscription_constraint.active = NO;
-		date_top_with_subtitle_constraint.active = YES;
-		date_top_without_secondary_text_constraint.active = NO;
-		cell_view.subscriptionTopWithSubtitleConstraint = subscription_top_with_subtitle_constraint;
-		cell_view.subscriptionTopWithoutSubtitleConstraint = subscription_top_without_subtitle_constraint;
-		cell_view.dateTopWithSubscriptionConstraint = date_top_with_subscription_constraint;
-		cell_view.dateTopWithSubtitleConstraint = date_top_with_subtitle_constraint;
-		cell_view.dateTopWithoutSecondaryTextConstraint = date_top_without_secondary_text_constraint;
 	}
 
 	MBEntry* item = self.items[(NSUInteger) row];
-	MBRoundedImageView* avatar_view = [cell_view viewWithTag:InkwellSidebarAvatarTag];
-	NSTextField* title_field = [cell_view viewWithTag:InkwellSidebarTitleTag];
-	NSTextField* subtitle_field = [cell_view viewWithTag:InkwellSidebarSubtitleTag];
-	NSTextField* subscription_field = [cell_view viewWithTag:InkwellSidebarSubscriptionTag];
-	NSTextField* date_field = [cell_view viewWithTag:InkwellSidebarDateTag];
-	NSTextField* bookmark_field = [cell_view viewWithTag:InkwellSidebarBookmarkTag];
+	MBRoundedImageView* avatar_view = cell_view.avatarView;
+	NSTextField* title_field = cell_view.titleTextField;
+	NSTextField* subtitle_field = cell_view.subtitleTextField;
+	NSTextField* subscription_field = cell_view.subscriptionTextField;
+	NSTextField* date_field = cell_view.dateTextField;
+	NSTextField* bookmark_field = cell_view.bookmarkTextField;
 
 	NSString* subtitle_value = item.summary ?: @"";
 	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
