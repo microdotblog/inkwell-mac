@@ -207,6 +207,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 @property (copy) NSString* feedSubscriptionRequestedURLString;
 @property (assign) BOOL isCreatingFeedSubscription;
 @property (strong) NSTimer* autoRefreshTimer;
+@property (strong) NSSharingServicePicker* sharingServicePicker;
 
 - (BOOL) focusSidebarPane;
 - (BOOL) focusDetailPane;
@@ -225,7 +226,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) stopAutoRefreshTimer;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
 - (void) updateFilterSegmentedControlEnabledState;
+- (BOOL) canShareSelectedItem;
+- (BOOL) canPrintCurrentContent;
 - (BOOL) canHighlightSelectedItem;
+- (NSArray*) sharingItemsForSelectedItem;
+- (NSRect) sharingPickerRectInView:(NSView*) view;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text;
@@ -781,6 +786,35 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	[pasteboard setString:url_string forType:NSPasteboardTypeString];
 }
 
+- (IBAction) share:(id) sender
+{
+	#pragma unused(sender)
+
+	if (![self canShareSelectedItem] || self.window.contentView == nil) {
+		return;
+	}
+
+	NSArray* sharing_items = [self sharingItemsForSelectedItem];
+	if (sharing_items.count == 0) {
+		return;
+	}
+
+	NSView* content_view = self.window.contentView;
+	self.sharingServicePicker = [[NSSharingServicePicker alloc] initWithItems:sharing_items];
+	[self.sharingServicePicker showRelativeToRect:[self sharingPickerRectInView:content_view] ofView:content_view preferredEdge:NSMaxYEdge];
+}
+
+- (IBAction) printDetail:(id) sender
+{
+	#pragma unused(sender)
+
+	if (![self canPrintCurrentContent] || self.window == nil) {
+		return;
+	}
+
+	[self.detailController printCurrentContentForWindow:self.window];
+}
+
 - (void) updateConversationForSelectedItem:(MBEntry* _Nullable) selected_item
 {
 	self.pendingConversationLookupURLString = @"";
@@ -1045,6 +1079,12 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (menu_item.action == @selector(newPost:)) {
 		return ([self.sidebarController selectedItem] != nil);
 	}
+	if (menu_item.action == @selector(share:)) {
+		return [self canShareSelectedItem];
+	}
+	if (menu_item.action == @selector(printDetail:)) {
+		return [self canPrintCurrentContent];
+	}
 	if (menu_item.action == @selector(newFeed:)) {
 		return (self.client != nil && self.token.length > 0);
 	}
@@ -1100,6 +1140,22 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	return YES;
 }
 
+- (BOOL) canShareSelectedItem
+{
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil) {
+		return NO;
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (url_string.length > 0);
+}
+
+- (BOOL) canPrintCurrentContent
+{
+	return ([self.sidebarController selectedItem] != nil && self.detailController != nil);
+}
+
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
 {
 	if (toolbar_item.action == @selector(highlightSelectedItem:)) {
@@ -1120,6 +1176,40 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	return [self.detailController hasSelection];
+}
+
+- (NSArray*) sharingItemsForSelectedItem
+{
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil) {
+		return @[];
+	}
+
+	NSMutableArray* sharing_items = [NSMutableArray array];
+
+	NSString* title_string = [selected_item.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title_string.length > 0) {
+		[sharing_items addObject:title_string];
+	}
+
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length > 0) {
+		NSURL* share_url = [NSURL URLWithString:url_string];
+		if (share_url != nil) {
+			[sharing_items addObject:share_url];
+		}
+		else {
+			[sharing_items addObject:url_string];
+		}
+	}
+
+	return sharing_items;
+}
+
+- (NSRect) sharingPickerRectInView:(NSView*) view
+{
+	CGFloat top_inset = 20.0;
+	return NSMakeRect(NSMidX(view.bounds), NSMaxY(view.bounds) - top_inset, 1.0, 1.0);
 }
 
 - (IBAction) performFindPanelAction:(id)sender

@@ -380,6 +380,19 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	return self.currentEntryID;
 }
 
+- (void) printCurrentContentForWindow:(NSWindow*) window
+{
+	if (self.webView == nil || window == nil) {
+		return;
+	}
+
+	NSPrintInfo* print_info = [NSPrintInfo.sharedPrintInfo copy];
+	NSPrintOperation* print_operation = [self.webView printOperationWithPrintInfo:print_info];
+	print_operation.showsPrintPanel = YES;
+	print_operation.showsProgressPanel = YES;
+	[print_operation runOperationModalForWindow:window delegate:nil didRunSelector:NULL contextInfo:NULL];
+}
+
 - (void) webView:(WKWebView *)web_view decidePolicyForNavigationAction:(WKNavigationAction *)navigation_action decisionHandler:(void (^)(WKNavigationActionPolicy))decision_handler
 {
 	#pragma unused(web_view)

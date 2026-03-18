@@ -114,6 +114,18 @@
                                     <action selector="performClose:" target="-1" id="HmO-Ls-i7Q"/>
                                 </connections>
                             </menuItem>
+                            <menuItem isSeparatorItem="YES" id="FZc-jT-T0L"/>
+                            <menuItem title="Share..." image="square.and.arrow.up" catalog="system" id="4b1-GR-28x">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="share:" target="-1" id="vH6-wR-7LQ"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Print..." image="printer" catalog="system" keyEquivalent="p" id="BbM-vl-vjv">
+                                <connections>
+                                    <action selector="printDetail:" target="-1" id="hJ4-VN-d2x"/>
+                                </connections>
+                            </menuItem>
                         </items>
                     </menu>
                 </menuItem>
@@ -474,6 +486,8 @@
     <resources>
         <image name="arrow.clockwise" catalog="system" width="14" height="16"/>
         <image name="highlighter" catalog="system" width="17" height="16"/>
+        <image name="printer" catalog="system" width="18" height="16"/>
+        <image name="square.and.arrow.up" catalog="system" width="15" height="18"/>
         <image name="square.and.pencil" catalog="system" width="17" height="16"/>
         <image name="star" catalog="system" width="17" height="16"/>
     </resources>

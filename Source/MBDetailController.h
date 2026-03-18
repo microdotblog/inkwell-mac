@@ -31,6 +31,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) clearSelection;
 - (void) refreshHighlights;
 - (void) applyPreferredTextSettings;
+- (void) printCurrentContentForWindow:(NSWindow*) window;
 
 @end
 
