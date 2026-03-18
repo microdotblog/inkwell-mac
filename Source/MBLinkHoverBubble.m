@@ -40,16 +40,16 @@ static CGFloat const InkwellLinkBubbleCornerRadius = 14.0;
 - (void) viewDidChangeEffectiveAppearance
 {
 	[super viewDidChangeEffectiveAppearance];
+
 	[self updateBubbleBackgroundColor];
 }
 
 - (void) updateBubbleBackgroundColor
 {
-	NSColor* bubble_background_color = [NSColor colorNamed:InkwellHoverBackgroundColorName];
-	if (bubble_background_color == nil) {
-		bubble_background_color = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.96];
-	}
-	self.layer.backgroundColor = bubble_background_color.CGColor;
+	[self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+		NSColor* bubble_background_color = [NSColor colorNamed:InkwellHoverBackgroundColorName];
+		self.layer.backgroundColor = bubble_background_color.CGColor;
+	}];
 }
 
 @end
