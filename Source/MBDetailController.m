@@ -1338,11 +1338,13 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 - (BOOL) prefersDarkSystemAppearance
 {
-	if (self.view.window == nil) {
-		return [self systemInterfaceStyleIsDark];
+	NSAppearance* appearance = nil;
+	if (self.isViewLoaded) {
+		appearance = self.view.effectiveAppearance;
 	}
-
-	NSAppearance* appearance = self.view.effectiveAppearance ?: NSApp.effectiveAppearance;
+	if (appearance == nil) {
+		appearance = self.webView.effectiveAppearance ?: NSApp.effectiveAppearance;
+	}
 	if (appearance != nil) {
 		NSAppearanceName matched_appearance = [appearance bestMatchFromAppearancesWithNames:@[
 			NSAppearanceNameAqua,
