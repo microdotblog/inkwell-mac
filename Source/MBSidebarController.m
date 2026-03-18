@@ -2917,6 +2917,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		title_field.font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
 		title_field.lineBreakMode = NSLineBreakByWordWrapping;
 		title_field.maximumNumberOfLines = 2;
+		title_field.usesSingleLineMode = NO;
+			if ([title_field.cell isKindOfClass:[NSTextFieldCell class]]) {
+				NSTextFieldCell* title_cell = (NSTextFieldCell*) title_field.cell;
+				title_cell.wraps = YES;
+				title_cell.scrollable = NO;
+				title_cell.usesSingleLineMode = NO;
+				title_cell.lineBreakMode = NSLineBreakByWordWrapping;
+				title_cell.truncatesLastVisibleLine = YES;
+			}
 
 		NSTextField* subtitle_field = [NSTextField labelWithString:@""];
 		subtitle_field.translatesAutoresizingMaskIntoConstraints = NO;
