@@ -2934,6 +2934,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		subtitle_field.textColor = [NSColor secondaryLabelColor];
 		subtitle_field.lineBreakMode = NSLineBreakByWordWrapping;
 		subtitle_field.maximumNumberOfLines = 2;
+		subtitle_field.usesSingleLineMode = NO;
+		if ([subtitle_field.cell isKindOfClass:[NSTextFieldCell class]]) {
+			NSTextFieldCell* subtitle_cell = (NSTextFieldCell*) subtitle_field.cell;
+			subtitle_cell.wraps = YES;
+			subtitle_cell.scrollable = NO;
+			subtitle_cell.usesSingleLineMode = NO;
+			subtitle_cell.lineBreakMode = NSLineBreakByWordWrapping;
+			subtitle_cell.truncatesLastVisibleLine = YES;
+		}
 
 		NSTextField* subscription_field = [NSTextField labelWithString:@""];
 		subscription_field.translatesAutoresizingMaskIntoConstraints = NO;
