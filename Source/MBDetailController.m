@@ -22,6 +22,8 @@ static NSString* const InkwellInitialThemeStyleToken = @"[INITIAL_THEME_STYLE]";
 static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionChanged";
 static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellHighlightHoverScriptMessageName = @"highlightHover";
+static NSString* const InkwellLinkHoverScriptMessageName = @"linkHover";
+static NSString* const InkwellHoverBackgroundColorName = @"color_hover_background";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -32,6 +34,11 @@ static NSString* const InkwellPreferencesBlackBackgroundHex = @"#000000";
 static NSInteger const InkwellDetailDeleteHighlightContextMenuItemTag = 7100;
 static NSInteger const InkwellDetailHighlightContextMenuItemTag = 7101;
 static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
+static CGFloat const InkwellDetailLinkBubbleCornerRadius = 14.0;
+static CGFloat const InkwellDetailLinkBubbleHorizontalInset = 14.0;
+static CGFloat const InkwellDetailLinkBubbleBottomInset = 14.0;
+static CGFloat const InkwellDetailLinkBubbleHorizontalPadding = 12.0;
+static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
 
 @interface MBDetailWebView : WKWebView
 
@@ -141,6 +148,44 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 @end
 
+@interface MBDetailLinkHoverBubbleView : NSView
+@end
+
+@implementation MBDetailLinkHoverBubbleView
+
+- (instancetype) initWithFrame:(NSRect) frame_rect
+{
+	self = [super initWithFrame:frame_rect];
+	if (self) {
+		self.translatesAutoresizingMaskIntoConstraints = NO;
+		self.wantsLayer = YES;
+		self.layer.cornerRadius = InkwellDetailLinkBubbleCornerRadius;
+		self.layer.masksToBounds = YES;
+		[self updateBubbleBackgroundColor];
+	}
+	return self;
+}
+
+- (NSView*) hitTest:(NSPoint) point
+{
+	#pragma unused(point)
+	return nil;
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self updateBubbleBackgroundColor];
+}
+
+- (void) updateBubbleBackgroundColor
+{
+	NSColor* bubble_background_color = [NSColor colorNamed:InkwellHoverBackgroundColorName];
+	self.layer.backgroundColor = bubble_background_color.CGColor;
+}
+
+@end
+
 @interface MBWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
@@ -173,9 +218,13 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 @property (strong) MBWeakScriptMessageHandler* selectionScriptMessageHandler;
 @property (strong) MBWeakScriptMessageHandler* scrollScriptMessageHandler;
 @property (strong) MBWeakScriptMessageHandler* highlightHoverScriptMessageHandler;
+@property (strong) MBWeakScriptMessageHandler* linkHoverScriptMessageHandler;
 @property (strong, nullable) MBHighlight* hoveredHighlight;
 @property (assign) BOOL isDeletingHighlight;
 @property (strong) NSVisualEffectView* topBarView;
+@property (strong) MBDetailLinkHoverBubbleView* hoveredLinkBubbleView;
+@property (strong) NSTextField* hoveredLinkTextField;
+@property (copy) NSString* hoveredLinkURLString;
 @property (assign) BOOL hasTextSelection;
 @property (assign) BOOL isTopBarMaterialVisible;
 @property (assign) NSInteger topBarAnimationID;
@@ -200,6 +249,8 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (MBHighlight* _Nullable) highlightForHoverIdentifier:(NSString*) highlight_id;
 - (void) clearHoveredHighlight;
 - (void) updateHoveredHighlightWithScriptMessageBody:(id) body;
+- (void) updateHoveredLinkWithScriptMessageBody:(id) body;
+- (void) updateHoveredLinkURLString:(NSString*) url_string;
 - (void) promptToDeleteHoveredHighlight:(id) sender;
 - (void) deleteHighlight:(MBHighlight*) highlight;
 - (void) presentDeleteError:(NSError*) error;
@@ -236,14 +287,18 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	self.selectionScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	self.scrollScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	self.highlightHoverScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
+	self.linkHoverScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	[user_content_controller addScriptMessageHandler:self.selectionScriptMessageHandler name:InkwellSelectionChangedScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.scrollScriptMessageHandler name:InkwellScrollChangedScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.highlightHoverScriptMessageHandler name:InkwellHighlightHoverScriptMessageName];
+	[user_content_controller addScriptMessageHandler:self.linkHoverScriptMessageHandler name:InkwellLinkHoverScriptMessageName];
 
 	WKUserScript* selection_script = [[WKUserScript alloc] initWithSource:[self selectionObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:selection_script];
 	WKUserScript* scroll_script = [[WKUserScript alloc] initWithSource:[self scrollObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:scroll_script];
+	WKUserScript* link_hover_script = [[WKUserScript alloc] initWithSource:[self linkHoverObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
+	[user_content_controller addUserScript:link_hover_script];
 
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
 	configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
@@ -286,8 +341,24 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 		[strong_self promptToDeleteHoveredHighlight:nil];
 	};
+
+	MBDetailLinkHoverBubbleView* hovered_link_bubble_view = [[MBDetailLinkHoverBubbleView alloc] initWithFrame:NSZeroRect];
+	hovered_link_bubble_view.hidden = YES;
+
+	NSTextField* hovered_link_text_field = [NSTextField labelWithString:@""];
+	hovered_link_text_field.translatesAutoresizingMaskIntoConstraints = NO;
+	hovered_link_text_field.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
+	hovered_link_text_field.textColor = [NSColor secondaryLabelColor];
+	hovered_link_text_field.lineBreakMode = NSLineBreakByTruncatingMiddle;
+	hovered_link_text_field.maximumNumberOfLines = 1;
+	hovered_link_text_field.usesSingleLineMode = YES;
+	[hovered_link_text_field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[hovered_link_text_field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[hovered_link_bubble_view addSubview:hovered_link_text_field];
+
 	[root_view addSubview:web_view];
 	[root_view addSubview:top_bar_view];
+	[root_view addSubview:hovered_link_bubble_view];
 	[NSLayoutConstraint activateConstraints:@[
 		[top_bar_view.topAnchor constraintEqualToAnchor:root_view.topAnchor],
 		[top_bar_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor],
@@ -296,12 +367,21 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		[web_view.topAnchor constraintEqualToAnchor:root_view.topAnchor],
 		[web_view.bottomAnchor constraintEqualToAnchor:root_view.bottomAnchor],
 		[web_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor],
-		[web_view.trailingAnchor constraintEqualToAnchor:root_view.trailingAnchor]
+		[web_view.trailingAnchor constraintEqualToAnchor:root_view.trailingAnchor],
+		[hovered_link_bubble_view.leadingAnchor constraintEqualToAnchor:root_view.leadingAnchor constant:InkwellDetailLinkBubbleHorizontalInset],
+		[hovered_link_bubble_view.bottomAnchor constraintEqualToAnchor:root_view.safeAreaLayoutGuide.bottomAnchor constant:-InkwellDetailLinkBubbleBottomInset],
+		[hovered_link_bubble_view.trailingAnchor constraintLessThanOrEqualToAnchor:root_view.trailingAnchor constant:-InkwellDetailLinkBubbleHorizontalInset],
+		[hovered_link_text_field.topAnchor constraintEqualToAnchor:hovered_link_bubble_view.topAnchor constant:InkwellDetailLinkBubbleVerticalPadding],
+		[hovered_link_text_field.bottomAnchor constraintEqualToAnchor:hovered_link_bubble_view.bottomAnchor constant:-InkwellDetailLinkBubbleVerticalPadding],
+		[hovered_link_text_field.leadingAnchor constraintEqualToAnchor:hovered_link_bubble_view.leadingAnchor constant:InkwellDetailLinkBubbleHorizontalPadding],
+		[hovered_link_text_field.trailingAnchor constraintEqualToAnchor:hovered_link_bubble_view.trailingAnchor constant:-InkwellDetailLinkBubbleHorizontalPadding]
 	]];
 
 	self.webView = web_view;
 	[self updateWebViewUnderPageBackgroundColor];
 	self.topBarView = top_bar_view;
+	self.hoveredLinkBubbleView = hovered_link_bubble_view;
+	self.hoveredLinkTextField = hovered_link_text_field;
 	self.view = root_view;
 }
 
@@ -310,6 +390,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellSelectionChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellScrollChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellHighlightHoverScriptMessageName];
+	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellLinkHoverScriptMessageName];
 }
 
 - (BOOL) hasSelection
@@ -379,6 +460,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	[self updateSelectionState:NO];
 	[self updateTopBarMaterialForScrolledDown:NO];
 	[self clearHoveredHighlight];
+	[self updateHoveredLinkURLString:@""];
 	[self updateWebViewUnderPageBackgroundColor];
 
 	if (item == nil) {
@@ -417,6 +499,7 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 	[self updateSelectionState:NO];
 	[self updateTopBarMaterialForScrolledDown:NO];
 	[self clearHoveredHighlight];
+	[self updateHoveredLinkURLString:@""];
 	[self updateWebViewUnderPageBackgroundColor];
 	self.currentEntryID = 0;
 
@@ -441,6 +524,11 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 
 	if ([script_message.name isEqualToString:InkwellHighlightHoverScriptMessageName]) {
 		[self updateHoveredHighlightWithScriptMessageBody:script_message.body];
+		return;
+	}
+
+	if ([script_message.name isEqualToString:InkwellLinkHoverScriptMessageName]) {
+		[self updateHoveredLinkWithScriptMessageBody:script_message.body];
 		return;
 	}
 
@@ -585,6 +673,31 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 - (void) clearHoveredHighlight
 {
 	self.hoveredHighlight = nil;
+}
+
+- (void) updateHoveredLinkWithScriptMessageBody:(id) body
+{
+	NSString* url_string = @"";
+	if ([body isKindOfClass:[NSString class]]) {
+		url_string = [(NSString*) body stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+	else if ([body respondsToSelector:@selector(description)]) {
+		url_string = [[body description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	[self updateHoveredLinkURLString:url_string];
+}
+
+- (void) updateHoveredLinkURLString:(NSString*) url_string
+{
+	NSString* trimmed_url_string = [url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if ([self.hoveredLinkURLString isEqualToString:trimmed_url_string]) {
+		return;
+	}
+
+	self.hoveredLinkURLString = trimmed_url_string;
+	self.hoveredLinkTextField.stringValue = trimmed_url_string;
+	self.hoveredLinkBubbleView.hidden = (trimmed_url_string.length == 0);
 }
 
 - (void) updateHoveredHighlightWithScriptMessageBody:(id) body
@@ -1257,6 +1370,52 @@ static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 		"window.addEventListener('scroll', postScrollState, { passive: true });"
 		"window.addEventListener('load', postScrollState);"
 		"postScrollState();"
+		"})();";
+}
+
+- (NSString*) linkHoverObserverScript
+{
+	return @"(function() {"
+		"if (window.__inkwellLinkHoverObserverInstalled) { return; }"
+		"window.__inkwellLinkHoverObserverInstalled = true;"
+		"var currentHref = '';"
+		"function closestLink(node) {"
+			"while (node) {"
+				"if (node.nodeType === 1) {"
+					"if (node.matches && node.matches('a[href]')) { return node; }"
+					"if (node.closest) {"
+						"var found = node.closest('a[href]');"
+						"if (found) { return found; }"
+					"}"
+				"}"
+				"node = node.parentNode;"
+			"}"
+			"return null;"
+		"}"
+		"function hrefForLink(link) {"
+			"if (!link) { return ''; }"
+			"try { return link.href || ''; }"
+			"catch (e) { return ''; }"
+		"}"
+		"function postHref(href) {"
+			"var nextHref = (href || '').trim();"
+			"if (nextHref === currentHref) { return; }"
+			"currentHref = nextHref;"
+			"window.webkit.messageHandlers.linkHover.postMessage(nextHref);"
+		"}"
+		"document.addEventListener('mouseover', function(event) {"
+			"postHref(hrefForLink(closestLink(event.target)));"
+		"}, true);"
+		"document.addEventListener('mouseout', function(event) {"
+			"var fromLink = closestLink(event.target);"
+			"var toLink = closestLink(event.relatedTarget);"
+			"if (fromLink && toLink && fromLink === toLink) { return; }"
+			"postHref(hrefForLink(toLink));"
+		"}, true);"
+		"window.addEventListener('blur', function() { postHref(''); });"
+		"window.addEventListener('pagehide', function() { postHref(''); });"
+		"window.addEventListener('load', function() { postHref(''); });"
+		"postHref('');"
 		"})();";
 }
 
