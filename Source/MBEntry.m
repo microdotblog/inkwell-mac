@@ -9,4 +9,10 @@
 
 @implementation MBEntry
 
+- (BOOL) hasEnclosure
+{
+	NSString* enclosure_url = [self.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (enclosure_url.length > 0);
+}
+
 @end

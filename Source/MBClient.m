@@ -58,6 +58,8 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 @property (assign) BOOL isFetchingFeedIcons;
 @property (strong) NSMutableArray* pendingFeedIconsCompletions;
 
+- (NSArray*) defaultEntryQueryItemsForPageNumber:(NSInteger) page_number;
+
 @end
 
 @implementation MBClient
@@ -483,10 +485,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		return;
 	}
 
-	NSMutableArray* query_items = [NSMutableArray array];
-	[query_items addObject:[NSURLQueryItem queryItemWithName:@"page" value:[NSString stringWithFormat:@"%ld", (long) page_number]]];
-	[query_items addObject:[NSURLQueryItem queryItemWithName:@"per_page" value:[NSString stringWithFormat:@"%ld", (long) MBFeedEntriesPageSize]]];
-	components.queryItems = [query_items copy];
+	components.queryItems = [self defaultEntryQueryItemsForPageNumber:page_number];
 
 	NSURL* entries_url = components.URL;
 	if (entries_url == nil) {
@@ -603,10 +602,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		return;
 	}
 
-	NSMutableArray* query_items = [NSMutableArray array];
-	[query_items addObject:[NSURLQueryItem queryItemWithName:@"page" value:[NSString stringWithFormat:@"%ld", (long) page_number]]];
-	[query_items addObject:[NSURLQueryItem queryItemWithName:@"per_page" value:[NSString stringWithFormat:@"%ld", (long) MBFeedEntriesPageSize]]];
-	components.queryItems = [query_items copy];
+	components.queryItems = [self defaultEntryQueryItemsForPageNumber:page_number];
 
 	NSURL* entries_url = components.URL;
 	if (entries_url == nil) {
@@ -715,6 +711,16 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	}
 
 	return [filtered_entries copy];
+}
+
+- (NSArray*) defaultEntryQueryItemsForPageNumber:(NSInteger) page_number
+{
+	NSMutableArray* query_items = [NSMutableArray array];
+	[query_items addObject:[NSURLQueryItem queryItemWithName:@"page" value:[NSString stringWithFormat:@"%ld", (long) page_number]]];
+	[query_items addObject:[NSURLQueryItem queryItemWithName:@"per_page" value:[NSString stringWithFormat:@"%ld", (long) MBFeedEntriesPageSize]]];
+	[query_items addObject:[NSURLQueryItem queryItemWithName:@"mode" value:@"extended"]];
+	[query_items addObject:[NSURLQueryItem queryItemWithName:@"include_enclosure" value:@"true"]];
+	return [query_items copy];
 }
 
 - (NSDictionary<NSString*, NSString*>*) cachedFeedIconsByHost

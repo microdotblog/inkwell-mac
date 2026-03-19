@@ -10,6 +10,7 @@
 #import "MBClient.h"
 #import "MBEntry.h"
 #import "MBPathUtilities.h"
+#import "MBPodcastController.h"
 #import "MBRoundedImageView.h"
 #import "MBSidebarCell.h"
 #import "MBSubscription.h"
@@ -29,6 +30,7 @@ static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
 static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
+static CGFloat const InkwellSidebarPodcastPaneHeight = 96.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
@@ -207,6 +209,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (assign) NSInteger selectedRowForStyling;
 @property (strong) NSTableView *tableView;
 @property (strong) NSScrollView* tableScrollView;
+@property (strong) MBPodcastController* podcastController;
+@property (strong) NSView* podcastContainerView;
+@property (strong) NSLayoutConstraint* podcastHeightConstraint;
+@property (strong, nullable) MBEntry* currentPodcastEntry;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSArray<MBEntry *> *bookmarkItems;
 @property (copy) NSArray<MBEntry *> *allPostsItems;
@@ -305,6 +311,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) isPremiumUser;
 - (BOOL) savedHideReadPosts;
 - (MBSidebarSortOrder) savedSortOrder;
+- (void) setPodcastPaneVisible:(BOOL) is_visible;
+- (void) updatePodcastPaneForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (NSMenu*) sidebarContextMenu;
 - (IBAction) toggleSelectedItemReadStateAction:(id)sender;
 - (IBAction) toggleSelectedItemBookmarkedStateAction:(id)sender;
@@ -426,6 +434,23 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[recap_box addSubview:bookmarks_label];
 	[recap_box addSubview:clear_button];
 
+	__weak typeof(self) weak_self = self;
+	MBPodcastController* podcast_controller = [[MBPodcastController alloc] init];
+	[self addChildViewController:podcast_controller];
+	podcast_controller.playbackStateChangedHandler = ^(BOOL is_playing) {
+		#pragma unused(is_playing)
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self updatePodcastPaneForSelectedItem:[strong_self selectedItem]];
+	};
+
+	NSView* podcast_view = podcast_controller.view;
+	podcast_view.translatesAutoresizingMaskIntoConstraints = NO;
+	podcast_view.hidden = YES;
+
 	MBSidebarTableView *table_view = [[MBSidebarTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
@@ -435,7 +460,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	table_view.intercellSpacing = NSMakeSize(0.0, 5.0);
 	table_view.style = NSTableViewStyleSourceList;
 	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
-	__weak typeof(self) weak_self = self;
 	table_view.openSelectedItemHandler = ^BOOL {
 		return [weak_self openSelectedItemInBrowser];
 	};
@@ -501,9 +525,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	[container_view addSubview:recap_box];
 	[container_view addSubview:scroll_view];
+	[container_view addSubview:podcast_view];
 	[container_view addSubview:premium_required_view];
 	NSLayoutConstraint* recap_height_constraint = [recap_box.heightAnchor constraintEqualToConstant:0.0];
 	NSLayoutConstraint* recap_to_table_top_constraint = [scroll_view.topAnchor constraintEqualToAnchor:recap_box.bottomAnchor constant:0.0];
+	NSLayoutConstraint* podcast_height_constraint = [podcast_view.heightAnchor constraintEqualToConstant:0.0];
 	[NSLayoutConstraint activateConstraints:@[
 		[recap_box.topAnchor constraintEqualToAnchor:container_view.safeAreaLayoutGuide.topAnchor constant:-1.0],
 		[recap_box.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor constant:-1.0],
@@ -520,9 +546,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[clear_button.trailingAnchor constraintEqualToAnchor:recap_box.trailingAnchor constant:-12.0],
 			[clear_button.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
 		recap_to_table_top_constraint,
-		[scroll_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
+		[scroll_view.bottomAnchor constraintEqualToAnchor:podcast_view.topAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
 		[scroll_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
+		[podcast_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
+		[podcast_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
+		[podcast_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
+		podcast_height_constraint,
 		[premium_required_view.topAnchor constraintEqualToAnchor:container_view.safeAreaLayoutGuide.topAnchor constant:18.0],
 		[premium_required_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
 		[premium_required_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
@@ -542,12 +572,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.bookmarksClearButton = clear_button;
 	self.recapBoxHeightConstraint = recap_height_constraint;
 	self.recapToTableTopConstraint = recap_to_table_top_constraint;
+	self.podcastController = podcast_controller;
+	self.podcastContainerView = podcast_view;
+	self.podcastHeightConstraint = podcast_height_constraint;
 	self.tableView = table_view;
 	self.tableScrollView = scroll_view;
 	self.premiumRequiredView = premium_required_view;
 	self.view = container_view;
 	[self updateRecapUI];
 	[self updatePremiumRequiredView];
+	[self updatePodcastPaneForSelectedItem:nil];
 }
 
 - (void) loadCachedRecentEntries
@@ -873,6 +907,45 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return item;
+}
+
+- (void) setPodcastPaneVisible:(BOOL) is_visible
+{
+	if (self.podcastContainerView == nil || self.podcastHeightConstraint == nil) {
+		return;
+	}
+
+	self.podcastContainerView.hidden = !is_visible;
+	self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
+}
+
+- (void) updatePodcastPaneForSelectedItem:(MBEntry* _Nullable) selected_item
+{
+	BOOL is_playing = self.podcastController.isPlaying;
+	BOOL has_selected_enclosure = [selected_item hasEnclosure];
+	if (has_selected_enclosure) {
+		BOOL should_replace_podcast_entry = (!is_playing || self.currentPodcastEntry == nil || self.currentPodcastEntry.entryID == selected_item.entryID);
+		if (should_replace_podcast_entry) {
+			self.currentPodcastEntry = selected_item;
+			self.podcastController.entry = selected_item;
+		}
+
+		[self setPodcastPaneVisible:YES];
+		return;
+	}
+
+	if (is_playing) {
+		if (self.currentPodcastEntry != nil) {
+			self.podcastController.entry = self.currentPodcastEntry;
+		}
+
+		[self setPodcastPaneVisible:YES];
+		return;
+	}
+
+	self.currentPodcastEntry = nil;
+	self.podcastController.entry = nil;
+	[self setPodcastPaneVisible:NO];
 }
 
 - (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged
@@ -1214,6 +1287,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self updatePodcastPaneForSelectedItem:cached_entry];
 	self.selectionChangedHandler(cached_entry);
 }
 
@@ -1255,6 +1329,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	dictionary[@"source"] = entry.source ?: @"";
 	dictionary[@"author"] = entry.author ?: @"";
 	dictionary[@"avatar_url"] = entry.avatarURL ?: @"";
+	dictionary[@"enclosure_url"] = entry.enclosureURL ?: @"";
+	dictionary[@"itunes_duration"] = entry.itunesDuration ?: @"";
 	dictionary[@"entry_id"] = @(entry.entryID);
 	dictionary[@"feed_id"] = @(entry.feedID);
 	dictionary[@"feed_host"] = entry.feedHost ?: @"";
@@ -1284,6 +1360,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return nil;
 	}
 
+	NSDictionary* enclosure_dictionary = [dictionary[@"enclosure"] isKindOfClass:[NSDictionary class]] ? dictionary[@"enclosure"] : nil;
 	MBEntry* entry = [[MBEntry alloc] init];
 	entry.title = [self stringValueFromObject:dictionary[@"title"]];
 	entry.url = [self stringValueFromObject:dictionary[@"url"]];
@@ -1293,6 +1370,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	entry.source = [self stringValueFromObject:dictionary[@"source"]];
 	entry.author = [self stringValueFromObject:dictionary[@"author"]];
 	entry.avatarURL = [self stringValueFromObject:dictionary[@"avatar_url"]];
+	entry.enclosureURL = [self stringValueFromObject:dictionary[@"enclosure_url"]];
+	if (entry.enclosureURL.length == 0) {
+		entry.enclosureURL = [self stringValueFromObject:enclosure_dictionary[@"enclosure_url"]];
+	}
+	entry.itunesDuration = [self stringValueFromObject:dictionary[@"itunes_duration"]];
+	if (entry.itunesDuration.length == 0) {
+		entry.itunesDuration = [self stringValueFromObject:enclosure_dictionary[@"itunes_duration"]];
+	}
 	entry.entryID = entry_id;
 	entry.feedID = [self integerValueFromObject:dictionary[@"feed_id"]];
 	entry.feedHost = [self stringValueFromObject:dictionary[@"feed_host"]];
@@ -1769,6 +1854,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	self.suppressSelectionChangedHandler = YES;
 	[self.tableView deselectAll:nil];
+	[self updatePodcastPaneForSelectedItem:nil];
 }
 
 - (void) scrollTableToTop
@@ -2339,6 +2425,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		content_html_value = [self stringValueFromObject:entry[@"content"]];
 	}
 	content_html_value = [self normalizedContentHTMLString:content_html_value];
+	NSDictionary* enclosure_dictionary = [entry[@"enclosure"] isKindOfClass:[NSDictionary class]] ? entry[@"enclosure"] : nil;
+	NSString* enclosure_url_value = [self stringValueFromObject:enclosure_dictionary[@"enclosure_url"]];
+	NSString* itunes_duration_value = [self stringValueFromObject:enclosure_dictionary[@"itunes_duration"]];
 	NSString* source_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"source"]]];
 	NSDate* entry_date = [self dateValueFromEntry:entry];
 	NSInteger entry_id_value = [self integerValueFromObject:entry[@"id"]];
@@ -2369,6 +2458,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	sidebar_entry.text = content_html_value;
 	sidebar_entry.source = resolved_source;
 	sidebar_entry.author = author_value;
+	sidebar_entry.enclosureURL = enclosure_url_value;
+	sidebar_entry.itunesDuration = itunes_duration_value;
 	sidebar_entry.entryID = entry_id_value;
 	sidebar_entry.feedID = [self integerValueFromObject:entry[@"feed_id"]];
 	sidebar_entry.feedHost = feed_host ?: @"";
@@ -2703,12 +2794,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[self cacheSelectedEntry:item];
 		}
 		[self markSelectedItemAsReadIfNeeded:item atRow:selected_row];
+		[self updatePodcastPaneForSelectedItem:item];
 		if (self.selectionChangedHandler != nil) {
 			self.selectionChangedHandler(item);
 		}
 		return;
 	}
 
+	[self updatePodcastPaneForSelectedItem:nil];
 	if (self.selectionChangedHandler != nil) {
 		self.selectionChangedHandler(nil);
 	}
