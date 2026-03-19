@@ -17,6 +17,8 @@ static NSUserInterfaceItemIdentifier const InkwellHighlightsCellIdentifier = @"I
 static NSUserInterfaceItemIdentifier const InkwellHighlightsRowIdentifier = @"InkwellHighlightsRow";
 static CGFloat const InkwellHighlightsTopBarHeight = 44.0;
 static CGFloat const InkwellHighlightsAvatarSize = 20.0;
+static CGFloat const InkwellHighlightsAvatarInset = 2.0;
+static CGFloat const InkwellHighlightsAvatarStackOffset = 10.0;
 static CGFloat const InkwellHighlightsRowSpacing = 5.0;
 static CGFloat const InkwellHighlightsRowBackgroundHorizontalInset = 10.0;
 static CGFloat const InkwellHighlightsRowBackgroundVerticalInset = 2.5;
@@ -133,7 +135,12 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (NSColor*) highlightsHeaderBackgroundColor
 {
-	return NSColor.secondarySystemFillColor;
+	return [NSColor colorNamed:@"color_palette_header_background"];
+}
+
+- (NSColor*) highlightsAvatarBackgroundColor
+{
+	return [self highlightsHeaderBackgroundColor];
 }
 
 - (NSImage*) flattenedHeaderAvatarImage:(NSImage*) image fadeAmount:(CGFloat) fade_amount
@@ -145,14 +152,19 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	NSSize image_size = NSMakeSize(InkwellHighlightsAvatarSize, InkwellHighlightsAvatarSize);
 	NSImage* flattened_image = [[NSImage alloc] initWithSize:image_size];
 	[flattened_image lockFocus];
-	[[self highlightsHeaderBackgroundColor] setFill];
+	[[self highlightsAvatarBackgroundColor] setFill];
 	NSRectFill(NSMakeRect(0.0, 0.0, image_size.width, image_size.height));
-	[image drawInRect:NSMakeRect(0.0, 0.0, image_size.width, image_size.height) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
+	NSRect image_rect = NSInsetRect(NSMakeRect(0.0, 0.0, image_size.width, image_size.height), InkwellHighlightsAvatarInset, InkwellHighlightsAvatarInset);
+	NSBezierPath* image_path = [NSBezierPath bezierPathWithOvalInRect:image_rect];
+	[NSGraphicsContext saveGraphicsState];
+	[image_path addClip];
+	[image drawInRect:image_rect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 	CGFloat clamped_fade_amount = MAX(0.0, MIN(1.0, fade_amount));
 	if (clamped_fade_amount > 0.0) {
 		[[[self highlightsHeaderBackgroundColor] colorWithAlphaComponent:clamped_fade_amount] setFill];
-		NSRectFillUsingOperation(NSMakeRect(0.0, 0.0, image_size.width, image_size.height), NSCompositingOperationSourceOver);
+		[image_path fill];
 	}
+	[NSGraphicsContext restoreGraphicsState];
 	[flattened_image unlockFocus];
 	return flattened_image;
 }
@@ -335,7 +347,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	avatar_image_view.imageScaling = NSImageScaleAxesIndependently;
 	avatar_image_view.wantsLayer = YES;
 	avatar_image_view.layer.cornerRadius = (InkwellHighlightsAvatarSize / 2.0);
-	avatar_image_view.layer.backgroundColor = [self highlightsHeaderBackgroundColor].CGColor;
+	avatar_image_view.layer.backgroundColor = [self highlightsAvatarBackgroundColor].CGColor;
 	avatar_image_view.layer.masksToBounds = YES;
 
 	NSMutableArray* all_posts_avatar_image_views = [NSMutableArray array];
@@ -345,7 +357,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		stacked_avatar_image_view.imageScaling = NSImageScaleAxesIndependently;
 		stacked_avatar_image_view.wantsLayer = YES;
 		stacked_avatar_image_view.layer.cornerRadius = (InkwellHighlightsAvatarSize / 2.0);
-		stacked_avatar_image_view.layer.backgroundColor = [self highlightsHeaderBackgroundColor].CGColor;
+		stacked_avatar_image_view.layer.backgroundColor = [self highlightsAvatarBackgroundColor].CGColor;
 		stacked_avatar_image_view.layer.masksToBounds = YES;
 		stacked_avatar_image_view.hidden = YES;
 		[all_posts_avatar_image_views addObject:stacked_avatar_image_view];
@@ -453,11 +465,11 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		[first_all_posts_avatar_image_view.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
 		[first_all_posts_avatar_image_view.widthAnchor constraintEqualToConstant:InkwellHighlightsAvatarSize],
 		[first_all_posts_avatar_image_view.heightAnchor constraintEqualToConstant:InkwellHighlightsAvatarSize],
-		[second_all_posts_avatar_image_view.leadingAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.leadingAnchor constant:8.0],
+		[second_all_posts_avatar_image_view.leadingAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.leadingAnchor constant:InkwellHighlightsAvatarStackOffset],
 		[second_all_posts_avatar_image_view.centerYAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.centerYAnchor],
 		[second_all_posts_avatar_image_view.widthAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.widthAnchor],
 		[second_all_posts_avatar_image_view.heightAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.heightAnchor],
-		[third_all_posts_avatar_image_view.leadingAnchor constraintEqualToAnchor:second_all_posts_avatar_image_view.leadingAnchor constant:8.0],
+		[third_all_posts_avatar_image_view.leadingAnchor constraintEqualToAnchor:second_all_posts_avatar_image_view.leadingAnchor constant:InkwellHighlightsAvatarStackOffset],
 		[third_all_posts_avatar_image_view.centerYAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.centerYAnchor],
 		[third_all_posts_avatar_image_view.widthAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.widthAnchor],
 		[third_all_posts_avatar_image_view.heightAnchor constraintEqualToAnchor:first_all_posts_avatar_image_view.heightAnchor],
@@ -574,10 +586,6 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 	if (shows_all_posts_header) {
 		[self fetchFeedIconsIfNeeded];
-		[self refreshAllPostsAvatarHosts];
-	}
-	else {
-		self.allPostsAvatarHosts = @[];
 	}
 
 	if (self.titleTextField != nil) {
@@ -594,8 +602,12 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 
 	if (self.avatarImageView != nil) {
+		self.avatarImageView.layer.backgroundColor = [self highlightsAvatarBackgroundColor].CGColor;
 		self.avatarImageView.hidden = !shows_entry_header;
 		self.avatarImageView.image = shows_entry_header ? (self.headerAvatarImage ?: [self defaultAvatarImage]) : nil;
+	}
+	for (NSImageView* image_view in self.allPostsAvatarImageViews) {
+		image_view.layer.backgroundColor = [self highlightsAvatarBackgroundColor].CGColor;
 	}
 
 	[self updateAllPostsAvatarImages];
@@ -620,7 +632,6 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		}
 
 		strong_self.iconURLByHost = icons_by_host ?: @{};
-		[strong_self refreshAllPostsAvatarHosts];
 		[strong_self updateHeaderAvatarImage];
 	}];
 }
@@ -681,8 +692,8 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 - (void) updateHighlightSearchWithText:(NSString*) search_text
 {
 	#pragma unused(search_text)
-	[self applyHeaderIfNeeded];
 	[self reloadHighlights];
+	[self applyHeaderIfNeeded];
 }
 
 - (IBAction) performFindPanelAction:(id) sender
@@ -776,7 +787,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		return;
 	}
 
-	NSArray* matching_hosts = [self randomHostsForMatchingHighlights];
+	NSArray* matching_hosts = [self avatarHostsForMatchingHighlights];
 	if (matching_hosts.count > 0) {
 		self.allPostsAvatarHosts = matching_hosts;
 	}
@@ -785,31 +796,13 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	}
 }
 
-- (NSArray*) randomHostsForAllPostsAvatars
-{
-	NSArray* available_hosts = self.iconURLByHost.allKeys ?: @[];
-	if (available_hosts.count == 0) {
-		return @[];
-	}
-
-	NSMutableArray* shuffled_hosts = [available_hosts mutableCopy];
-	for (NSInteger i = (shuffled_hosts.count - 1); i > 0; i--) {
-		u_int32_t random_index = arc4random_uniform((u_int32_t) (i + 1));
-		[shuffled_hosts exchangeObjectAtIndex:i withObjectAtIndex:(NSInteger) random_index];
-	}
-
-	NSUInteger selected_count = MIN((NSUInteger) 3, shuffled_hosts.count);
-	return [shuffled_hosts subarrayWithRange:NSMakeRange(0, selected_count)];
-}
-
-- (NSArray*) randomHostsForMatchingHighlights
+- (NSArray*) avatarHostsForMatchingHighlights
 {
 	if (self.highlights.count == 0) {
 		return @[];
 	}
 
 	NSMutableOrderedSet* unique_hosts = [[NSMutableOrderedSet alloc] init];
-	NSMutableArray* highlight_hosts = [NSMutableArray array];
 	for (id object in self.highlights) {
 		if (![object isKindOfClass:[MBHighlight class]]) {
 			continue;
@@ -822,25 +815,15 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 		}
 
 		[unique_hosts addObject:host_value];
-		[highlight_hosts addObject:host_value];
 	}
 
-	if (highlight_hosts.count == 0) {
+	NSArray* ordered_hosts = [unique_hosts array];
+	if (ordered_hosts.count == 0) {
 		return @[];
 	}
 
-	NSMutableArray* shuffled_hosts = [[unique_hosts array] mutableCopy];
-	for (NSInteger i = (shuffled_hosts.count - 1); i > 0; i--) {
-		u_int32_t random_index = arc4random_uniform((u_int32_t) (i + 1));
-		[shuffled_hosts exchangeObjectAtIndex:i withObjectAtIndex:(NSInteger) random_index];
-	}
-
-	NSMutableArray* selected_hosts = [NSMutableArray array];
-	NSUInteger preferred_count = MIN((NSUInteger) 3, shuffled_hosts.count);
-	for (NSUInteger i = 0; i < preferred_count; i++) {
-		[selected_hosts addObject:shuffled_hosts[i]];
-	}
-	return [selected_hosts copy];
+	NSUInteger selected_count = MIN((NSUInteger) 3, ordered_hosts.count);
+	return [ordered_hosts subarrayWithRange:NSMakeRange(0, selected_count)];
 }
 
 - (NSString*) normalizedHostFromURLString:(NSString*) url_string
