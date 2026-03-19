@@ -5,6 +5,36 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.0.2</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Added URL at bottom of window when hovering over a link.</li>
+					<li>Added File → Share and Print.</li>
+					<li>Improved sidebar post items to use "..." when truncating title and summary.</li>
+					<li>Fixed potential hang on launch upgrading from 1.0.</li>
+					<li>Fixed avatar icon flicker when searching all highlights.</li>
+					<li>Fixed enabling Reading Recap when hiding read posts.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Thu, 19 Mar 2026 15:11:00 -0500</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.0.2.zip"
+				sparkle:shortVersionString="1.0.2"
+				sparkle:version="12"
+				sparkle:edSignature="Ss1K+H8d99rdLU/GrIU1xzznP2jbfk+CvTMfBzGkLekNmI0r6BNEfetUPo68D/Ke/+UV9ySkyTphRZBhAPPDAQ=="
+				length="5295676"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.0.1</title>
  			<description><![CDATA[
 				<style>
