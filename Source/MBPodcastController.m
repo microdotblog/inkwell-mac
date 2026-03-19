@@ -20,6 +20,7 @@ static NSString* const InkwellPodcastLastPlayedAtKey = @"last_played_at";
 static NSString* const InkwellPodcastAvatarURLKey = @"avatar_url";
 static NSInteger const InkwellPodcastMaximumSavedItems = 50;
 static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
+static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusContext;
 
 @interface MBPodcastSliderCell : NSSliderCell
 
@@ -103,18 +104,26 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 @property (nonatomic, strong) NSButton* playButton;
 @property (nonatomic, strong) NSButton* forwardButton;
 @property (nonatomic, strong) MBPodcastSlider* progressSlider;
+@property (nonatomic, strong) NSTextField* currentTimeLabel;
+@property (nonatomic, strong) NSTextField* remainingTimeLabel;
+@property (nonatomic, strong) NSProgressIndicator* loadingIndicator;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, strong) NSMutableArray* playbackRecords;
 @property (nonatomic, strong, nullable) NSTimer* playbackSaveTimer;
 @property (nonatomic, strong, nullable) AVPlayer* player;
 @property (nonatomic, copy) NSString* currentEnclosureURLString;
 @property (nonatomic, strong, nullable) id timeObserverToken;
+@property (nonatomic, assign) BOOL isObservingPlayerStatus;
 @property (nonatomic, assign) BOOL isScrubbing;
 @property (nonatomic, assign, readwrite) BOOL isPlaying;
 
+- (void) addPlayerStatusObserverIfNeeded;
 - (NSButton*) transportButtonWithSymbolName:(NSString*) symbol_name accessibilityDescription:(NSString*) accessibility_description action:(SEL) action;
 - (void) configurePlayerForCurrentEntry;
 - (NSDate* _Nullable) dateFromISO8601String:(NSString*) string;
+- (Float64) displayedCurrentPlaybackSeconds;
+- (Float64) displayedDurationSeconds;
+- (NSString*) formattedTimeStringForSeconds:(Float64) seconds;
 - (NSISO8601DateFormatter*) iso8601Formatter;
 - (NSURL* _Nullable) playbackRecordsFileURLCreateIfNeeded:(BOOL) create_if_needed;
 - (NSMutableDictionary* _Nullable) playbackRecordForEntry:(MBEntry*) entry createIfNeeded:(BOOL) create_if_needed;
@@ -122,7 +131,9 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 - (void) persistPlaybackRecordsToDisk;
 - (void) persistPlaybackStateForCurrentEntryToDisk;
 - (void) playbackSaveTimerDidFire:(NSTimer*) timer;
+- (void) removePlayerStatusObserverIfNeeded;
 - (void) removeTimeObserverIfNeeded;
+- (Float64) savedPlaybackSecondsForEntry:(MBEntry* _Nullable) entry;
 - (double) savedPlaybackPercentForEntry:(MBEntry* _Nullable) entry;
 - (void) restorePlaybackPositionForCurrentEntry;
 - (void) schedulePlaybackSaveTimerIfNeeded;
@@ -131,7 +142,9 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 - (void) sortAndTrimPlaybackRecords;
 - (void) stopPlaybackSaveTimer;
 - (void) updatePlaybackRecordForEntry:(MBEntry* _Nullable) entry artworkURLString:(NSString*) artwork_url_string;
+- (void) updateLoadingIndicator;
 - (void) updateProgressSliderForCurrentTime;
+- (void) updateTimeLabels;
 - (void) updateArtworkImage;
 - (void) updatePlaybackButtonImage;
 - (void) avatarImageDidLoad:(NSNotification*) notification;
@@ -163,6 +176,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 {
 	[self persistPlaybackStateForCurrentEntryToDisk];
 	[self stopPlaybackSaveTimer];
+	[self removePlayerStatusObserverIfNeeded];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	[self removeTimeObserverIfNeeded];
@@ -221,11 +235,30 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 		}
 
 		strong_self.isScrubbing = is_tracking;
-		[strong_self seekPlayerToSliderPositionPreservingScrubState:is_tracking];
+		[strong_self updateTimeLabels];
 		if (!is_tracking) {
-			[strong_self updateProgressSliderForCurrentTime];
+			[strong_self seekPlayerToSliderPositionPreservingScrubState:NO];
 		}
 	};
+
+	NSTextField* current_time_label = [NSTextField labelWithString:@"0:00"];
+	current_time_label.translatesAutoresizingMaskIntoConstraints = NO;
+	current_time_label.font = [NSFont systemFontOfSize:9.0 weight:NSFontWeightRegular];
+	current_time_label.textColor = [NSColor colorWithWhite:0.16 alpha:0.72];
+	current_time_label.alignment = NSTextAlignmentLeft;
+
+	NSTextField* remaining_time_label = [NSTextField labelWithString:@"-0:00"];
+	remaining_time_label.translatesAutoresizingMaskIntoConstraints = NO;
+	remaining_time_label.font = [NSFont systemFontOfSize:9.0 weight:NSFontWeightRegular];
+	remaining_time_label.textColor = [NSColor colorWithWhite:0.16 alpha:0.72];
+	remaining_time_label.alignment = NSTextAlignmentRight;
+
+	NSProgressIndicator* loading_indicator = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+	loading_indicator.translatesAutoresizingMaskIntoConstraints = NO;
+	loading_indicator.style = NSProgressIndicatorStyleSpinning;
+	loading_indicator.controlSize = NSControlSizeSmall;
+	loading_indicator.displayedWhenStopped = NO;
+	loading_indicator.hidden = YES;
 
 	[artwork_background_view addSubview:artwork_image_view];
 	[NSLayoutConstraint activateConstraints:@[
@@ -240,17 +273,25 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 
 	[controls_container_view addSubview:controls_stack_view];
 	[controls_container_view addSubview:progress_slider];
+	[controls_container_view addSubview:current_time_label];
+	[controls_container_view addSubview:remaining_time_label];
 	[NSLayoutConstraint activateConstraints:@[
 		[controls_stack_view.centerXAnchor constraintEqualToAnchor:controls_container_view.centerXAnchor],
 		[controls_stack_view.topAnchor constraintEqualToAnchor:controls_container_view.topAnchor constant:22.0],
 		[progress_slider.topAnchor constraintEqualToAnchor:controls_stack_view.bottomAnchor constant:18.0],
 		[progress_slider.leadingAnchor constraintEqualToAnchor:controls_container_view.leadingAnchor],
 		[progress_slider.trailingAnchor constraintEqualToAnchor:controls_container_view.trailingAnchor],
-		[progress_slider.bottomAnchor constraintEqualToAnchor:controls_container_view.bottomAnchor constant:-18.0]
+		[current_time_label.topAnchor constraintEqualToAnchor:progress_slider.bottomAnchor constant:-3.0],
+		[current_time_label.leadingAnchor constraintEqualToAnchor:progress_slider.leadingAnchor],
+		[current_time_label.bottomAnchor constraintEqualToAnchor:controls_container_view.bottomAnchor constant:-13.0],
+		[remaining_time_label.topAnchor constraintEqualToAnchor:progress_slider.bottomAnchor constant:-3.0],
+		[remaining_time_label.trailingAnchor constraintEqualToAnchor:progress_slider.trailingAnchor],
+		[remaining_time_label.bottomAnchor constraintEqualToAnchor:controls_container_view.bottomAnchor constant:-13.0]
 	]];
 
 	[container_view addSubview:artwork_background_view];
 	[container_view addSubview:controls_container_view];
+	[container_view addSubview:loading_indicator];
 	[NSLayoutConstraint activateConstraints:@[
 		[back_button.widthAnchor constraintEqualToConstant:28.0],
 		[back_button.heightAnchor constraintEqualToConstant:28.0],
@@ -262,6 +303,10 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 		[artwork_background_view.topAnchor constraintEqualToAnchor:container_view.topAnchor constant:22.0],
 		[artwork_background_view.widthAnchor constraintEqualToConstant:40.0],
 		[artwork_background_view.heightAnchor constraintEqualToConstant:40.0],
+		[loading_indicator.widthAnchor constraintEqualToConstant:16.0],
+		[loading_indicator.heightAnchor constraintEqualToConstant:16.0],
+		[loading_indicator.centerYAnchor constraintEqualToAnchor:artwork_background_view.centerYAnchor],
+		[loading_indicator.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor constant:-28.0],
 		[controls_container_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor constant:18.0],
 		[controls_container_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor constant:-18.0],
 		[controls_container_view.topAnchor constraintEqualToAnchor:container_view.topAnchor],
@@ -274,9 +319,14 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	self.playButton = play_button;
 	self.forwardButton = forward_button;
 	self.progressSlider = progress_slider;
+	self.currentTimeLabel = current_time_label;
+	self.remainingTimeLabel = remaining_time_label;
+	self.loadingIndicator = loading_indicator;
 	self.view = container_view;
 	[self updateArtworkImage];
 	[self updatePlaybackButtonImage];
+	[self updateLoadingIndicator];
+	[self updateTimeLabels];
 }
 
 - (void) setEntry:(MBEntry* _Nullable) entry
@@ -292,6 +342,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 
 	_entry = entry;
 	self.progressSlider.doubleValue = [self savedPlaybackPercentForEntry:entry];
+	[self updateTimeLabels];
 	[self configurePlayerForCurrentEntry];
 }
 
@@ -313,6 +364,26 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	button.contentTintColor = [NSColor colorWithWhite:0.16 alpha:1.0];
 	button.image = [NSImage imageWithSystemSymbolName:symbol_name accessibilityDescription:accessibility_description];
 	return button;
+}
+
+- (void) addPlayerStatusObserverIfNeeded
+{
+	if (self.player == nil || self.isObservingPlayerStatus) {
+		return;
+	}
+
+	[self.player addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew context:InkwellPodcastPlayerStatusContext];
+	self.isObservingPlayerStatus = YES;
+}
+
+- (void) removePlayerStatusObserverIfNeeded
+{
+	if (self.player == nil || !self.isObservingPlayerStatus) {
+		return;
+	}
+
+	[self.player removeObserver:self forKeyPath:@"status" context:InkwellPodcastPlayerStatusContext];
+	self.isObservingPlayerStatus = NO;
 }
 
 - (void) loadPlaybackRecords
@@ -454,6 +525,72 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	return [default_date_formatter dateFromString:trimmed_string];
 }
 
+- (NSString*) formattedTimeStringForSeconds:(Float64) seconds
+{
+	NSInteger total_seconds = (NSInteger) llround(MAX(0.0, seconds));
+	NSInteger hours = total_seconds / 3600;
+	if (hours > 0) {
+		NSInteger minutes = (total_seconds % 3600) / 60;
+		NSInteger remaining_seconds = total_seconds % 60;
+		return [NSString stringWithFormat:@"%ld:%02ld:%02ld", (long) hours, (long) minutes, (long) remaining_seconds];
+	}
+
+	NSInteger minutes = total_seconds / 60;
+	NSInteger remaining_seconds = total_seconds % 60;
+	return [NSString stringWithFormat:@"%ld:%02ld", (long) minutes, (long) remaining_seconds];
+}
+
+- (Float64) displayedDurationSeconds
+{
+	Float64 duration_seconds = 0.0;
+	if (self.player.currentItem != nil) {
+		Float64 current_duration_seconds = CMTimeGetSeconds(self.player.currentItem.duration);
+		if (isfinite(current_duration_seconds) && current_duration_seconds > 0.0) {
+			duration_seconds = current_duration_seconds;
+		}
+	}
+
+	if (duration_seconds > 0.0) {
+		return duration_seconds;
+	}
+
+	NSString* duration_string = [self.entry.itunesDuration stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return MAX(0.0, duration_string.doubleValue);
+}
+
+- (Float64) savedPlaybackSecondsForEntry:(MBEntry* _Nullable) entry
+{
+	NSMutableDictionary* dictionary = [self playbackRecordForEntry:entry createIfNeeded:NO];
+	if (dictionary == nil) {
+		return 0.0;
+	}
+
+	id playback_seconds_value = dictionary[InkwellPodcastPlaybackSecondsKey];
+	Float64 playback_seconds = [playback_seconds_value respondsToSelector:@selector(doubleValue)] ? [playback_seconds_value doubleValue] : 0.0;
+	return MAX(0.0, playback_seconds);
+}
+
+- (Float64) displayedCurrentPlaybackSeconds
+{
+	if (self.isScrubbing) {
+		return [self displayedDurationSeconds] * MIN(1.0, MAX(0.0, self.progressSlider.doubleValue));
+	}
+
+	if (self.player != nil) {
+		Float64 current_seconds = CMTimeGetSeconds(self.player.currentTime);
+		if (isfinite(current_seconds) && current_seconds >= 0.0) {
+			return current_seconds;
+		}
+	}
+
+	Float64 saved_playback_seconds = [self savedPlaybackSecondsForEntry:self.entry];
+	if (saved_playback_seconds > 0.0) {
+		return saved_playback_seconds;
+	}
+
+	return [self displayedDurationSeconds] * MIN(1.0, MAX(0.0, self.progressSlider.doubleValue));
+}
+
 - (void) sortAndTrimPlaybackRecords
 {
 	[self.playbackRecords sortUsingComparator:^NSComparisonResult(NSDictionary* left_dictionary, NSDictionary* right_dictionary) {
@@ -512,6 +649,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	NSMutableDictionary* dictionary = [self playbackRecordForEntry:self.entry createIfNeeded:NO];
 	if (dictionary == nil) {
 		self.progressSlider.doubleValue = 0.0;
+		[self updateTimeLabels];
 		return;
 	}
 
@@ -519,6 +657,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	double playback_percent = [playback_percent_value respondsToSelector:@selector(doubleValue)] ? [playback_percent_value doubleValue] : 0.0;
 	playback_percent = MIN(1.0, MAX(0.0, playback_percent));
 	self.progressSlider.doubleValue = playback_percent;
+	[self updateTimeLabels];
 
 	id playback_seconds_value = dictionary[InkwellPodcastPlaybackSecondsKey];
 	Float64 playback_seconds = [playback_seconds_value respondsToSelector:@selector(doubleValue)] ? [playback_seconds_value doubleValue] : 0.0;
@@ -554,6 +693,16 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	id playback_percent_value = dictionary[InkwellPodcastPlaybackPercentKey];
 	double playback_percent = [playback_percent_value respondsToSelector:@selector(doubleValue)] ? [playback_percent_value doubleValue] : 0.0;
 	return MIN(1.0, MAX(0.0, playback_percent));
+}
+
+- (void) updateTimeLabels
+{
+	Float64 current_seconds = [self displayedCurrentPlaybackSeconds];
+	Float64 duration_seconds = [self displayedDurationSeconds];
+	Float64 remaining_seconds = MAX(0.0, duration_seconds - current_seconds);
+
+	self.currentTimeLabel.stringValue = [self formattedTimeStringForSeconds:current_seconds];
+	self.remainingTimeLabel.stringValue = [NSString stringWithFormat:@"-%@", [self formattedTimeStringForSeconds:remaining_seconds]];
 }
 
 - (void) persistPlaybackRecordsToDisk
@@ -600,6 +749,18 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	[self persistPlaybackStateForCurrentEntryToDisk];
 }
 
+- (void) updateLoadingIndicator
+{
+	BOOL is_loading = (self.player != nil && self.player.status != AVPlayerStatusReadyToPlay);
+	self.loadingIndicator.hidden = !is_loading;
+	if (is_loading) {
+		[self.loadingIndicator startAnimation:nil];
+	}
+	else {
+		[self.loadingIndicator stopAnimation:nil];
+	}
+}
+
 - (void) configurePlayerForCurrentEntry
 {
 	NSString* enclosure_url = [self.entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
@@ -609,11 +770,14 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:self.player.currentItem];
 	[self.player pause];
+	[self removePlayerStatusObserverIfNeeded];
 	[self removeTimeObserverIfNeeded];
 	self.player = nil;
 	self.currentEnclosureURLString = enclosure_url;
 	[self setPlayingState:NO notify:NO];
 	self.progressSlider.doubleValue = [self savedPlaybackPercentForEntry:self.entry];
+	[self updateLoadingIndicator];
+	[self updateTimeLabels];
 
 	if (enclosure_url.length == 0) {
 		return;
@@ -628,6 +792,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	AVPlayer* player = [AVPlayer playerWithPlayerItem:player_item];
 	player.automaticallyWaitsToMinimizeStalling = YES;
 	self.player = player;
+	[self addPlayerStatusObserverIfNeeded];
 
 	__weak typeof(self) weak_self = self;
 	self.timeObserverToken = [self.player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(0.25, NSEC_PER_SEC) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
@@ -668,6 +833,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	Float64 target_seconds = slider_fraction * duration_seconds;
 	CMTime target_time = CMTimeMakeWithSeconds(target_seconds, NSEC_PER_SEC);
 	self.progressSlider.doubleValue = slider_fraction;
+	[self updateTimeLabels];
 
 	__weak typeof(self) weak_self = self;
 	[self.player seekToTime:target_time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
@@ -707,6 +873,7 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 - (void) updateProgressSliderForCurrentTime
 {
 	if (self.isScrubbing) {
+		[self updateTimeLabels];
 		return;
 	}
 
@@ -715,16 +882,19 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 		if (self.entry == nil) {
 			self.progressSlider.doubleValue = 0.0;
 		}
+		[self updateTimeLabels];
 		return;
 	}
 
 	Float64 duration_seconds = CMTimeGetSeconds(player_item.duration);
 	Float64 current_seconds = CMTimeGetSeconds(self.player.currentTime);
 	if (!isfinite(duration_seconds) || duration_seconds <= 0.0 || !isfinite(current_seconds) || current_seconds < 0.0) {
+		[self updateTimeLabels];
 		return;
 	}
 
 	self.progressSlider.doubleValue = MIN(1.0, MAX(0.0, current_seconds / duration_seconds));
+	[self updateTimeLabels];
 }
 
 - (void) updateArtworkImage
@@ -762,11 +932,26 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 	[self updateArtworkImage];
 }
 
+- (void) observeValueForKeyPath:(NSString*) key_path ofObject:(id) object change:(NSDictionary<NSKeyValueChangeKey,id>*) change context:(void*) context
+{
+	#pragma unused(change)
+	if (context == InkwellPodcastPlayerStatusContext) {
+		#pragma unused(object)
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self updateLoadingIndicator];
+		});
+		return;
+	}
+
+	[super observeValueForKeyPath:key_path ofObject:object change:change context:context];
+}
+
 - (void) playbackDidFinish:(NSNotification*) notification
 {
 	#pragma unused(notification)
 	[self.player pause];
 	self.progressSlider.doubleValue = 1.0;
+	[self updateTimeLabels];
 	[self setPlayingState:NO notify:YES];
 	[self persistPlaybackStateForCurrentEntryToDisk];
 }
@@ -843,7 +1028,10 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 - (IBAction) scrubPlaybackPosition:(id) sender
 {
 	#pragma unused(sender)
-	[self seekPlayerToSliderPositionPreservingScrubState:self.isScrubbing];
+	[self updateTimeLabels];
+	if (!self.isScrubbing) {
+		[self seekPlayerToSliderPositionPreservingScrubState:NO];
+	}
 }
 
 @end
