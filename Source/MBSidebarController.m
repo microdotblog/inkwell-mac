@@ -288,8 +288,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) showCachedSelectedEntryIfNeeded;
 - (NSString*) normalizedContentHTMLString:(NSString*) string;
 - (NSString*) iso8601StringFromDate:(NSDate* _Nullable) date;
-- (NSArray*) fadingItems;
-- (NSArray*) fadingEntryIDs;
+- (NSArray*) allFadingItems;
+- (NSArray*) allFadingEntryIDs;
 - (NSArray*) cachedItemsForFeedID:(NSInteger) feed_id;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
 - (NSArray*) sortedItems:(NSArray*) items;
@@ -1810,7 +1810,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.recapToTableTopConstraint.constant = (should_show_recap || should_show_special_mode) ? 8.0 : 0.0;
 	}
 
-	NSInteger fading_count = [self fadingItems].count;
+	NSInteger fading_count = [self allFadingItems].count;
 	if (self.recapCountLabel != nil) {
 		self.recapCountLabel.stringValue = [self recapCountStringForPostsCount:fading_count];
 	}
@@ -1847,15 +1847,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self updateRecapUI];
 }
 
-- (NSArray*) fadingItems
+- (NSArray*) allFadingItems
 {
-	NSArray* fading_items = [self filteredItemsForDateFilter:MBSidebarDateFilterFading];
-	return [self filteredItemsForReadVisibility:fading_items selectedEntryID:0];
+	return [self filteredItemsForDateFilter:MBSidebarDateFilterFading];
 }
 
-- (NSArray*) fadingEntryIDs
+- (NSArray*) allFadingEntryIDs
 {
-	NSArray* fading_items = [self fadingItems];
+	NSArray* fading_items = [self allFadingItems];
 	if (fading_items.count == 0) {
 		return @[];
 	}
@@ -1936,7 +1935,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return NO;
 	}
 
-	return ([self fadingEntryIDs].count > 0);
+	return ([self allFadingEntryIDs].count > 0);
 }
 
 - (BOOL) shouldShowPremiumRequiredView
@@ -2049,7 +2048,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	NSArray* entry_ids = [self fadingEntryIDs];
+	NSArray* entry_ids = [self allFadingEntryIDs];
 	self.recapRequestIdentifier += 1;
 	NSInteger request_identifier = self.recapRequestIdentifier;
 	[self setRecapFetching:YES];
