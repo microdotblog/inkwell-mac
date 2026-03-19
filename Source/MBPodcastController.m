@@ -10,6 +10,7 @@
 #import "MBAvatarLoader.h"
 #import "MBEntry.h"
 #import "MBPathUtilities.h"
+#import "MBPodcastSlider.h"
 
 static NSString* const InkwellPodcastsFilename = @"Podcasts.json";
 static NSString* const InkwellPodcastEntryIDKey = @"entry_id";
@@ -21,80 +22,6 @@ static NSString* const InkwellPodcastAvatarURLKey = @"avatar_url";
 static NSInteger const InkwellPodcastMaximumSavedItems = 50;
 static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusContext;
-
-@interface MBPodcastSliderCell : NSSliderCell
-
-@end
-
-@interface MBPodcastSlider : NSSlider
-
-@property (nonatomic, copy, nullable) void (^trackingStateChangedHandler)(BOOL is_tracking);
-
-@end
-
-@implementation MBPodcastSliderCell
-
-- (CGFloat) knobThickness
-{
-	return 4.0;
-}
-
-- (void) drawBarInside:(NSRect) rect flipped:(BOOL) flipped
-{
-	#pragma unused(flipped)
-	NSRect bar_rect = NSInsetRect(rect, 0.0, (NSHeight(rect) - 4.0) / 2.0);
-	bar_rect.size.height = 4.0;
-
-	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:bar_rect xRadius:2.0 yRadius:2.0];
-	[[NSColor colorWithWhite:0.35 alpha:0.18] setFill];
-	[background_path fill];
-
-	CGFloat progress_fraction = 0.0;
-	if (self.maxValue > self.minValue) {
-		progress_fraction = (CGFloat) ((self.doubleValue - self.minValue) / (self.maxValue - self.minValue));
-	}
-	progress_fraction = MIN(1.0, MAX(0.0, progress_fraction));
-
-	NSRect progress_rect = bar_rect;
-	progress_rect.size.width = floor(progress_rect.size.width * progress_fraction);
-	if (progress_rect.size.width <= 0.0) {
-		return;
-	}
-
-	NSBezierPath* progress_path = [NSBezierPath bezierPathWithRoundedRect:progress_rect xRadius:2.0 yRadius:2.0];
-	[[NSColor colorWithWhite:0.22 alpha:1.0] setFill];
-	[progress_path fill];
-}
-
-- (void) drawKnob:(NSRect) knob_rect
-{
-	#pragma unused(knob_rect)
-}
-
-@end
-
-@implementation MBPodcastSlider
-
-- (void) setDoubleValue:(double) double_value
-{
-	[super setDoubleValue:double_value];
-	[self setNeedsDisplay:YES];
-}
-
-- (void) mouseDown:(NSEvent*) event
-{
-	if (self.trackingStateChangedHandler != nil) {
-		self.trackingStateChangedHandler(YES);
-	}
-
-	[super mouseDown:event];
-
-	if (self.trackingStateChangedHandler != nil) {
-		self.trackingStateChangedHandler(NO);
-	}
-}
-
-@end
 
 @interface MBPodcastController ()
 
@@ -226,7 +153,6 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	progress_slider.action = @selector(scrubPlaybackPosition:);
 	progress_slider.continuous = YES;
 	progress_slider.sliderType = NSSliderTypeLinear;
-	progress_slider.cell = [[MBPodcastSliderCell alloc] init];
 	__weak typeof(self) weak_self = self;
 	progress_slider.trackingStateChangedHandler = ^(BOOL is_tracking) {
 		MBPodcastController* strong_self = weak_self;
@@ -236,9 +162,6 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 		strong_self.isScrubbing = is_tracking;
 		[strong_self updateTimeLabels];
-		if (!is_tracking) {
-			[strong_self seekPlayerToSliderPositionPreservingScrubState:NO];
-		}
 	};
 
 	NSTextField* current_time_label = [NSTextField labelWithString:@"0:00"];
@@ -1028,6 +951,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (IBAction) scrubPlaybackPosition:(id) sender
 {
 	#pragma unused(sender)
+	NSLog(@"scrub");
 	[self updateTimeLabels];
 	if (!self.isScrubbing) {
 		[self seekPlayerToSliderPositionPreservingScrubState:NO];
