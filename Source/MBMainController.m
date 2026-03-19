@@ -225,6 +225,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) startAutoRefreshTimerIfNeeded;
 - (void) stopAutoRefreshTimer;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
+- (BOOL) isFilterSelectionDisabled;
 - (void) updateFilterSegmentedControlEnabledState;
 - (BOOL) canShareSelectedItem;
 - (BOOL) canPrintCurrentContent;
@@ -549,30 +550,55 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
-	self.filterSegmentedControl.enabled = ![self.sidebarController isShowingSpecialMode];
+	self.filterSegmentedControl.enabled = ![self isFilterSelectionDisabled];
+}
+
+- (BOOL) isFilterSelectionDisabled
+{
+	return ([self.sidebarController isShowingSpecialMode] || self.sidebarController.searchQuery.length > 0);
 }
 
 - (IBAction) filterSegmentChanged:(id)sender
 {
 	#pragma unused(sender)
+
+	if ([self isFilterSelectionDisabled]) {
+		return;
+	}
+
 	[self selectFilterSegment:self.filterSegmentedControl.selectedSegment];
 }
 
 - (IBAction) selectTodayView:(id)sender
 {
 	#pragma unused(sender)
+
+	if ([self isFilterSelectionDisabled]) {
+		return;
+	}
+
 	[self selectFilterSegment:InkwellFilterTodaySegmentIndex];
 }
 
 - (IBAction) selectRecentView:(id)sender
 {
 	#pragma unused(sender)
+
+	if ([self isFilterSelectionDisabled]) {
+		return;
+	}
+
 	[self selectFilterSegment:InkwellFilterRecentSegmentIndex];
 }
 
 - (IBAction) selectFadingView:(id)sender
 {
 	#pragma unused(sender)
+
+	if ([self isFilterSelectionDisabled]) {
+		return;
+	}
+
 	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 }
 
@@ -1076,6 +1102,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
+	if (menu_item.action == @selector(selectTodayView:) || menu_item.action == @selector(selectRecentView:) || menu_item.action == @selector(selectFadingView:)) {
+		return ![self isFilterSelectionDisabled];
+	}
 	if (menu_item.action == @selector(newPost:)) {
 		return ([self.sidebarController selectedItem] != nil);
 	}
@@ -1240,10 +1269,10 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSString* search_query = [search_field.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (search_query.length > 0 && [self.sidebarController isShowingSpecialMode]) {
 		[self.sidebarController clearSpecialMode];
-		[self updateFilterSegmentedControlEnabledState];
 	}
 
 	self.sidebarController.searchQuery = search_field.stringValue ?: @"";
+	[self updateFilterSegmentedControlEnabledState];
 }
 
 - (void) newFeedURLFieldTextDidChange:(NSNotification*) notification
