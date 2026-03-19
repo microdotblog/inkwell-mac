@@ -9,6 +9,17 @@
 #import <AVFoundation/AVFoundation.h>
 #import "MBAvatarLoader.h"
 #import "MBEntry.h"
+#import "MBPathUtilities.h"
+
+static NSString* const InkwellPodcastsFilename = @"Podcasts.json";
+static NSString* const InkwellPodcastEntryIDKey = @"entry_id";
+static NSString* const InkwellPodcastEnclosureURLKey = @"enclosure_url";
+static NSString* const InkwellPodcastPlaybackSecondsKey = @"playback_seconds";
+static NSString* const InkwellPodcastPlaybackPercentKey = @"playback_percent";
+static NSString* const InkwellPodcastLastPlayedAtKey = @"last_played_at";
+static NSString* const InkwellPodcastAvatarURLKey = @"avatar_url";
+static NSInteger const InkwellPodcastMaximumSavedItems = 50;
+static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 
 @interface MBPodcastSliderCell : NSSliderCell
 
@@ -63,6 +74,12 @@
 
 @implementation MBPodcastSlider
 
+- (void) setDoubleValue:(double) double_value
+{
+	[super setDoubleValue:double_value];
+	[self setNeedsDisplay:YES];
+}
+
 - (void) mouseDown:(NSEvent*) event
 {
 	if (self.trackingStateChangedHandler != nil) {
@@ -87,6 +104,8 @@
 @property (nonatomic, strong) NSButton* forwardButton;
 @property (nonatomic, strong) MBPodcastSlider* progressSlider;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
+@property (nonatomic, strong) NSMutableArray* playbackRecords;
+@property (nonatomic, strong, nullable) NSTimer* playbackSaveTimer;
 @property (nonatomic, strong, nullable) AVPlayer* player;
 @property (nonatomic, copy) NSString* currentEnclosureURLString;
 @property (nonatomic, strong, nullable) id timeObserverToken;
@@ -95,9 +114,23 @@
 
 - (NSButton*) transportButtonWithSymbolName:(NSString*) symbol_name accessibilityDescription:(NSString*) accessibility_description action:(SEL) action;
 - (void) configurePlayerForCurrentEntry;
+- (NSDate* _Nullable) dateFromISO8601String:(NSString*) string;
+- (NSISO8601DateFormatter*) iso8601Formatter;
+- (NSURL* _Nullable) playbackRecordsFileURLCreateIfNeeded:(BOOL) create_if_needed;
+- (NSMutableDictionary* _Nullable) playbackRecordForEntry:(MBEntry*) entry createIfNeeded:(BOOL) create_if_needed;
+- (void) loadPlaybackRecords;
+- (void) persistPlaybackRecordsToDisk;
+- (void) persistPlaybackStateForCurrentEntryToDisk;
+- (void) playbackSaveTimerDidFire:(NSTimer*) timer;
 - (void) removeTimeObserverIfNeeded;
+- (double) savedPlaybackPercentForEntry:(MBEntry* _Nullable) entry;
+- (void) restorePlaybackPositionForCurrentEntry;
+- (void) schedulePlaybackSaveTimerIfNeeded;
 - (void) seekPlayerToSliderPositionPreservingScrubState:(BOOL) preserve_scrub_state;
 - (void) setPlayingState:(BOOL) is_playing notify:(BOOL) should_notify;
+- (void) sortAndTrimPlaybackRecords;
+- (void) stopPlaybackSaveTimer;
+- (void) updatePlaybackRecordForEntry:(MBEntry* _Nullable) entry artworkURLString:(NSString*) artwork_url_string;
 - (void) updateProgressSliderForCurrentTime;
 - (void) updateArtworkImage;
 - (void) updatePlaybackButtonImage;
@@ -116,9 +149,11 @@
 {
 	self = [super initWithNibName:nil bundle:nil];
 	if (self) {
-		self.artworkURLString = @"";
-		self.currentEnclosureURLString = @"";
+		_artworkURLString = @"";
+		_currentEnclosureURLString = @"";
 		self.avatarLoader = [MBAvatarLoader sharedLoader];
+		self.playbackRecords = [NSMutableArray array];
+		[self loadPlaybackRecords];
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -126,6 +161,8 @@
 
 - (void) dealloc
 {
+	[self persistPlaybackStateForCurrentEntryToDisk];
+	[self stopPlaybackSaveTimer];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	[self removeTimeObserverIfNeeded];
@@ -244,11 +281,17 @@
 
 - (void) setEntry:(MBEntry* _Nullable) entry
 {
-	if (_entry.entryID != entry.entryID) {
+	NSString* previous_enclosure_url = [_entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* next_enclosure_url = [entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	BOOL did_change_entry = (_entry.entryID != entry.entryID || ![previous_enclosure_url isEqualToString:next_enclosure_url]);
+	if (did_change_entry) {
+		[self updatePlaybackRecordForEntry:_entry artworkURLString:self.artworkURLString];
+		[self persistPlaybackRecordsToDisk];
 		self.progressSlider.doubleValue = 0.0;
 	}
 
 	_entry = entry;
+	self.progressSlider.doubleValue = [self savedPlaybackPercentForEntry:entry];
 	[self configurePlayerForCurrentEntry];
 }
 
@@ -256,6 +299,8 @@
 {
 	_artworkURLString = [artwork_url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	[self updateArtworkImage];
+	[self updatePlaybackRecordForEntry:self.entry artworkURLString:_artworkURLString];
+	[self persistPlaybackRecordsToDisk];
 }
 
 - (NSButton*) transportButtonWithSymbolName:(NSString*) symbol_name accessibilityDescription:(NSString*) accessibility_description action:(SEL) action
@@ -268,6 +313,291 @@
 	button.contentTintColor = [NSColor colorWithWhite:0.16 alpha:1.0];
 	button.image = [NSImage imageWithSystemSymbolName:symbol_name accessibilityDescription:accessibility_description];
 	return button;
+}
+
+- (void) loadPlaybackRecords
+{
+	[self.playbackRecords removeAllObjects];
+
+	NSURL* file_url = [self playbackRecordsFileURLCreateIfNeeded:NO];
+	if (file_url == nil) {
+		return;
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:file_url];
+	if (data.length == 0) {
+		return;
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if (![payload isKindOfClass:[NSArray class]]) {
+		return;
+	}
+
+	for (id item in (NSArray*) payload) {
+		if (![item isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* dictionary = (NSDictionary*) item;
+		NSString* enclosure_url = [dictionary[InkwellPodcastEnclosureURLKey] isKindOfClass:[NSString class]] ? dictionary[InkwellPodcastEnclosureURLKey] : @"";
+		enclosure_url = [enclosure_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (enclosure_url.length == 0) {
+			continue;
+		}
+
+		id entry_id_value = dictionary[InkwellPodcastEntryIDKey];
+		NSInteger entry_id = [entry_id_value respondsToSelector:@selector(integerValue)] ? [entry_id_value integerValue] : 0;
+
+		id playback_seconds_value = dictionary[InkwellPodcastPlaybackSecondsKey];
+		Float64 playback_seconds = [playback_seconds_value respondsToSelector:@selector(doubleValue)] ? [playback_seconds_value doubleValue] : 0.0;
+		playback_seconds = MAX(0.0, playback_seconds);
+
+		id playback_percent_value = dictionary[InkwellPodcastPlaybackPercentKey];
+		double playback_percent = [playback_percent_value respondsToSelector:@selector(doubleValue)] ? [playback_percent_value doubleValue] : 0.0;
+		playback_percent = MIN(1.0, MAX(0.0, playback_percent));
+
+		NSString* last_played_at = [dictionary[InkwellPodcastLastPlayedAtKey] isKindOfClass:[NSString class]] ? dictionary[InkwellPodcastLastPlayedAtKey] : @"";
+		last_played_at = [last_played_at stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+
+		NSString* avatar_url = [dictionary[InkwellPodcastAvatarURLKey] isKindOfClass:[NSString class]] ? dictionary[InkwellPodcastAvatarURLKey] : @"";
+		avatar_url = [avatar_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+
+		NSMutableDictionary* sanitized_dictionary = [NSMutableDictionary dictionary];
+		sanitized_dictionary[InkwellPodcastEntryIDKey] = @(MAX(0, entry_id));
+		sanitized_dictionary[InkwellPodcastEnclosureURLKey] = enclosure_url;
+		sanitized_dictionary[InkwellPodcastPlaybackSecondsKey] = @(playback_seconds);
+		sanitized_dictionary[InkwellPodcastPlaybackPercentKey] = @(playback_percent);
+		sanitized_dictionary[InkwellPodcastLastPlayedAtKey] = last_played_at;
+		sanitized_dictionary[InkwellPodcastAvatarURLKey] = avatar_url;
+		[self.playbackRecords addObject:sanitized_dictionary];
+	}
+
+	[self sortAndTrimPlaybackRecords];
+}
+
+- (NSURL* _Nullable) playbackRecordsFileURLCreateIfNeeded:(BOOL) create_if_needed
+{
+	return [MBPathUtilities appFileURLForSearchPathDirectory:NSApplicationSupportDirectory filename:InkwellPodcastsFilename createDirectoryIfNeeded:create_if_needed];
+}
+
+- (NSMutableDictionary* _Nullable) playbackRecordForEntry:(MBEntry*) entry createIfNeeded:(BOOL) create_if_needed
+{
+	if (entry == nil || ![entry hasAudioEnclosure]) {
+		return nil;
+	}
+
+	NSString* enclosure_url = [entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (entry.entryID <= 0 || enclosure_url.length == 0) {
+		return nil;
+	}
+
+	for (NSMutableDictionary* dictionary in self.playbackRecords) {
+		if (![dictionary isKindOfClass:[NSMutableDictionary class]]) {
+			continue;
+		}
+
+		id entry_id_value = dictionary[InkwellPodcastEntryIDKey];
+		NSInteger entry_id = [entry_id_value respondsToSelector:@selector(integerValue)] ? [entry_id_value integerValue] : 0;
+		NSString* saved_enclosure_url = [dictionary[InkwellPodcastEnclosureURLKey] isKindOfClass:[NSString class]] ? dictionary[InkwellPodcastEnclosureURLKey] : @"";
+		if ((entry_id > 0 && entry_id == entry.entryID) || [saved_enclosure_url isEqualToString:enclosure_url]) {
+			return dictionary;
+		}
+	}
+
+	if (!create_if_needed) {
+		return nil;
+	}
+
+	NSMutableDictionary* dictionary = [NSMutableDictionary dictionary];
+	dictionary[InkwellPodcastEntryIDKey] = @(entry.entryID);
+	dictionary[InkwellPodcastEnclosureURLKey] = enclosure_url;
+	dictionary[InkwellPodcastPlaybackSecondsKey] = @(0.0);
+	dictionary[InkwellPodcastPlaybackPercentKey] = @(0.0);
+	dictionary[InkwellPodcastLastPlayedAtKey] = @"";
+	dictionary[InkwellPodcastAvatarURLKey] = @"";
+	[self.playbackRecords addObject:dictionary];
+	return dictionary;
+}
+
+- (NSISO8601DateFormatter*) iso8601Formatter
+{
+	static NSISO8601DateFormatter* iso8601_formatter;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		iso8601_formatter = [[NSISO8601DateFormatter alloc] init];
+		iso8601_formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+	});
+
+	return iso8601_formatter;
+}
+
+- (NSDate* _Nullable) dateFromISO8601String:(NSString*) string
+{
+	NSString* trimmed_string = [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_string.length == 0) {
+		return nil;
+	}
+
+	static NSISO8601DateFormatter* default_date_formatter;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		default_date_formatter = [[NSISO8601DateFormatter alloc] init];
+		default_date_formatter.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+	});
+
+	NSDate* date_value = [[self iso8601Formatter] dateFromString:trimmed_string];
+	if (date_value != nil) {
+		return date_value;
+	}
+
+	return [default_date_formatter dateFromString:trimmed_string];
+}
+
+- (void) sortAndTrimPlaybackRecords
+{
+	[self.playbackRecords sortUsingComparator:^NSComparisonResult(NSDictionary* left_dictionary, NSDictionary* right_dictionary) {
+		NSString* left_date_string = [left_dictionary[InkwellPodcastLastPlayedAtKey] isKindOfClass:[NSString class]] ? left_dictionary[InkwellPodcastLastPlayedAtKey] : @"";
+		NSString* right_date_string = [right_dictionary[InkwellPodcastLastPlayedAtKey] isKindOfClass:[NSString class]] ? right_dictionary[InkwellPodcastLastPlayedAtKey] : @"";
+		NSDate* left_date = [self dateFromISO8601String:left_date_string];
+		NSDate* right_date = [self dateFromISO8601String:right_date_string];
+		if (left_date == nil && right_date == nil) {
+			return NSOrderedSame;
+		}
+		if (left_date == nil) {
+			return NSOrderedDescending;
+		}
+		if (right_date == nil) {
+			return NSOrderedAscending;
+		}
+		return [right_date compare:left_date];
+	}];
+
+	while (self.playbackRecords.count > InkwellPodcastMaximumSavedItems) {
+		[self.playbackRecords removeLastObject];
+	}
+}
+
+- (void) updatePlaybackRecordForEntry:(MBEntry* _Nullable) entry artworkURLString:(NSString*) artwork_url_string
+{
+	NSMutableDictionary* dictionary = [self playbackRecordForEntry:entry createIfNeeded:YES];
+	if (dictionary == nil) {
+		return;
+	}
+
+	id saved_playback_seconds_value = dictionary[InkwellPodcastPlaybackSecondsKey];
+	Float64 playback_seconds = [saved_playback_seconds_value respondsToSelector:@selector(doubleValue)] ? [saved_playback_seconds_value doubleValue] : 0.0;
+	if (self.player != nil) {
+		Float64 current_seconds = CMTimeGetSeconds(self.player.currentTime);
+		if (isfinite(current_seconds) && current_seconds >= 0.0) {
+			playback_seconds = current_seconds;
+		}
+	}
+
+	double playback_percent = MIN(1.0, MAX(0.0, self.progressSlider.doubleValue));
+	NSString* trimmed_avatar_url = [artwork_url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* last_played_at = [[self iso8601Formatter] stringFromDate:[NSDate date]] ?: @"";
+
+	dictionary[InkwellPodcastEntryIDKey] = @(entry.entryID);
+	dictionary[InkwellPodcastEnclosureURLKey] = [entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	dictionary[InkwellPodcastPlaybackSecondsKey] = @(playback_seconds);
+	dictionary[InkwellPodcastPlaybackPercentKey] = @(playback_percent);
+	dictionary[InkwellPodcastLastPlayedAtKey] = last_played_at;
+	dictionary[InkwellPodcastAvatarURLKey] = trimmed_avatar_url;
+	[self sortAndTrimPlaybackRecords];
+}
+
+- (void) restorePlaybackPositionForCurrentEntry
+{
+	NSMutableDictionary* dictionary = [self playbackRecordForEntry:self.entry createIfNeeded:NO];
+	if (dictionary == nil) {
+		self.progressSlider.doubleValue = 0.0;
+		return;
+	}
+
+	id playback_percent_value = dictionary[InkwellPodcastPlaybackPercentKey];
+	double playback_percent = [playback_percent_value respondsToSelector:@selector(doubleValue)] ? [playback_percent_value doubleValue] : 0.0;
+	playback_percent = MIN(1.0, MAX(0.0, playback_percent));
+	self.progressSlider.doubleValue = playback_percent;
+
+	id playback_seconds_value = dictionary[InkwellPodcastPlaybackSecondsKey];
+	Float64 playback_seconds = [playback_seconds_value respondsToSelector:@selector(doubleValue)] ? [playback_seconds_value doubleValue] : 0.0;
+	if (playback_seconds <= 0.0 || self.player == nil) {
+		return;
+	}
+
+	CMTime target_time = CMTimeMakeWithSeconds(playback_seconds, NSEC_PER_SEC);
+	__weak typeof(self) weak_self = self;
+	[self.player seekToTime:target_time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
+		if (!finished) {
+			return;
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			MBPodcastController* strong_self = weak_self;
+			if (strong_self == nil || strong_self.isScrubbing) {
+				return;
+			}
+
+			[strong_self updateProgressSliderForCurrentTime];
+		});
+	}];
+}
+
+- (double) savedPlaybackPercentForEntry:(MBEntry* _Nullable) entry
+{
+	NSMutableDictionary* dictionary = [self playbackRecordForEntry:entry createIfNeeded:NO];
+	if (dictionary == nil) {
+		return 0.0;
+	}
+
+	id playback_percent_value = dictionary[InkwellPodcastPlaybackPercentKey];
+	double playback_percent = [playback_percent_value respondsToSelector:@selector(doubleValue)] ? [playback_percent_value doubleValue] : 0.0;
+	return MIN(1.0, MAX(0.0, playback_percent));
+}
+
+- (void) persistPlaybackRecordsToDisk
+{
+	[self sortAndTrimPlaybackRecords];
+
+	NSURL* file_url = [self playbackRecordsFileURLCreateIfNeeded:YES];
+	if (file_url == nil) {
+		return;
+	}
+
+	NSData* data = [NSJSONSerialization dataWithJSONObject:self.playbackRecords options:0 error:nil];
+	if (data == nil) {
+		return;
+	}
+
+	[data writeToURL:file_url atomically:YES];
+}
+
+- (void) persistPlaybackStateForCurrentEntryToDisk
+{
+	[self updatePlaybackRecordForEntry:self.entry artworkURLString:self.artworkURLString];
+	[self persistPlaybackRecordsToDisk];
+}
+
+- (void) schedulePlaybackSaveTimerIfNeeded
+{
+	if (self.playbackSaveTimer != nil || !self.isPlaying || self.player == nil) {
+		return;
+	}
+
+	self.playbackSaveTimer = [NSTimer scheduledTimerWithTimeInterval:InkwellPodcastSaveInterval target:self selector:@selector(playbackSaveTimerDidFire:) userInfo:nil repeats:YES];
+}
+
+- (void) stopPlaybackSaveTimer
+{
+	[self.playbackSaveTimer invalidate];
+	self.playbackSaveTimer = nil;
+}
+
+- (void) playbackSaveTimerDidFire:(NSTimer*) timer
+{
+	#pragma unused(timer)
+	[self persistPlaybackStateForCurrentEntryToDisk];
 }
 
 - (void) configurePlayerForCurrentEntry
@@ -283,7 +613,7 @@
 	self.player = nil;
 	self.currentEnclosureURLString = enclosure_url;
 	[self setPlayingState:NO notify:NO];
-	self.progressSlider.doubleValue = 0.0;
+	self.progressSlider.doubleValue = [self savedPlaybackPercentForEntry:self.entry];
 
 	if (enclosure_url.length == 0) {
 		return;
@@ -311,6 +641,7 @@
 	}];
 
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playbackDidFinish:) name:AVPlayerItemDidPlayToEndTimeNotification object:player_item];
+	[self restorePlaybackPositionForCurrentEntry];
 }
 
 - (void) removeTimeObserverIfNeeded
@@ -361,6 +692,12 @@
 {
 	self.isPlaying = is_playing;
 	[self updatePlaybackButtonImage];
+	if (self.isPlaying) {
+		[self schedulePlaybackSaveTimerIfNeeded];
+	}
+	else {
+		[self stopPlaybackSaveTimer];
+	}
 
 	if (should_notify && self.playbackStateChangedHandler != nil) {
 		self.playbackStateChangedHandler(self.isPlaying);
@@ -375,14 +712,15 @@
 
 	AVPlayerItem* player_item = self.player.currentItem;
 	if (player_item == nil) {
-		self.progressSlider.doubleValue = 0.0;
+		if (self.entry == nil) {
+			self.progressSlider.doubleValue = 0.0;
+		}
 		return;
 	}
 
 	Float64 duration_seconds = CMTimeGetSeconds(player_item.duration);
 	Float64 current_seconds = CMTimeGetSeconds(self.player.currentTime);
 	if (!isfinite(duration_seconds) || duration_seconds <= 0.0 || !isfinite(current_seconds) || current_seconds < 0.0) {
-		self.progressSlider.doubleValue = 0.0;
 		return;
 	}
 
@@ -430,6 +768,7 @@
 	[self.player pause];
 	self.progressSlider.doubleValue = 1.0;
 	[self setPlayingState:NO notify:YES];
+	[self persistPlaybackStateForCurrentEntryToDisk];
 }
 
 - (IBAction) skipBackward:(id) sender
@@ -463,6 +802,7 @@
 	if (self.isPlaying) {
 		[self.player pause];
 		[self setPlayingState:NO notify:YES];
+		[self persistPlaybackStateForCurrentEntryToDisk];
 		return;
 	}
 

@@ -918,6 +918,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	self.podcastContainerView.hidden = !is_visible;
 	self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
+	if (is_visible) {
+		[self.podcastContainerView setNeedsLayout:YES];
+		[self.podcastContainerView layoutSubtreeIfNeeded];
+		[self.podcastContainerView setNeedsDisplay:YES];
+	}
 }
 
 - (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry
