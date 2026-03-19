@@ -9,10 +9,10 @@
 
 @implementation MBEntry
 
-- (BOOL) hasEnclosure
+- (BOOL) hasAudioEnclosure
 {
-	NSString* enclosure_url = [self.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	return (enclosure_url.length > 0);
+	NSString* enclosure_type = [self.enclosureType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return [enclosure_type isEqualToString:@"audio/mpeg"];
 }
 
 @end

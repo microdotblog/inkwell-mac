@@ -30,7 +30,7 @@ static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
 static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
-static CGFloat const InkwellSidebarPodcastPaneHeight = 96.0;
+static CGFloat const InkwellSidebarPodcastPaneHeight = 118.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
@@ -311,6 +311,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) isPremiumUser;
 - (BOOL) savedHideReadPosts;
 - (MBSidebarSortOrder) savedSortOrder;
+- (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry;
 - (void) setPodcastPaneVisible:(BOOL) is_visible;
 - (void) updatePodcastPaneForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (NSMenu*) sidebarContextMenu;
@@ -919,15 +920,32 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
 }
 
+- (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry
+{
+	NSString* avatar_url = [entry.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (avatar_url.length > 0) {
+		return avatar_url;
+	}
+
+	NSString* feed_host = [self normalizedHostString:entry.feedHost ?: @""];
+	if (feed_host.length == 0) {
+		return @"";
+	}
+
+	NSString* icon_url_string = self.iconURLByHost[feed_host];
+	return [icon_url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
 - (void) updatePodcastPaneForSelectedItem:(MBEntry* _Nullable) selected_item
 {
 	BOOL is_playing = self.podcastController.isPlaying;
-	BOOL has_selected_enclosure = [selected_item hasEnclosure];
-	if (has_selected_enclosure) {
+	BOOL has_selected_audio_enclosure = [selected_item hasAudioEnclosure];
+	if (has_selected_audio_enclosure) {
 		BOOL should_replace_podcast_entry = (!is_playing || self.currentPodcastEntry == nil || self.currentPodcastEntry.entryID == selected_item.entryID);
 		if (should_replace_podcast_entry) {
 			self.currentPodcastEntry = selected_item;
 			self.podcastController.entry = selected_item;
+			self.podcastController.artworkURLString = [self podcastArtworkURLStringForEntry:selected_item];
 		}
 
 		[self setPodcastPaneVisible:YES];
@@ -937,6 +955,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (is_playing) {
 		if (self.currentPodcastEntry != nil) {
 			self.podcastController.entry = self.currentPodcastEntry;
+			self.podcastController.artworkURLString = [self podcastArtworkURLStringForEntry:self.currentPodcastEntry];
 		}
 
 		[self setPodcastPaneVisible:YES];
@@ -945,6 +964,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	self.currentPodcastEntry = nil;
 	self.podcastController.entry = nil;
+	self.podcastController.artworkURLString = @"";
 	[self setPodcastPaneVisible:NO];
 }
 
@@ -1330,6 +1350,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	dictionary[@"author"] = entry.author ?: @"";
 	dictionary[@"avatar_url"] = entry.avatarURL ?: @"";
 	dictionary[@"enclosure_url"] = entry.enclosureURL ?: @"";
+	dictionary[@"enclosure_type"] = entry.enclosureType ?: @"";
 	dictionary[@"itunes_duration"] = entry.itunesDuration ?: @"";
 	dictionary[@"entry_id"] = @(entry.entryID);
 	dictionary[@"feed_id"] = @(entry.feedID);
@@ -1373,6 +1394,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	entry.enclosureURL = [self stringValueFromObject:dictionary[@"enclosure_url"]];
 	if (entry.enclosureURL.length == 0) {
 		entry.enclosureURL = [self stringValueFromObject:enclosure_dictionary[@"enclosure_url"]];
+	}
+	entry.enclosureType = [self stringValueFromObject:dictionary[@"enclosure_type"]];
+	if (entry.enclosureType.length == 0) {
+		entry.enclosureType = [self stringValueFromObject:enclosure_dictionary[@"enclosure_type"]];
 	}
 	entry.itunesDuration = [self stringValueFromObject:dictionary[@"itunes_duration"]];
 	if (entry.itunesDuration.length == 0) {
@@ -2427,6 +2452,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	content_html_value = [self normalizedContentHTMLString:content_html_value];
 	NSDictionary* enclosure_dictionary = [entry[@"enclosure"] isKindOfClass:[NSDictionary class]] ? entry[@"enclosure"] : nil;
 	NSString* enclosure_url_value = [self stringValueFromObject:enclosure_dictionary[@"enclosure_url"]];
+	NSString* enclosure_type_value = [self stringValueFromObject:enclosure_dictionary[@"enclosure_type"]];
 	NSString* itunes_duration_value = [self stringValueFromObject:enclosure_dictionary[@"itunes_duration"]];
 	NSString* source_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"source"]]];
 	NSDate* entry_date = [self dateValueFromEntry:entry];
@@ -2459,6 +2485,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	sidebar_entry.source = resolved_source;
 	sidebar_entry.author = author_value;
 	sidebar_entry.enclosureURL = enclosure_url_value;
+	sidebar_entry.enclosureType = enclosure_type_value;
 	sidebar_entry.itunesDuration = itunes_duration_value;
 	sidebar_entry.entryID = entry_id_value;
 	sidebar_entry.feedID = [self integerValueFromObject:entry[@"feed_id"]];

@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString* author;
 @property (nonatomic, copy, nullable) NSString* avatarURL;
 @property (nonatomic, copy, nullable) NSString* enclosureURL;
+@property (nonatomic, copy, nullable) NSString* enclosureType;
 @property (nonatomic, copy, nullable) NSString* itunesDuration;
 @property (nonatomic, assign) NSInteger entryID;
 @property (nonatomic, assign) NSInteger feedID;
@@ -29,7 +30,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL isBookmarked;
 @property (nonatomic, assign) BOOL isBookmarkEntry;
 
-- (BOOL) hasEnclosure;
+- (BOOL) hasAudioEnclosure;
 
 @end
 
