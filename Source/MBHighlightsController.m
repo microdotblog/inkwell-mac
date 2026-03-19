@@ -24,6 +24,8 @@ static CGFloat const InkwellHighlightsRowBackgroundHorizontalInset = 10.0;
 static CGFloat const InkwellHighlightsRowBackgroundVerticalInset = 2.5;
 static CGFloat const InkwellHighlightsRowCornerRadius = 10.0;
 static NSString* const InkwellHighlightColorName = @"color_highlight";
+static NSString* const InkwellHighlightsHeaderBackgroundColorName = @"color_palette_header_background";
+static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsAppearanceObservationContext;
 
 @interface MBHighlightsTableView : NSTableView
 
@@ -109,6 +111,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 @property (nonatomic, assign, readwrite) NSInteger entryID;
 @property (nonatomic, copy) NSArray* highlights;
 @property (nonatomic, strong) NSTableView* tableView;
+@property (nonatomic, strong) NSView* headerContainerView;
 @property (nonatomic, strong) NSImageView* avatarImageView;
 @property (nonatomic, copy) NSArray* allPostsAvatarImageViews;
 @property (nonatomic, strong) NSTextField* titleTextField;
@@ -128,6 +131,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, assign) BOOL didSetupContent;
 @property (nonatomic, assign) BOOL isFetching;
+@property (nonatomic, assign) BOOL isObservingAppearance;
 
 @end
 
@@ -135,12 +139,32 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (NSColor*) highlightsHeaderBackgroundColor
 {
-	return [NSColor colorNamed:@"color_palette_header_background"];
+	NSColor* background_color = [NSColor colorNamed:InkwellHighlightsHeaderBackgroundColorName];
+	if (background_color != nil) {
+		return background_color;
+	}
+
+	return NSColor.secondarySystemFillColor;
 }
 
 - (NSColor*) highlightsAvatarBackgroundColor
 {
 	return [self highlightsHeaderBackgroundColor];
+}
+
+- (void) performWithCurrentAppearance:(void (^)(void)) block
+{
+	if (block == nil) {
+		return;
+	}
+
+	NSAppearance* appearance = self.window.effectiveAppearance ?: NSApp.effectiveAppearance;
+	if (appearance != nil) {
+		[appearance performAsCurrentDrawingAppearance:block];
+	}
+	else {
+		block();
+	}
 }
 
 - (NSImage*) flattenedHeaderAvatarImage:(NSImage*) image fadeAmount:(CGFloat) fade_amount
@@ -151,21 +175,23 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 	NSSize image_size = NSMakeSize(InkwellHighlightsAvatarSize, InkwellHighlightsAvatarSize);
 	NSImage* flattened_image = [[NSImage alloc] initWithSize:image_size];
-	[flattened_image lockFocus];
-	[[self highlightsAvatarBackgroundColor] setFill];
-	NSRectFill(NSMakeRect(0.0, 0.0, image_size.width, image_size.height));
-	NSRect image_rect = NSInsetRect(NSMakeRect(0.0, 0.0, image_size.width, image_size.height), InkwellHighlightsAvatarInset, InkwellHighlightsAvatarInset);
-	NSBezierPath* image_path = [NSBezierPath bezierPathWithOvalInRect:image_rect];
-	[NSGraphicsContext saveGraphicsState];
-	[image_path addClip];
-	[image drawInRect:image_rect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
-	CGFloat clamped_fade_amount = MAX(0.0, MIN(1.0, fade_amount));
-	if (clamped_fade_amount > 0.0) {
-		[[[self highlightsHeaderBackgroundColor] colorWithAlphaComponent:clamped_fade_amount] setFill];
-		[image_path fill];
-	}
-	[NSGraphicsContext restoreGraphicsState];
-	[flattened_image unlockFocus];
+	[self performWithCurrentAppearance:^{
+		[flattened_image lockFocus];
+		[[self highlightsAvatarBackgroundColor] setFill];
+		NSRectFill(NSMakeRect(0.0, 0.0, image_size.width, image_size.height));
+		NSRect image_rect = NSInsetRect(NSMakeRect(0.0, 0.0, image_size.width, image_size.height), InkwellHighlightsAvatarInset, InkwellHighlightsAvatarInset);
+		NSBezierPath* image_path = [NSBezierPath bezierPathWithOvalInRect:image_rect];
+		[NSGraphicsContext saveGraphicsState];
+		[image_path addClip];
+		[image drawInRect:image_rect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
+		CGFloat clamped_fade_amount = MAX(0.0, MIN(1.0, fade_amount));
+		if (clamped_fade_amount > 0.0) {
+			[[[self highlightsHeaderBackgroundColor] colorWithAlphaComponent:clamped_fade_amount] setFill];
+			[image_path fill];
+		}
+		[NSGraphicsContext restoreGraphicsState];
+		[flattened_image unlockFocus];
+	}];
 	return flattened_image;
 }
 
@@ -192,6 +218,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 - (void) dealloc
 {
+	[self stopObservingAppearanceIfNeeded];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:NSControlTextDidChangeNotification object:self.searchField];
 }
@@ -324,6 +351,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	panel.title = @"Highlights";
 	[panel setFrameAutosaveName:@"HighlightsWindow"];
 	self.window = panel;
+	[self startObservingAppearanceIfNeeded];
 }
 
 - (void) setupContentIfNeeded
@@ -488,6 +516,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	]];
 
 	self.tableView = table_view;
+	self.headerContainerView = top_container_view;
 	self.avatarImageView = avatar_image_view;
 	self.allPostsAvatarImageViews = [all_posts_avatar_image_views copy];
 	self.titleTextField = title_text_field;
@@ -505,6 +534,7 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 	self.titleLeadingToSingleAvatarConstraint.active = YES;
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(searchFieldTextDidChange:) name:NSControlTextDidChangeNotification object:search_field];
 	[self applyHeaderIfNeeded];
+	[self refreshHeaderAppearance];
 	[self updateProgressIndicator];
 }
 
@@ -612,6 +642,65 @@ static NSString* const InkwellHighlightColorName = @"color_highlight";
 
 	[self updateAllPostsAvatarImages];
 	[self updateAllPostsTitleLeadingConstraint];
+}
+
+- (void) startObservingAppearanceIfNeeded
+{
+	if (self.isObservingAppearance || self.window == nil) {
+		return;
+	}
+
+	[self.window addObserver:self forKeyPath:@"effectiveAppearance" options:0 context:InkwellHighlightsAppearanceObservationContext];
+	self.isObservingAppearance = YES;
+}
+
+- (void) stopObservingAppearanceIfNeeded
+{
+	if (!self.isObservingAppearance || self.window == nil) {
+		return;
+	}
+
+	[self.window removeObserver:self forKeyPath:@"effectiveAppearance" context:InkwellHighlightsAppearanceObservationContext];
+	self.isObservingAppearance = NO;
+}
+
+- (void) refreshHeaderAppearance
+{
+	if (!self.didSetupContent) {
+		return;
+	}
+
+	[self performWithCurrentAppearance:^{
+		self.headerContainerView.layer.backgroundColor = [self highlightsHeaderBackgroundColor].CGColor;
+		self.avatarImageView.layer.backgroundColor = [self highlightsAvatarBackgroundColor].CGColor;
+		for (NSImageView* image_view in self.allPostsAvatarImageViews) {
+			image_view.layer.backgroundColor = [self highlightsAvatarBackgroundColor].CGColor;
+		}
+	}];
+
+	if (self.headerFeedHost.length > 0) {
+		self.headerAvatarImage = [self avatarImageForHost:self.headerFeedHost];
+	}
+	else {
+		self.headerAvatarImage = [self defaultAvatarImage];
+	}
+
+	[self applyHeaderIfNeeded];
+	[self.headerContainerView setNeedsDisplay:YES];
+}
+
+- (void) observeValueForKeyPath:(NSString*) key_path ofObject:(id) object change:(NSDictionary*) change context:(void*) context
+{
+	#pragma unused(change)
+
+	if (context == InkwellHighlightsAppearanceObservationContext) {
+		if (object == self.window && [key_path isEqualToString:@"effectiveAppearance"]) {
+			[self refreshHeaderAppearance];
+			return;
+		}
+	}
+
+	[super observeValueForKeyPath:key_path ofObject:object change:change context:context];
 }
 
 - (void) fetchFeedIconsIfNeeded
