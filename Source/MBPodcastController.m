@@ -75,6 +75,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (NSString*) formattedTimeStringForSeconds:(Float64) seconds;
 - (NSISO8601DateFormatter*) iso8601Formatter;
 - (NSString*) normalizedEnclosureURLString:(NSString*) url_string;
+- (Float64) parsedDurationSecondsFromString:(NSString*) duration_string;
 - (NSURL* _Nullable) playbackRecordsFileURLCreateIfNeeded:(BOOL) create_if_needed;
 - (NSMutableDictionary* _Nullable) playbackRecordForEntry:(MBEntry*) entry createIfNeeded:(BOOL) create_if_needed;
 - (NSString*) preferredCachedAudioExtensionForURLString:(NSString*) url_string;
@@ -781,7 +782,36 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	}
 
 	NSString* duration_string = [self.entry.itunesDuration stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	return MAX(0.0, duration_string.doubleValue);
+	return [self parsedDurationSecondsFromString:duration_string];
+}
+
+- (Float64) parsedDurationSecondsFromString:(NSString*) duration_string
+{
+	NSString* trimmed_duration_string = [duration_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_duration_string.length == 0) {
+		return 0.0;
+	}
+
+	if (![trimmed_duration_string containsString:@":"]) {
+		return MAX(0.0, trimmed_duration_string.doubleValue);
+	}
+
+	NSArray* components = [trimmed_duration_string componentsSeparatedByString:@":"];
+	if (components.count == 0) {
+		return 0.0;
+	}
+
+	Float64 total_seconds = 0.0;
+	for (NSString* component in components) {
+		NSString* trimmed_component = [component stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (trimmed_component.length == 0) {
+			return 0.0;
+		}
+
+		total_seconds = (total_seconds * 60.0) + MAX(0.0, trimmed_component.doubleValue);
+	}
+
+	return total_seconds;
 }
 
 - (Float64) savedPlaybackSecondsForEntry:(MBEntry* _Nullable) entry
@@ -1021,7 +1051,6 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 	__weak typeof(self) weak_self = self;
 	NSURLSessionDownloadTask* task = [self.downloadSession downloadTaskWithURL:remote_url completionHandler:^(NSURL* _Nullable location, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		#pragma unused(response)
 		MBPodcastController* strong_self = weak_self;
 		if (strong_self == nil) {
 			return;
@@ -1029,7 +1058,8 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 		NSFileManager* file_manager = [NSFileManager defaultManager];
 		BOOL did_cache_file = NO;
-		if (error == nil && location != nil && ![strong_self cachedAudioFileExistsForURLString:normalized_url]) {
+		BOOL did_receive_success_response = ([response isKindOfClass:[NSHTTPURLResponse class]] && ((NSHTTPURLResponse*) response).statusCode == 200);
+		if (error == nil && did_receive_success_response && location != nil && ![strong_self cachedAudioFileExistsForURLString:normalized_url]) {
 			[file_manager removeItemAtURL:cache_file_url error:nil];
 			if ([file_manager moveItemAtURL:location toURL:cache_file_url error:nil]) {
 				NSDate* now = [NSDate date];
