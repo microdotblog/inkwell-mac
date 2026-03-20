@@ -6,6 +6,7 @@
 //
 
 #import "MBSidebarController.h"
+#import <QuartzCore/CAMediaTimingFunction.h>
 #import "MBAvatarLoader.h"
 #import "MBClient.h"
 #import "MBEntry.h"
@@ -213,6 +214,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSView* podcastContainerView;
 @property (strong) NSLayoutConstraint* podcastHeightConstraint;
 @property (strong, nullable) MBEntry* currentPodcastEntry;
+@property (nonatomic, assign) BOOL podcastPaneDisplayed;
 @property (assign) BOOL keepsPausedPodcastPaneVisibleUntilSelectionChange;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSArray<MBEntry *> *bookmarkItems;
@@ -455,6 +457,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSView* podcast_view = podcast_controller.view;
 	podcast_view.translatesAutoresizingMaskIntoConstraints = NO;
 	podcast_view.hidden = YES;
+	podcast_view.alphaValue = 0.0;
 
 	MBSidebarTableView *table_view = [[MBSidebarTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -916,17 +919,44 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) setPodcastPaneVisible:(BOOL) is_visible
 {
+	if (![NSThread isMainThread]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self setPodcastPaneVisible:is_visible];
+		});
+		return;
+	}
+
 	if (self.podcastContainerView == nil || self.podcastHeightConstraint == nil) {
 		return;
 	}
 
-	self.podcastContainerView.hidden = !is_visible;
-	self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
-	if (is_visible) {
-		[self.podcastContainerView setNeedsLayout:YES];
-		[self.podcastContainerView layoutSubtreeIfNeeded];
-		[self.podcastContainerView setNeedsDisplay:YES];
+	if (self.podcastPaneDisplayed == is_visible && self.podcastContainerView.hidden == !is_visible) {
+		return;
 	}
+
+	self.podcastPaneDisplayed = is_visible;
+	if (is_visible) {
+		self.podcastContainerView.hidden = NO;
+	}
+
+	[self.view layoutSubtreeIfNeeded];
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.18;
+		context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+		context.allowsImplicitAnimation = YES;
+		self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
+		self.podcastContainerView.alphaValue = is_visible ? 1.0 : 0.0;
+		[self.view layoutSubtreeIfNeeded];
+	} completionHandler:^{
+		if (!self.podcastPaneDisplayed) {
+			self.podcastContainerView.hidden = YES;
+		}
+		else {
+			[self.podcastContainerView setNeedsLayout:YES];
+			[self.podcastContainerView layoutSubtreeIfNeeded];
+			[self.podcastContainerView setNeedsDisplay:YES];
+		}
+	}];
 }
 
 - (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry
