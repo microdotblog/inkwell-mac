@@ -12,7 +12,17 @@
 - (BOOL) hasAudioEnclosure
 {
 	NSString* enclosure_type = [self.enclosureType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	return [enclosure_type containsString:@"audio/"];
+	if ([enclosure_type containsString:@"audio/"]) {
+		return YES;
+	}
+
+	if (enclosure_type.length > 0) {
+		return NO;
+	}
+
+	NSString* enclosure_url = [self.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* lowercase_url = [enclosure_url lowercaseString];
+	return ([lowercase_url hasSuffix:@"mp3"] || [lowercase_url hasSuffix:@"m4a"]);
 }
 
 @end
