@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MBPodcastController : NSViewController
 
++ (void) cleanupCachedAudioFiles;
 @property (nonatomic, strong, nullable) MBEntry* entry;
 @property (nonatomic, copy) NSString* artworkURLString;
 @property (nonatomic, assign, readonly) BOOL isPlaying;

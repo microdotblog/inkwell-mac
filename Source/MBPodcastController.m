@@ -7,6 +7,7 @@
 
 #import "MBPodcastController.h"
 #import <AVFoundation/AVFoundation.h>
+#import <CommonCrypto/CommonDigest.h>
 #import "MBAvatarLoader.h"
 #import "MBEntry.h"
 #import "MBPathUtilities.h"
@@ -21,7 +22,11 @@ static NSString* const InkwellPodcastLastPlayedAtKey = @"last_played_at";
 static NSString* const InkwellPodcastAvatarURLKey = @"avatar_url";
 static NSInteger const InkwellPodcastMaximumSavedItems = 50;
 static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
+static NSTimeInterval const InkwellPodcastDownloadDelayInterval = 10.0;
 static NSString* const InkwellPodcastPlaybackRateDefaultsKey = @"PodcastPlaybackRate";
+static NSString* const InkwellPodcastCacheDirectoryName = @"Podcasts";
+static NSString* const InkwellPodcastFallbackExtension = @"mp3";
+static NSUInteger const InkwellPodcastCacheHashLength = 12;
 static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusContext;
 
 @interface MBPodcastContainerView : NSView
@@ -43,6 +48,8 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 @property (nonatomic, strong) NSProgressIndicator* loadingIndicator;
 @property (nonatomic, strong) NSPopUpButton* playbackRatePopUpButton;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
+@property (nonatomic, strong) NSURLSession* downloadSession;
+@property (nonatomic, strong) NSMutableSet* pendingDownloadURLStrings;
 @property (nonatomic, strong) NSMutableArray* playbackRecords;
 @property (nonatomic, strong, nullable) NSTimer* playbackSaveTimer;
 @property (nonatomic, strong, nullable) AVPlayer* player;
@@ -51,9 +58,14 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 @property (nonatomic, assign) BOOL isObservingPlayerStatus;
 @property (nonatomic, assign) BOOL isScrubbing;
 @property (nonatomic, assign, readwrite) BOOL isPlaying;
+@property (nonatomic, assign) NSUInteger pendingDownloadToken;
 
 - (void) addPlayerStatusObserverIfNeeded;
 - (void) applyPreferredPlaybackRateIfNeeded;
+- (void) cacheAudioForURLStringIfNeeded:(NSString*) url_string;
+- (NSURL* _Nullable) cachedAudioFileURLForURLString:(NSString*) url_string createDirectory:(BOOL) create_directory;
+- (NSString*) cachedAudioFilenameForURLString:(NSString*) url_string;
+- (BOOL) cachedAudioFileExistsForURLString:(NSString*) url_string;
 - (void) configurePlaybackRatePopUpButton:(NSPopUpButton*) popup_button;
 - (NSButton*) transportButtonWithSymbolName:(NSString*) symbol_name accessibilityDescription:(NSString*) accessibility_description action:(SEL) action;
 - (void) configurePlayerForCurrentEntry;
@@ -62,8 +74,10 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (Float64) displayedDurationSeconds;
 - (NSString*) formattedTimeStringForSeconds:(Float64) seconds;
 - (NSISO8601DateFormatter*) iso8601Formatter;
+- (NSString*) normalizedEnclosureURLString:(NSString*) url_string;
 - (NSURL* _Nullable) playbackRecordsFileURLCreateIfNeeded:(BOOL) create_if_needed;
 - (NSMutableDictionary* _Nullable) playbackRecordForEntry:(MBEntry*) entry createIfNeeded:(BOOL) create_if_needed;
+- (NSString*) preferredCachedAudioExtensionForURLString:(NSString*) url_string;
 - (void) loadPlaybackRecords;
 - (void) persistPlaybackRecordsToDisk;
 - (void) persistPlaybackStateForCurrentEntryToDisk;
@@ -74,11 +88,14 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (Float64) savedPlaybackSecondsForEntry:(MBEntry* _Nullable) entry;
 - (double) savedPlaybackPercentForEntry:(MBEntry* _Nullable) entry;
 - (void) restorePlaybackPositionForCurrentEntry;
+- (void) scheduleAudioDownloadIfStillPlaying;
 - (void) schedulePlaybackSaveTimerIfNeeded;
 - (void) seekPlayerToSliderPositionPreservingScrubState:(BOOL) preserve_scrub_state;
+- (NSString*) shortSHA1StringForString:(NSString*) string_value;
 - (void) setPlayingState:(BOOL) is_playing notify:(BOOL) should_notify;
 - (void) sortAndTrimPlaybackRecords;
 - (void) stopPlaybackSaveTimer;
+- (void) trimCachedAudioFilesIfNeeded;
 - (void) updatePlaybackRecordForEntry:(MBEntry* _Nullable) entry artworkURLString:(NSString*) artwork_url_string;
 - (void) updateLoadingIndicator;
 - (void) updateAppearance;
@@ -110,6 +127,66 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 @implementation MBPodcastController
 
++ (NSURL* _Nullable) cachedAudioDirectoryURLCreatingIfNeeded:(BOOL) create_directory
+{
+	return [MBPathUtilities appSubdirectoryURLForSearchPathDirectory:NSCachesDirectory relativePath:InkwellPodcastCacheDirectoryName createIfNeeded:create_directory];
+}
+
++ (void) cleanupCachedAudioFiles
+{
+	NSURL* directory_url = [self cachedAudioDirectoryURLCreatingIfNeeded:NO];
+	if (directory_url == nil) {
+		return;
+	}
+
+	NSFileManager* file_manager = [NSFileManager defaultManager];
+	NSArray* cached_file_urls = [file_manager contentsOfDirectoryAtURL:directory_url includingPropertiesForKeys:@[ NSURLIsDirectoryKey, NSURLCreationDateKey ] options:NSDirectoryEnumerationSkipsHiddenFiles error:nil];
+	if (cached_file_urls.count == 0) {
+		return;
+	}
+
+	NSArray* sorted_file_urls = [cached_file_urls sortedArrayUsingComparator:^NSComparisonResult(NSURL* left_url, NSURL* right_url) {
+		NSNumber* left_is_directory = nil;
+		[left_url getResourceValue:&left_is_directory forKey:NSURLIsDirectoryKey error:nil];
+		NSNumber* right_is_directory = nil;
+		[right_url getResourceValue:&right_is_directory forKey:NSURLIsDirectoryKey error:nil];
+		if (left_is_directory.boolValue != right_is_directory.boolValue) {
+			return left_is_directory.boolValue ? NSOrderedDescending : NSOrderedAscending;
+		}
+
+		NSDate* left_creation_date = nil;
+		[left_url getResourceValue:&left_creation_date forKey:NSURLCreationDateKey error:nil];
+		NSDate* right_creation_date = nil;
+		[right_url getResourceValue:&right_creation_date forKey:NSURLCreationDateKey error:nil];
+		if (left_creation_date == nil && right_creation_date == nil) {
+			return NSOrderedSame;
+		}
+		if (left_creation_date == nil) {
+			return NSOrderedDescending;
+		}
+		if (right_creation_date == nil) {
+			return NSOrderedAscending;
+		}
+		return [right_creation_date compare:left_creation_date];
+	}];
+
+	NSUInteger kept_file_count = 0;
+	for (NSURL* file_url in sorted_file_urls) {
+		NSNumber* is_directory = nil;
+		[file_url getResourceValue:&is_directory forKey:NSURLIsDirectoryKey error:nil];
+		if (is_directory.boolValue) {
+			continue;
+		}
+
+		kept_file_count += 1;
+		if (kept_file_count <= InkwellPodcastMaximumSavedItems) {
+			continue;
+		}
+
+		[file_manager removeItemAtURL:file_url error:nil];
+	}
+}
+
 - (instancetype) init
 {
 	self = [super initWithNibName:nil bundle:nil];
@@ -117,6 +194,8 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		_artworkURLString = @"";
 		_currentEnclosureURLString = @"";
 		self.avatarLoader = [MBAvatarLoader sharedLoader];
+		self.downloadSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
+		self.pendingDownloadURLStrings = [NSMutableSet set];
 		self.playbackRecords = [NSMutableArray array];
 		[self loadPlaybackRecords];
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
@@ -575,6 +654,103 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	return [default_date_formatter dateFromString:trimmed_string];
 }
 
+- (NSString*) normalizedEnclosureURLString:(NSString*) url_string
+{
+	return [url_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
+- (NSURL* _Nullable) cachedAudioFileURLForURLString:(NSString*) url_string createDirectory:(BOOL) create_directory
+{
+	NSString* normalized_url = [self normalizedEnclosureURLString:url_string];
+	if (normalized_url.length == 0) {
+		return nil;
+	}
+
+	NSURL* directory_url = [[self class] cachedAudioDirectoryURLCreatingIfNeeded:create_directory];
+	if (directory_url == nil) {
+		return nil;
+	}
+
+	NSString* file_name = [self cachedAudioFilenameForURLString:normalized_url];
+	if (file_name.length == 0) {
+		return nil;
+	}
+
+	return [directory_url URLByAppendingPathComponent:file_name isDirectory:NO];
+}
+
+- (BOOL) cachedAudioFileExistsForURLString:(NSString*) url_string
+{
+	NSURL* cache_file_url = [self cachedAudioFileURLForURLString:url_string createDirectory:NO];
+	if (cache_file_url == nil || !cache_file_url.isFileURL) {
+		return NO;
+	}
+
+	NSFileManager* file_manager = [NSFileManager defaultManager];
+	BOOL is_directory = NO;
+	if (![file_manager fileExistsAtPath:cache_file_url.path isDirectory:&is_directory] || is_directory) {
+		return NO;
+	}
+
+	NSDictionary* file_attributes = [file_manager attributesOfItemAtPath:cache_file_url.path error:nil];
+	NSNumber* file_size = [file_attributes[NSFileSize] respondsToSelector:@selector(unsignedLongLongValue)] ? file_attributes[NSFileSize] : @(0);
+	if (file_size.unsignedLongLongValue == 0) {
+		[file_manager removeItemAtURL:cache_file_url error:nil];
+		return NO;
+	}
+
+	return YES;
+}
+
+- (NSString*) cachedAudioFilenameForURLString:(NSString*) url_string
+{
+	NSString* normalized_url = [self normalizedEnclosureURLString:url_string];
+	NSString* hash_string = [self shortSHA1StringForString:normalized_url];
+	if (hash_string.length == 0) {
+		return @"";
+	}
+
+	NSString* host_string = [[NSURL URLWithString:normalized_url].host lowercaseString] ?: @"";
+	NSString* base_name = hash_string;
+	if (host_string.length > 0) {
+		base_name = [NSString stringWithFormat:@"%@-%@", host_string, hash_string];
+	}
+
+	return [base_name stringByAppendingPathExtension:[self preferredCachedAudioExtensionForURLString:normalized_url]];
+}
+
+- (NSString*) preferredCachedAudioExtensionForURLString:(NSString*) url_string
+{
+	NSString* extension_value = [[NSURL URLWithString:url_string].pathExtension lowercaseString] ?: @"";
+	if (extension_value.length > 0) {
+		return extension_value;
+	}
+
+	return InkwellPodcastFallbackExtension;
+}
+
+- (NSString*) shortSHA1StringForString:(NSString*) string_value
+{
+	NSData* string_data = [string_value dataUsingEncoding:NSUTF8StringEncoding];
+	if (string_data.length == 0) {
+		return @"";
+	}
+
+	unsigned char digest[CC_SHA1_DIGEST_LENGTH];
+	CC_SHA1(string_data.bytes, (CC_LONG) string_data.length, digest);
+
+	NSMutableString* full_hash = [NSMutableString stringWithCapacity:(CC_SHA1_DIGEST_LENGTH * 2)];
+	for (NSInteger i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
+		[full_hash appendFormat:@"%02x", digest[i]];
+	}
+
+	if (full_hash.length <= InkwellPodcastCacheHashLength) {
+		return [full_hash copy];
+	}
+
+	return [full_hash substringToIndex:InkwellPodcastCacheHashLength];
+}
+
 - (NSString*) formattedTimeStringForSeconds:(Float64) seconds
 {
 	NSInteger total_seconds = (NSInteger) llround(MAX(0.0, seconds));
@@ -799,6 +975,91 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	[self persistPlaybackStateForCurrentEntryToDisk];
 }
 
+- (void) scheduleAudioDownloadIfStillPlaying
+{
+	NSString* enclosure_url = [self.currentEnclosureURLString copy];
+	if (enclosure_url.length == 0 || [self cachedAudioFileExistsForURLString:enclosure_url]) {
+		return;
+	}
+
+	self.pendingDownloadToken += 1;
+	NSUInteger download_token = self.pendingDownloadToken;
+	__weak typeof(self) weak_self = self;
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (InkwellPodcastDownloadDelayInterval * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		MBPodcastController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+		if (download_token != strong_self.pendingDownloadToken) {
+			return;
+		}
+		if (!strong_self.isPlaying) {
+			return;
+		}
+		if (![strong_self.currentEnclosureURLString isEqualToString:enclosure_url]) {
+			return;
+		}
+
+		[strong_self cacheAudioForURLStringIfNeeded:enclosure_url];
+	});
+}
+
+- (void) cacheAudioForURLStringIfNeeded:(NSString*) url_string
+{
+	NSString* normalized_url = [self normalizedEnclosureURLString:url_string];
+	if (normalized_url.length == 0 || [self.pendingDownloadURLStrings containsObject:normalized_url] || [self cachedAudioFileExistsForURLString:normalized_url]) {
+		return;
+	}
+
+	NSURL* remote_url = [NSURL URLWithString:normalized_url];
+	NSURL* cache_file_url = [self cachedAudioFileURLForURLString:normalized_url createDirectory:YES];
+	if (remote_url == nil || cache_file_url == nil) {
+		return;
+	}
+
+	[self.pendingDownloadURLStrings addObject:normalized_url];
+
+	__weak typeof(self) weak_self = self;
+	NSURLSessionDownloadTask* task = [self.downloadSession downloadTaskWithURL:remote_url completionHandler:^(NSURL* _Nullable location, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		#pragma unused(response)
+		MBPodcastController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		NSFileManager* file_manager = [NSFileManager defaultManager];
+		BOOL did_cache_file = NO;
+		if (error == nil && location != nil && ![strong_self cachedAudioFileExistsForURLString:normalized_url]) {
+			[file_manager removeItemAtURL:cache_file_url error:nil];
+			if ([file_manager moveItemAtURL:location toURL:cache_file_url error:nil]) {
+				NSDate* now = [NSDate date];
+				[file_manager setAttributes:@{
+					NSFileCreationDate: now,
+					NSFileModificationDate: now
+				} ofItemAtPath:cache_file_url.path error:nil];
+				did_cache_file = YES;
+			}
+		}
+
+		if (!did_cache_file && location != nil) {
+			[file_manager removeItemAtURL:location error:nil];
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[strong_self.pendingDownloadURLStrings removeObject:normalized_url];
+			if (did_cache_file) {
+				[strong_self trimCachedAudioFilesIfNeeded];
+			}
+		});
+	}];
+	[task resume];
+}
+
+- (void) trimCachedAudioFilesIfNeeded
+{
+	[[self class] cleanupCachedAudioFiles];
+}
+
 - (void) updateLoadingIndicator
 {
 	BOOL is_loading = (self.player != nil && self.player.status != AVPlayerStatusReadyToPlay);
@@ -832,7 +1093,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 - (void) configurePlayerForCurrentEntry
 {
-	NSString* enclosure_url = [self.entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* enclosure_url = [self normalizedEnclosureURLString:self.entry.enclosureURL];
 	if ([enclosure_url isEqualToString:self.currentEnclosureURLString]) {
 		return;
 	}
@@ -843,6 +1104,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	[self removeTimeObserverIfNeeded];
 	self.player = nil;
 	self.currentEnclosureURLString = enclosure_url;
+	self.pendingDownloadToken += 1;
 	[self setPlayingState:NO notify:NO];
 	self.progressSlider.doubleValue = [self savedPlaybackPercentForEntry:self.entry];
 	[self updateLoadingIndicator];
@@ -857,7 +1119,15 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		return;
 	}
 
-	AVPlayerItem* player_item = [AVPlayerItem playerItemWithURL:podcast_url];
+	NSURL* playback_url = podcast_url;
+	if ([self cachedAudioFileExistsForURLString:enclosure_url]) {
+		NSURL* cache_file_url = [self cachedAudioFileURLForURLString:enclosure_url createDirectory:NO];
+		if (cache_file_url != nil) {
+			playback_url = cache_file_url;
+		}
+	}
+
+	AVPlayerItem* player_item = [AVPlayerItem playerItemWithURL:playback_url];
 	AVPlayer* player = [AVPlayer playerWithPlayerItem:player_item];
 	player.automaticallyWaitsToMinimizeStalling = YES;
 	self.player = player;
@@ -926,6 +1196,9 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (void) setPlayingState:(BOOL) is_playing notify:(BOOL) should_notify
 {
 	self.isPlaying = is_playing;
+	if (!self.isPlaying) {
+		self.pendingDownloadToken += 1;
+	}
 	[self updatePlaybackButtonImage];
 	if (self.isPlaying) {
 		[self schedulePlaybackSaveTimerIfNeeded];
@@ -1073,6 +1346,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	[self.player play];
 	[self setPlayingState:YES notify:YES];
 	[self applyPreferredPlaybackRateIfNeeded];
+	[self scheduleAudioDownloadIfStillPlaying];
 }
 
 - (IBAction) skipForward:(id) sender

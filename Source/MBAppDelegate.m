@@ -9,6 +9,7 @@
 #import "MBAuthController.h"
 #import "MBClient.h"
 #import "MBMainController.h"
+#import "MBPodcastController.h"
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
 
@@ -63,9 +64,10 @@ static NSString* const InkwellHelpURLString = @"https://help.micro.blog";
 	}
 }
 
-- (void) applicationWillTerminate:(NSNotification *)aNotification
+- (void) applicationWillTerminate:(NSNotification *)notification
 {
-	// Insert code here to tear down your application
+	#pragma unused(notification)
+	[MBPodcastController cleanupCachedAudioFiles];
 }
 
 - (BOOL) applicationSupportsSecureRestorableState:(NSApplication *)app
