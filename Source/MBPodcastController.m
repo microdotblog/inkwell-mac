@@ -1312,6 +1312,12 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		#pragma unused(object)
 		dispatch_async(dispatch_get_main_queue(), ^{
 			[self updateLoadingIndicator];
+			if (self.player.status == AVPlayerStatusFailed) {
+				[self.player pause];
+				[self setPlayingState:NO notify:YES];
+				return;
+			}
+
 			[self applyPreferredPlaybackRateIfNeeded];
 		});
 		return;
