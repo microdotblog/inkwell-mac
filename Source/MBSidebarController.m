@@ -213,6 +213,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSView* podcastContainerView;
 @property (strong) NSLayoutConstraint* podcastHeightConstraint;
 @property (strong, nullable) MBEntry* currentPodcastEntry;
+@property (assign) BOOL keepsPausedPodcastPaneVisibleUntilSelectionChange;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSArray<MBEntry *> *bookmarkItems;
 @property (copy) NSArray<MBEntry *> *allPostsItems;
@@ -439,13 +440,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	MBPodcastController* podcast_controller = [[MBPodcastController alloc] init];
 	[self addChildViewController:podcast_controller];
 	podcast_controller.playbackStateChangedHandler = ^(BOOL is_playing) {
-		#pragma unused(is_playing)
 		MBSidebarController* strong_self = weak_self;
 		if (strong_self == nil) {
 			return;
 		}
 
-		[strong_self updatePodcastPaneForSelectedItem:[strong_self selectedItem]];
+		MBEntry* selected_item = [strong_self selectedItem];
+		BOOL has_selected_audio_enclosure = [selected_item hasAudioEnclosure];
+		BOOL is_current_podcast_selected = (has_selected_audio_enclosure && strong_self.currentPodcastEntry != nil && strong_self.currentPodcastEntry.entryID == selected_item.entryID);
+		strong_self.keepsPausedPodcastPaneVisibleUntilSelectionChange = (!is_playing && strong_self.currentPodcastEntry != nil && !is_current_podcast_selected);
+		[strong_self updatePodcastPaneForSelectedItem:selected_item];
 	};
 
 	NSView* podcast_view = podcast_controller.view;
@@ -951,6 +955,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			self.currentPodcastEntry = selected_item;
 			self.podcastController.entry = selected_item;
 			self.podcastController.artworkURLString = [self podcastArtworkURLStringForEntry:selected_item];
+		}
+
+		[self setPodcastPaneVisible:YES];
+		return;
+	}
+
+	if (self.keepsPausedPodcastPaneVisibleUntilSelectionChange) {
+		if (self.currentPodcastEntry != nil) {
+			self.podcastController.entry = self.currentPodcastEntry;
+			self.podcastController.artworkURLString = [self podcastArtworkURLStringForEntry:self.currentPodcastEntry];
 		}
 
 		[self setPodcastPaneVisible:YES];
@@ -2819,6 +2833,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) notifySelectionChanged
 {
+	self.keepsPausedPodcastPaneVisibleUntilSelectionChange = NO;
+
 	NSInteger selected_row = self.tableView.selectedRow;
 	if (selected_row >= 0 && selected_row < self.items.count) {
 		MBEntry *item = self.items[(NSUInteger) selected_row];

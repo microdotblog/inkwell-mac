@@ -284,6 +284,11 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	NSString* previous_enclosure_url = [_entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* next_enclosure_url = [entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	BOOL did_change_entry = (_entry.entryID != entry.entryID || ![previous_enclosure_url isEqualToString:next_enclosure_url]);
+	if (!did_change_entry) {
+		_entry = entry;
+		return;
+	}
+
 	if (did_change_entry) {
 		[self updatePlaybackRecordForEntry:_entry artworkURLString:self.artworkURLString];
 		[self persistPlaybackRecordsToDisk];
