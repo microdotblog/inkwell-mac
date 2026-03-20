@@ -21,6 +21,7 @@ static NSString* const InkwellPodcastLastPlayedAtKey = @"last_played_at";
 static NSString* const InkwellPodcastAvatarURLKey = @"avatar_url";
 static NSInteger const InkwellPodcastMaximumSavedItems = 50;
 static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
+static NSString* const InkwellPodcastPlaybackRateDefaultsKey = @"PodcastPlaybackRate";
 static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusContext;
 
 @interface MBPodcastController ()
@@ -34,6 +35,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 @property (nonatomic, strong) NSTextField* currentTimeLabel;
 @property (nonatomic, strong) NSTextField* remainingTimeLabel;
 @property (nonatomic, strong) NSProgressIndicator* loadingIndicator;
+@property (nonatomic, strong) NSPopUpButton* playbackRatePopUpButton;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, strong) NSMutableArray* playbackRecords;
 @property (nonatomic, strong, nullable) NSTimer* playbackSaveTimer;
@@ -45,6 +47,8 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 @property (nonatomic, assign, readwrite) BOOL isPlaying;
 
 - (void) addPlayerStatusObserverIfNeeded;
+- (void) applyPreferredPlaybackRateIfNeeded;
+- (void) configurePlaybackRatePopUpButton:(NSPopUpButton*) popup_button;
 - (NSButton*) transportButtonWithSymbolName:(NSString*) symbol_name accessibilityDescription:(NSString*) accessibility_description action:(SEL) action;
 - (void) configurePlayerForCurrentEntry;
 - (NSDate* _Nullable) dateFromISO8601String:(NSString*) string;
@@ -58,6 +62,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (void) persistPlaybackRecordsToDisk;
 - (void) persistPlaybackStateForCurrentEntryToDisk;
 - (void) playbackSaveTimerDidFire:(NSTimer*) timer;
+- (double) preferredPlaybackRate;
 - (void) removePlayerStatusObserverIfNeeded;
 - (void) removeTimeObserverIfNeeded;
 - (Float64) savedPlaybackSecondsForEntry:(MBEntry* _Nullable) entry;
@@ -77,6 +82,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (void) avatarImageDidLoad:(NSNotification*) notification;
 - (void) playbackDidFinish:(NSNotification*) notification;
 - (IBAction) skipBackward:(id) sender;
+- (IBAction) playbackRateSelectionChanged:(id) sender;
 - (IBAction) togglePlayback:(id) sender;
 - (IBAction) skipForward:(id) sender;
 - (IBAction) scrubPlaybackPosition:(id) sender;
@@ -183,6 +189,22 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	loading_indicator.displayedWhenStopped = NO;
 	loading_indicator.hidden = YES;
 
+	NSPopUpButton* playback_rate_popup_button = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+	playback_rate_popup_button.translatesAutoresizingMaskIntoConstraints = NO;
+	playback_rate_popup_button.controlSize = NSControlSizeSmall;
+	playback_rate_popup_button.font = [NSFont systemFontOfSize:12.0];
+	playback_rate_popup_button.bordered = NO;
+	playback_rate_popup_button.preferredEdge = NSMaxYEdge;
+	playback_rate_popup_button.contentTintColor = [NSColor colorWithWhite:0.16 alpha:1.0];
+	playback_rate_popup_button.hidden = NO;
+	if ([playback_rate_popup_button.cell isKindOfClass:[NSPopUpButtonCell class]]) {
+		NSPopUpButtonCell* popup_button_cell = (NSPopUpButtonCell*) playback_rate_popup_button.cell;
+		popup_button_cell.arrowPosition = NSPopUpNoArrow;
+		popup_button_cell.bordered = NO;
+		popup_button_cell.alignment = NSTextAlignmentCenter;
+	}
+	[self configurePlaybackRatePopUpButton:playback_rate_popup_button];
+
 	[artwork_background_view addSubview:artwork_image_view];
 	[NSLayoutConstraint activateConstraints:@[
 		[artwork_image_view.leadingAnchor constraintEqualToAnchor:artwork_background_view.leadingAnchor],
@@ -215,6 +237,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	[container_view addSubview:artwork_background_view];
 	[container_view addSubview:controls_container_view];
 	[container_view addSubview:loading_indicator];
+	[container_view addSubview:playback_rate_popup_button];
 	[NSLayoutConstraint activateConstraints:@[
 		[back_button.widthAnchor constraintEqualToConstant:28.0],
 		[back_button.heightAnchor constraintEqualToConstant:28.0],
@@ -230,6 +253,9 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		[loading_indicator.heightAnchor constraintEqualToConstant:16.0],
 		[loading_indicator.centerYAnchor constraintEqualToAnchor:artwork_background_view.centerYAnchor],
 		[loading_indicator.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor constant:-28.0],
+		[playback_rate_popup_button.widthAnchor constraintEqualToConstant:52.0],
+		[playback_rate_popup_button.centerYAnchor constraintEqualToAnchor:artwork_background_view.centerYAnchor],
+		[playback_rate_popup_button.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor constant:-14.0],
 		[controls_container_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor constant:18.0],
 		[controls_container_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor constant:-18.0],
 		[controls_container_view.topAnchor constraintEqualToAnchor:container_view.topAnchor],
@@ -245,6 +271,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	self.currentTimeLabel = current_time_label;
 	self.remainingTimeLabel = remaining_time_label;
 	self.loadingIndicator = loading_indicator;
+	self.playbackRatePopUpButton = playback_rate_popup_button;
 	self.view = container_view;
 	[self updateArtworkImage];
 	[self updatePlaybackButtonImage];
@@ -307,6 +334,72 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 	[self.player removeObserver:self forKeyPath:@"status" context:InkwellPodcastPlayerStatusContext];
 	self.isObservingPlayerStatus = NO;
+}
+
+- (void) configurePlaybackRatePopUpButton:(NSPopUpButton*) popup_button
+{
+	[popup_button removeAllItems];
+
+	NSArray* playback_rate_values = @[
+		@(1.0),
+		@(1.1),
+		@(1.2),
+		@(1.3),
+		@(1.5),
+		@(1.8),
+		@(2.0)
+	];
+	NSArray* playback_rate_titles = @[
+		@"1×",
+		@"1.1×",
+		@"1.2×",
+		@"1.3×",
+		@"1.5×",
+		@"1.8×",
+		@"2×"
+	];
+
+	for (NSInteger i = 0; i < playback_rate_titles.count; i++) {
+		NSString* title = playback_rate_titles[(NSUInteger) i];
+		NSNumber* value = playback_rate_values[(NSUInteger) i];
+		[popup_button addItemWithTitle:title];
+		NSMenuItem* item = [popup_button itemAtIndex:i];
+		item.representedObject = value;
+	}
+
+	double preferred_playback_rate = [self preferredPlaybackRate];
+	NSInteger selected_index = 0;
+	for (NSInteger i = 0; i < popup_button.numberOfItems; i++) {
+		NSMenuItem* item = [popup_button itemAtIndex:i];
+		NSNumber* value = [item.representedObject isKindOfClass:[NSNumber class]] ? item.representedObject : @(1.0);
+		if (fabs(value.doubleValue - preferred_playback_rate) < DBL_EPSILON) {
+			selected_index = i;
+			break;
+		}
+	}
+
+	[popup_button selectItemAtIndex:selected_index];
+	popup_button.target = self;
+	popup_button.action = @selector(playbackRateSelectionChanged:);
+}
+
+- (double) preferredPlaybackRate
+{
+	double playback_rate = [[NSUserDefaults standardUserDefaults] doubleForKey:InkwellPodcastPlaybackRateDefaultsKey];
+	if (playback_rate <= 0.0) {
+		return 1.0;
+	}
+
+	return playback_rate;
+}
+
+- (void) applyPreferredPlaybackRateIfNeeded
+{
+	if (self.player == nil || !self.isPlaying || self.player.status != AVPlayerStatusReadyToPlay) {
+		return;
+	}
+
+	self.player.rate = [self preferredPlaybackRate];
 }
 
 - (void) loadPlaybackRecords
@@ -676,6 +769,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 {
 	BOOL is_loading = (self.player != nil && self.player.status != AVPlayerStatusReadyToPlay);
 	self.loadingIndicator.hidden = !is_loading;
+	self.playbackRatePopUpButton.hidden = is_loading;
 	if (is_loading) {
 		[self.loadingIndicator startAnimation:nil];
 	}
@@ -862,6 +956,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		#pragma unused(object)
 		dispatch_async(dispatch_get_main_queue(), ^{
 			[self updateLoadingIndicator];
+			[self applyPreferredPlaybackRateIfNeeded];
 		});
 		return;
 	}
@@ -924,6 +1019,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 	[self.player play];
 	[self setPlayingState:YES notify:YES];
+	[self applyPreferredPlaybackRateIfNeeded];
 }
 
 - (IBAction) skipForward:(id) sender
@@ -951,11 +1047,18 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (IBAction) scrubPlaybackPosition:(id) sender
 {
 	#pragma unused(sender)
-	NSLog(@"scrub");
 	[self updateTimeLabels];
 	if (!self.isScrubbing) {
 		[self seekPlayerToSliderPositionPreservingScrubState:NO];
 	}
+}
+
+- (IBAction) playbackRateSelectionChanged:(id) sender
+{
+	NSPopUpButton* popup_button = [sender isKindOfClass:[NSPopUpButton class]] ? (NSPopUpButton*) sender : self.playbackRatePopUpButton;
+	NSNumber* selected_value = [[popup_button selectedItem].representedObject isKindOfClass:[NSNumber class]] ? [popup_button selectedItem].representedObject : @(1.0);
+	[[NSUserDefaults standardUserDefaults] setDouble:selected_value.doubleValue forKey:InkwellPodcastPlaybackRateDefaultsKey];
+	[self applyPreferredPlaybackRateIfNeeded];
 }
 
 @end
