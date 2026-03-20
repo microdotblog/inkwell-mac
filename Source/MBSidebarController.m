@@ -6,6 +6,7 @@
 //
 
 #import "MBSidebarController.h"
+#import <QuartzCore/CATransform3D.h>
 #import <QuartzCore/CAMediaTimingFunction.h>
 #import "MBAvatarLoader.h"
 #import "MBClient.h"
@@ -32,6 +33,7 @@ static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static CGFloat const InkwellSidebarPodcastPaneHeight = 118.0;
+static CGFloat const InkwellSidebarPodcastPaneAnimationOffset = 12.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
@@ -212,6 +214,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSScrollView* tableScrollView;
 @property (strong) MBPodcastController* podcastController;
 @property (strong) NSView* podcastContainerView;
+@property (strong) NSView* podcastContentView;
 @property (strong) NSLayoutConstraint* podcastHeightConstraint;
 @property (strong, nullable) MBEntry* currentPodcastEntry;
 @property (nonatomic, assign) BOOL podcastPaneDisplayed;
@@ -456,8 +459,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSView* podcast_view = podcast_controller.view;
 	podcast_view.translatesAutoresizingMaskIntoConstraints = NO;
-	podcast_view.hidden = YES;
-	podcast_view.alphaValue = 0.0;
+
+	NSView* podcast_clip_view = [[NSView alloc] initWithFrame:NSZeroRect];
+	podcast_clip_view.translatesAutoresizingMaskIntoConstraints = NO;
+	podcast_clip_view.hidden = YES;
+	podcast_clip_view.alphaValue = 0.0;
+	podcast_clip_view.wantsLayer = YES;
+	podcast_clip_view.layer.masksToBounds = YES;
 
 	MBSidebarTableView *table_view = [[MBSidebarTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -533,11 +541,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	[container_view addSubview:recap_box];
 	[container_view addSubview:scroll_view];
-	[container_view addSubview:podcast_view];
+	[container_view addSubview:podcast_clip_view];
 	[container_view addSubview:premium_required_view];
 	NSLayoutConstraint* recap_height_constraint = [recap_box.heightAnchor constraintEqualToConstant:0.0];
 	NSLayoutConstraint* recap_to_table_top_constraint = [scroll_view.topAnchor constraintEqualToAnchor:recap_box.bottomAnchor constant:0.0];
-	NSLayoutConstraint* podcast_height_constraint = [podcast_view.heightAnchor constraintEqualToConstant:0.0];
+	NSLayoutConstraint* podcast_height_constraint = [podcast_clip_view.heightAnchor constraintEqualToConstant:0.0];
 	[NSLayoutConstraint activateConstraints:@[
 		[recap_box.topAnchor constraintEqualToAnchor:container_view.safeAreaLayoutGuide.topAnchor constant:-1.0],
 		[recap_box.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor constant:-1.0],
@@ -554,12 +562,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[clear_button.trailingAnchor constraintEqualToAnchor:recap_box.trailingAnchor constant:-12.0],
 			[clear_button.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
 		recap_to_table_top_constraint,
-		[scroll_view.bottomAnchor constraintEqualToAnchor:podcast_view.topAnchor],
+		[scroll_view.bottomAnchor constraintEqualToAnchor:podcast_clip_view.topAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
 		[scroll_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
-		[podcast_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
-		[podcast_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
-		[podcast_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
+		[podcast_clip_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
+		[podcast_clip_view.trailingAnchor constraintEqualToAnchor:container_view.trailingAnchor],
+		[podcast_clip_view.bottomAnchor constraintEqualToAnchor:container_view.bottomAnchor],
 		podcast_height_constraint,
 		[premium_required_view.topAnchor constraintEqualToAnchor:container_view.safeAreaLayoutGuide.topAnchor constant:18.0],
 		[premium_required_view.leadingAnchor constraintEqualToAnchor:container_view.leadingAnchor],
@@ -573,6 +581,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		[plans_button.bottomAnchor constraintEqualToAnchor:premium_required_view.bottomAnchor]
 	]];
 
+	[podcast_clip_view addSubview:podcast_view];
+	[NSLayoutConstraint activateConstraints:@[
+		[podcast_view.leadingAnchor constraintEqualToAnchor:podcast_clip_view.leadingAnchor],
+		[podcast_view.trailingAnchor constraintEqualToAnchor:podcast_clip_view.trailingAnchor],
+		[podcast_view.bottomAnchor constraintEqualToAnchor:podcast_clip_view.bottomAnchor],
+		[podcast_view.heightAnchor constraintEqualToConstant:InkwellSidebarPodcastPaneHeight]
+	]];
+
 	self.recapBoxView = recap_box;
 	self.recapButton = recap_button;
 	self.recapCountLabel = recap_label;
@@ -581,7 +597,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.recapBoxHeightConstraint = recap_height_constraint;
 	self.recapToTableTopConstraint = recap_to_table_top_constraint;
 	self.podcastController = podcast_controller;
-	self.podcastContainerView = podcast_view;
+	self.podcastContainerView = podcast_clip_view;
+	self.podcastContentView = podcast_view;
 	self.podcastHeightConstraint = podcast_height_constraint;
 	self.tableView = table_view;
 	self.tableScrollView = scroll_view;
@@ -937,6 +954,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.podcastPaneDisplayed = is_visible;
 	if (is_visible) {
 		self.podcastContainerView.hidden = NO;
+		if (self.podcastContentView.layer != nil) {
+			self.podcastContentView.layer.transform = CATransform3DMakeTranslation(0.0, -InkwellSidebarPodcastPaneAnimationOffset, 0.0);
+		}
 	}
 
 	[self.view layoutSubtreeIfNeeded];
@@ -946,12 +966,18 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		context.allowsImplicitAnimation = YES;
 		self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
 		self.podcastContainerView.alphaValue = is_visible ? 1.0 : 0.0;
+		if (self.podcastContentView.layer != nil) {
+			self.podcastContentView.layer.transform = is_visible ? CATransform3DIdentity : CATransform3DMakeTranslation(0.0, -InkwellSidebarPodcastPaneAnimationOffset, 0.0);
+		}
 		[self.view layoutSubtreeIfNeeded];
 	} completionHandler:^{
 		if (!self.podcastPaneDisplayed) {
 			self.podcastContainerView.hidden = YES;
 		}
 		else {
+			if (self.podcastContentView.layer != nil) {
+				self.podcastContentView.layer.transform = CATransform3DIdentity;
+			}
 			[self.podcastContainerView setNeedsLayout:YES];
 			[self.podcastContainerView layoutSubtreeIfNeeded];
 			[self.podcastContainerView setNeedsDisplay:YES];
