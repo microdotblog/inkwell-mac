@@ -1360,6 +1360,14 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		[self configurePlayerForCurrentEntry];
 	}
 
+	AVPlayerItem* player_item = self.player.currentItem;
+	BOOL has_failed_player = (self.player.status == AVPlayerStatusFailed || player_item.status == AVPlayerItemStatusFailed);
+	if (has_failed_player) {
+		self.currentEnclosureURLString = @"";
+		[self configurePlayerForCurrentEntry];
+		player_item = self.player.currentItem;
+	}
+
 	if (self.player == nil) {
 		return;
 	}
@@ -1371,7 +1379,10 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 		return;
 	}
 
-	AVPlayerItem* player_item = self.player.currentItem;
+	if (player_item == nil || self.player.status == AVPlayerStatusFailed || player_item.status == AVPlayerItemStatusFailed) {
+		return;
+	}
+
 	Float64 duration_seconds = CMTimeGetSeconds(player_item.duration);
 	Float64 current_seconds = CMTimeGetSeconds(self.player.currentTime);
 	BOOL is_at_end = (isfinite(duration_seconds) && duration_seconds > 0.0 && isfinite(current_seconds) && current_seconds >= (duration_seconds - 0.5));
