@@ -738,7 +738,6 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	NSMutableDictionary* merged_icons_by_host = [NSMutableDictionary dictionaryWithDictionary:(self.cachedFeedIconsByHostMap ?: @{})];
 	[merged_icons_by_host addEntriesFromDictionary:normalized_icons_by_host];
 	self.cachedFeedIconsByHostMap = [merged_icons_by_host copy];
-	self.hasLoadedFeedIcons = YES;
 }
 
 - (void) invalidateFeedIconsCache
