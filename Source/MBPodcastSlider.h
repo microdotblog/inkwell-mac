@@ -14,6 +14,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^trackingStateChangedHandler)(BOOL is_tracking);
 @property (nonatomic, assign, readonly) BOOL isTrackingSlider;
 
+- (void) refreshAppearance;
+
 @end
 
 NS_ASSUME_NONNULL_END

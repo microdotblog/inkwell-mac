@@ -24,6 +24,12 @@ static NSTimeInterval const InkwellPodcastSaveInterval = 15.0;
 static NSString* const InkwellPodcastPlaybackRateDefaultsKey = @"PodcastPlaybackRate";
 static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusContext;
 
+@interface MBPodcastContainerView : NSView
+
+@property (nonatomic, copy, nullable) void (^appearanceChangedHandler)(void);
+
+@end
+
 @interface MBPodcastController ()
 
 @property (nonatomic, strong) NSView* artworkBackgroundView;
@@ -75,6 +81,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (void) stopPlaybackSaveTimer;
 - (void) updatePlaybackRecordForEntry:(MBEntry* _Nullable) entry artworkURLString:(NSString*) artwork_url_string;
 - (void) updateLoadingIndicator;
+- (void) updateAppearance;
 - (void) updateProgressSliderForCurrentTime;
 - (void) updateTimeLabels;
 - (void) updateArtworkImage;
@@ -86,6 +93,18 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 - (IBAction) togglePlayback:(id) sender;
 - (IBAction) skipForward:(id) sender;
 - (IBAction) scrubPlaybackPosition:(id) sender;
+
+@end
+
+@implementation MBPodcastContainerView
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	if (self.appearanceChangedHandler != nil) {
+		self.appearanceChangedHandler();
+	}
+}
 
 @end
 
@@ -117,11 +136,20 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 
 - (void) loadView
 {
-	NSView* container_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 118.0)];
+	MBPodcastContainerView* container_view = [[MBPodcastContainerView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 118.0)];
 	container_view.translatesAutoresizingMaskIntoConstraints = NO;
 	container_view.wantsLayer = YES;
 	NSColor* background_color = [NSColor colorNamed:@"color_podcast_background"] ?: [NSColor colorWithWhite:0.92 alpha:0.78];
 	container_view.layer.backgroundColor = background_color.CGColor;
+	__weak typeof(self) weak_self = self;
+	container_view.appearanceChangedHandler = ^{
+		MBPodcastController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self updateAppearance];
+	};
 
 	NSView* artwork_background_view = [[NSView alloc] initWithFrame:NSZeroRect];
 	artwork_background_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -159,7 +187,6 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	progress_slider.action = @selector(scrubPlaybackPosition:);
 	progress_slider.continuous = YES;
 	progress_slider.sliderType = NSSliderTypeLinear;
-	__weak typeof(self) weak_self = self;
 	progress_slider.trackingStateChangedHandler = ^(BOOL is_tracking) {
 		MBPodcastController* strong_self = weak_self;
 		if (strong_self == nil) {
@@ -173,13 +200,13 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	NSTextField* current_time_label = [NSTextField labelWithString:@"0:00"];
 	current_time_label.translatesAutoresizingMaskIntoConstraints = NO;
 	current_time_label.font = [NSFont systemFontOfSize:9.0 weight:NSFontWeightRegular];
-	current_time_label.textColor = [NSColor colorWithWhite:0.16 alpha:0.72];
+	current_time_label.textColor = [NSColor secondaryLabelColor];
 	current_time_label.alignment = NSTextAlignmentLeft;
 
 	NSTextField* remaining_time_label = [NSTextField labelWithString:@"-0:00"];
 	remaining_time_label.translatesAutoresizingMaskIntoConstraints = NO;
 	remaining_time_label.font = [NSFont systemFontOfSize:9.0 weight:NSFontWeightRegular];
-	remaining_time_label.textColor = [NSColor colorWithWhite:0.16 alpha:0.72];
+	remaining_time_label.textColor = [NSColor secondaryLabelColor];
 	remaining_time_label.alignment = NSTextAlignmentRight;
 
 	NSProgressIndicator* loading_indicator = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
@@ -195,7 +222,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	playback_rate_popup_button.font = [NSFont systemFontOfSize:12.0];
 	playback_rate_popup_button.bordered = NO;
 	playback_rate_popup_button.preferredEdge = NSMaxYEdge;
-	playback_rate_popup_button.contentTintColor = [NSColor colorWithWhite:0.16 alpha:1.0];
+	playback_rate_popup_button.contentTintColor = [NSColor labelColor];
 	playback_rate_popup_button.hidden = NO;
 	if ([playback_rate_popup_button.cell isKindOfClass:[NSPopUpButtonCell class]]) {
 		NSPopUpButtonCell* popup_button_cell = (NSPopUpButtonCell*) playback_rate_popup_button.cell;
@@ -277,6 +304,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	[self updatePlaybackButtonImage];
 	[self updateLoadingIndicator];
 	[self updateTimeLabels];
+	[self updateAppearance];
 }
 
 - (void) setEntry:(MBEntry* _Nullable) entry
@@ -316,8 +344,9 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	button.bordered = NO;
 	button.imagePosition = NSImageOnly;
 	button.imageScaling = NSImageScaleProportionallyUpOrDown;
-	button.contentTintColor = [NSColor colorWithWhite:0.16 alpha:1.0];
+	button.contentTintColor = [NSColor labelColor];
 	button.image = [NSImage imageWithSystemSymbolName:symbol_name accessibilityDescription:accessibility_description];
+	button.image.template = YES;
 	return button;
 }
 
@@ -783,6 +812,24 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	}
 }
 
+- (void) updateAppearance
+{
+	NSAppearance* appearance = self.view.effectiveAppearance ?: NSApp.effectiveAppearance;
+	[appearance performAsCurrentDrawingAppearance:^{
+		NSColor* background_color = [NSColor colorNamed:@"color_podcast_background"] ?: [NSColor colorWithWhite:0.92 alpha:0.78];
+		self.view.layer.backgroundColor = background_color.CGColor;
+		self.backButton.contentTintColor = [NSColor labelColor];
+		self.playButton.contentTintColor = [NSColor labelColor];
+		self.forwardButton.contentTintColor = [NSColor labelColor];
+		self.currentTimeLabel.textColor = [NSColor secondaryLabelColor];
+		self.remainingTimeLabel.textColor = [NSColor secondaryLabelColor];
+		self.playbackRatePopUpButton.contentTintColor = [NSColor labelColor];
+		[self updatePlaybackButtonImage];
+		[self.progressSlider refreshAppearance];
+		[self.view setNeedsDisplay:YES];
+	}];
+}
+
 - (void) configurePlayerForCurrentEntry
 {
 	NSString* enclosure_url = [self.entry.enclosureURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
@@ -942,6 +989,7 @@ static void* InkwellPodcastPlayerStatusContext = &InkwellPodcastPlayerStatusCont
 	NSString* symbol_name = self.isPlaying ? @"pause.fill" : @"play.fill";
 	NSString* accessibility_description = self.isPlaying ? @"Pause" : @"Play";
 	self.playButton.image = [NSImage imageWithSystemSymbolName:symbol_name accessibilityDescription:accessibility_description];
+	self.playButton.image.template = YES;
 }
 
 - (void) avatarImageDidLoad:(NSNotification*) notification

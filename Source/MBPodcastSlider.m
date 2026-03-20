@@ -34,7 +34,7 @@
 	bar_rect.size.height = 4.0;
 
 	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:bar_rect xRadius:2.0 yRadius:2.0];
-	[[NSColor colorWithWhite:0.35 alpha:0.18] setFill];
+	[[[NSColor quaternaryLabelColor] colorWithAlphaComponent:0.6] setFill];
 	[background_path fill];
 
 	CGFloat progress_fraction = 0.0;
@@ -50,7 +50,7 @@
 	}
 
 	NSBezierPath* progress_path = [NSBezierPath bezierPathWithRoundedRect:progress_rect xRadius:2.0 yRadius:2.0];
-	[[NSColor colorWithWhite:0.22 alpha:1.0] setFill];
+	[[NSColor labelColor] setFill];
 	[progress_path fill];
 }
 
@@ -105,6 +105,17 @@
 - (void) setDoubleValue:(double) double_value
 {
 	[super setDoubleValue:double_value];
+	[self setNeedsDisplay:YES];
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self refreshAppearance];
+}
+
+- (void) refreshAppearance
+{
 	[self setNeedsDisplay:YES];
 }
 
