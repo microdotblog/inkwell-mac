@@ -12,7 +12,7 @@
 - (BOOL) hasAudioEnclosure
 {
 	NSString* enclosure_type = [self.enclosureType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	return [enclosure_type isEqualToString:@"audio/mpeg"];
+	return [enclosure_type containsString:@"audio/"];
 }
 
 @end
