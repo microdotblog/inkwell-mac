@@ -12,9 +12,17 @@ For method declarations, add a space after the type and a return before the open
 {
 }
 
+Pointers to Obj-C objects for method declarations should have a space between the class name and the `*`, like this:
+
+- (NSString *) getString
+
 Local variables use snake_case with underscores.
 
-Pointers to Obj-C objects should have a space after the `*`, like:
+Method parameters use camelCase, like this:
+
+- (NSArray *) podcastChaptersFromID3MetadataItems:(NSArray *)metadataItems audioFileURL:(NSURL *)fileURL
+
+Pointers to Obj-C objects when used as local variables should have a space after the `*`, like:
 
 NSString* s = @"Hello";
 
