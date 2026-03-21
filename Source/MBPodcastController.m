@@ -263,6 +263,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 - (MBPodcastChapter* _Nullable) podcastChapterFromID3MetadataItem:(AVMetadataItem*) item tagMajorVersion:(NSInteger) tag_major_version;
 - (NSArray*) podcastChaptersFromID3MetadataItems:(NSArray*) metadata_items audioFileURL:(NSURL*) file_url;
 - (NSArray*) podcastChaptersFromMetadataGroups:(NSArray*) chapter_groups;
+- (NSArray*) sortedPodcastChapters:(NSArray*) chapters;
 - (NSString*) preferredCachedAudioExtensionForURLString:(NSString*) url_string;
 - (BOOL) shouldApplyChaptersForAudioFileURL:(NSURL*) file_url;
 - (NSString* _Nullable) stringFromID3TextFrameData:(NSData*) data;
@@ -1596,7 +1597,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		}
 	}
 
-	return [chapters copy];
+	return [self sortedPodcastChapters:chapters];
 }
 
 - (MBPodcastChapter* _Nullable) podcastChapterFromID3MetadataItem:(AVMetadataItem*) item tagMajorVersion:(NSInteger) tag_major_version
@@ -1697,7 +1698,22 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		[chapters addObject:chapter];
 	}
 
-	return [chapters copy];
+	return [self sortedPodcastChapters:chapters];
+}
+
+- (NSArray*) sortedPodcastChapters:(NSArray*) chapters
+{
+	return [chapters sortedArrayUsingComparator:^NSComparisonResult(MBPodcastChapter* left_chapter, MBPodcastChapter* right_chapter) {
+		Float64 left_seconds = left_chapter.startSeconds;
+		Float64 right_seconds = right_chapter.startSeconds;
+		if (left_seconds < right_seconds) {
+			return NSOrderedAscending;
+		}
+		if (left_seconds > right_seconds) {
+			return NSOrderedDescending;
+		}
+		return NSOrderedSame;
+	}];
 }
 
 - (BOOL) isMP3AudioFileURL:(NSURL*) file_url
