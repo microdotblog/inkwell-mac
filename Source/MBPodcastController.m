@@ -81,10 +81,13 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 
 @property (nonatomic, strong) MBPodcastPassthroughImageView* artworkImageView;
 @property (nonatomic, strong) MBPodcastPassthroughView* hoverOverlayView;
+@property (nonatomic, strong) MBPodcastPassthroughImageView* overlayImageView;
 @property (nonatomic, strong, nullable) NSTrackingArea* trackingArea;
+@property (nonatomic, assign) BOOL isExpanded;
 @property (nonatomic, assign) BOOL isHovering;
 @property (nonatomic, assign) BOOL hoverEnabled;
 
+- (void) updateOverlayImage;
 - (void) updateHoverState;
 
 @end
@@ -99,6 +102,8 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		self.bordered = NO;
 		self.buttonType = NSButtonTypeMomentaryChange;
 		self.focusRingType = NSFocusRingTypeNone;
+		self.title = @"";
+		self.imagePosition = NSNoImage;
 		self.wantsLayer = YES;
 		self.layer.cornerRadius = 5.0;
 		self.layer.masksToBounds = YES;
@@ -115,6 +120,12 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		hover_overlay_view.alphaValue = 0.0;
 		[self addSubview:hover_overlay_view];
 
+		MBPodcastPassthroughImageView* overlay_image_view = [[MBPodcastPassthroughImageView alloc] initWithFrame:NSZeroRect];
+		overlay_image_view.translatesAutoresizingMaskIntoConstraints = NO;
+		overlay_image_view.imageScaling = NSImageScaleNone;
+		overlay_image_view.contentTintColor = [NSColor whiteColor];
+		[hover_overlay_view addSubview:overlay_image_view];
+
 		[NSLayoutConstraint activateConstraints:@[
 			[artwork_image_view.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
 			[artwork_image_view.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
@@ -123,12 +134,16 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 			[hover_overlay_view.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
 			[hover_overlay_view.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
 			[hover_overlay_view.topAnchor constraintEqualToAnchor:self.topAnchor],
-			[hover_overlay_view.bottomAnchor constraintEqualToAnchor:self.bottomAnchor]
+			[hover_overlay_view.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+			[overlay_image_view.centerXAnchor constraintEqualToAnchor:hover_overlay_view.centerXAnchor],
+			[overlay_image_view.centerYAnchor constraintEqualToAnchor:hover_overlay_view.centerYAnchor]
 		]];
 
 		self.artworkImageView = artwork_image_view;
 		self.hoverOverlayView = hover_overlay_view;
+		self.overlayImageView = overlay_image_view;
 		self.hoverEnabled = NO;
+		[self updateOverlayImage];
 	}
 	return self;
 }
@@ -159,6 +174,20 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	[self updateHoverState];
 }
 
+- (void) setIsExpanded:(BOOL) is_expanded
+{
+	_isExpanded = is_expanded;
+	[self updateOverlayImage];
+}
+
+- (void) updateOverlayImage
+{
+	NSString* symbol_name = self.isExpanded ? @"chevron.down" : @"chevron.up";
+	NSImageSymbolConfiguration* configuration = [NSImageSymbolConfiguration configurationWithPointSize:12.0 weight:NSFontWeightSemibold];
+	NSImage* symbol_image = [NSImage imageWithSystemSymbolName:symbol_name accessibilityDescription:nil];
+	self.overlayImageView.image = [symbol_image imageWithSymbolConfiguration:configuration];
+}
+
 - (void) updateHoverState
 {
 	BOOL should_show_overlay = (self.hoverEnabled && self.isHovering);
@@ -175,6 +204,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 @property (nonatomic, strong) NSView* chaptersContainerView;
 @property (nonatomic, strong) NSScrollView* chaptersScrollView;
 @property (nonatomic, strong) NSTableView* chaptersTableView;
+@property (nonatomic, strong) NSView* chaptersSeparatorLineView;
 @property (nonatomic, strong) NSLayoutConstraint* chaptersContainerHeightConstraint;
 @property (nonatomic, strong) NSButton* backButton;
 @property (nonatomic, strong) NSButton* playButton;
@@ -196,6 +226,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 @property (nonatomic, assign) BOOL isObservingPlayerStatus;
 @property (nonatomic, assign) BOOL isScrubbing;
 @property (nonatomic, assign) BOOL isShowingChapterList;
+@property (nonatomic, assign) NSUInteger currentChapterIndex;
 @property (nonatomic, assign, readwrite) BOOL isPlaying;
 @property (nonatomic, assign) NSUInteger pendingDownloadToken;
 
@@ -206,6 +237,9 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 - (NSString*) cachedAudioFilenameForURLString:(NSString*) url_string;
 - (BOOL) cachedAudioFileExistsForURLString:(NSString*) url_string;
 - (void) configurePlaybackRatePopUpButton:(NSPopUpButton*) popup_button;
+- (NSUInteger) chapterIndexForPlaybackSeconds:(Float64) playback_seconds;
+- (Float64) chapterDurationSecondsAtIndex:(NSUInteger) index;
+- (NSString*) chapterDurationStringForIndex:(NSUInteger) index;
 - (NSButton*) transportButtonWithSymbolName:(NSString*) symbol_name accessibilityDescription:(NSString*) accessibility_description action:(SEL) action;
 - (void) configurePlayerForCurrentEntry;
 - (NSDate* _Nullable) dateFromISO8601String:(NSString*) string;
@@ -233,6 +267,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 - (NSString* _Nullable) stringFromID3TextFrameData:(NSData*) data;
 - (NSURL* _Nullable) urlFromID3URLFrameData:(NSData*) data;
 - (void) setChapterListExpanded:(BOOL) is_expanded animated:(BOOL) animated;
+- (void) seekToChapterAtIndex:(NSUInteger) index;
 - (void) loadPlaybackRecords;
 - (void) persistPlaybackRecordsToDisk;
 - (void) persistPlaybackStateForCurrentEntryToDisk;
@@ -251,6 +286,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 - (void) sortAndTrimPlaybackRecords;
 - (void) stopPlaybackSaveTimer;
 - (void) trimCachedAudioFilesIfNeeded;
+- (void) updateCurrentChapterIndexForPlaybackSeconds:(Float64) playback_seconds;
 - (void) updatePlaybackRecordForEntry:(MBEntry* _Nullable) entry artworkURLString:(NSString*) artwork_url_string;
 - (void) updateLoadingIndicator;
 - (void) updateAppearance;
@@ -350,6 +386,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		_artworkURLString = @"";
 		_currentEnclosureURLString = @"";
 		_chapters = @[];
+		_currentChapterIndex = NSNotFound;
 		self.avatarLoader = [MBAvatarLoader sharedLoader];
 		self.downloadSession = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.pendingDownloadURLStrings = [NSMutableSet set];
@@ -408,6 +445,11 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	chapters_table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleNone;
 	chapters_table_view.focusRingType = NSFocusRingTypeNone;
 	chapters_table_view.intercellSpacing = NSMakeSize(0.0, 4.0);
+	chapters_table_view.allowsEmptySelection = YES;
+
+	NSTableColumn* title_column = [[NSTableColumn alloc] initWithIdentifier:@"ChapterTitleColumn"];
+	title_column.resizingMask = NSTableColumnAutoresizingMask;
+	[chapters_table_view addTableColumn:title_column];
 
 	NSTableColumn* time_column = [[NSTableColumn alloc] initWithIdentifier:@"ChapterTimeColumn"];
 	time_column.width = InkwellPodcastChapterTimeColumnWidth;
@@ -416,10 +458,6 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	time_column.resizingMask = NSTableColumnNoResizing;
 	[chapters_table_view addTableColumn:time_column];
 
-	NSTableColumn* title_column = [[NSTableColumn alloc] initWithIdentifier:@"ChapterTitleColumn"];
-	title_column.resizingMask = NSTableColumnAutoresizingMask;
-	[chapters_table_view addTableColumn:title_column];
-
 	NSScrollView* chapters_scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
 	chapters_scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
 	chapters_scroll_view.drawsBackground = NO;
@@ -427,12 +465,22 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	chapters_scroll_view.hasVerticalScroller = YES;
 	chapters_scroll_view.documentView = chapters_table_view;
 
+	NSView* chapters_separator_line_view = [[NSView alloc] initWithFrame:NSZeroRect];
+	chapters_separator_line_view.translatesAutoresizingMaskIntoConstraints = NO;
+	chapters_separator_line_view.wantsLayer = YES;
+	chapters_separator_line_view.hidden = YES;
+
 	[chapters_container_view addSubview:chapters_scroll_view];
+	[chapters_container_view addSubview:chapters_separator_line_view];
 	[NSLayoutConstraint activateConstraints:@[
 		[chapters_scroll_view.leadingAnchor constraintEqualToAnchor:chapters_container_view.leadingAnchor constant:12.0],
 		[chapters_scroll_view.trailingAnchor constraintEqualToAnchor:chapters_container_view.trailingAnchor constant:-10.0],
 		[chapters_scroll_view.topAnchor constraintEqualToAnchor:chapters_container_view.topAnchor constant:12.0],
-		[chapters_scroll_view.bottomAnchor constraintEqualToAnchor:chapters_container_view.bottomAnchor constant:-12.0]
+		[chapters_scroll_view.bottomAnchor constraintEqualToAnchor:chapters_container_view.bottomAnchor constant:-12.0],
+		[chapters_separator_line_view.leadingAnchor constraintEqualToAnchor:chapters_container_view.leadingAnchor],
+		[chapters_separator_line_view.trailingAnchor constraintEqualToAnchor:chapters_container_view.trailingAnchor],
+		[chapters_separator_line_view.bottomAnchor constraintEqualToAnchor:chapters_container_view.bottomAnchor],
+		[chapters_separator_line_view.heightAnchor constraintEqualToConstant:1.0]
 	]];
 
 	NSView* artwork_background_view = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -594,6 +642,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	self.chaptersContainerView = chapters_container_view;
 	self.chaptersScrollView = chapters_scroll_view;
 	self.chaptersTableView = chapters_table_view;
+	self.chaptersSeparatorLineView = chapters_separator_line_view;
 	self.chaptersContainerHeightConstraint = chapters_container_height_constraint;
 	self.backButton = back_button;
 	self.playButton = play_button;
@@ -625,6 +674,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		[self updatePlaybackRecordForEntry:_entry artworkURLString:self.artworkURLString];
 		[self persistPlaybackRecordsToDisk];
 		self.progressSlider.doubleValue = 0.0;
+		self.currentChapterIndex = NSNotFound;
 		self.chapters = @[];
 		[self setChapterListExpanded:NO animated:NO];
 	}
@@ -652,6 +702,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	self.artworkButton.accessibilityLabel = self.isShowingChapterList ? @"Hide Chapters" : @"Show Chapters";
 	[self.artworkButton updateHoverState];
 	[self.chaptersTableView reloadData];
+	[self updateCurrentChapterIndexForPlaybackSeconds:[self displayedCurrentPlaybackSeconds]];
 }
 
 - (void) setArtworkURLString:(NSString*) artwork_url_string
@@ -679,7 +730,9 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	}
 
 	self.isShowingChapterList = next_is_expanded;
+	self.artworkButton.isExpanded = self.isShowingChapterList;
 	self.artworkButton.accessibilityLabel = self.isShowingChapterList ? @"Hide Chapters" : @"Show Chapters";
+	self.chaptersSeparatorLineView.hidden = !self.isShowingChapterList;
 
 	if (animated) {
 		[self.view layoutSubtreeIfNeeded];
@@ -1048,6 +1101,103 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	return [NSString stringWithFormat:@"%ld:%02ld", (long) minutes, (long) remaining_seconds];
 }
 
+- (Float64) chapterDurationSecondsAtIndex:(NSUInteger) index
+{
+	if (index >= self.chapters.count) {
+		return 0.0;
+	}
+
+	MBPodcastChapter* chapter = self.chapters[index];
+	Float64 start_seconds = MAX(0.0, chapter.startSeconds);
+	Float64 end_seconds = 0.0;
+	if ((index + 1) < self.chapters.count) {
+		MBPodcastChapter* next_chapter = self.chapters[index + 1];
+		end_seconds = MAX(start_seconds, next_chapter.startSeconds);
+	}
+	else {
+		end_seconds = [self displayedDurationSeconds];
+		if (!isfinite(end_seconds) || end_seconds <= start_seconds) {
+			return 0.0;
+		}
+	}
+
+	return MAX(0.0, end_seconds - start_seconds);
+}
+
+- (NSUInteger) chapterIndexForPlaybackSeconds:(Float64) playback_seconds
+{
+	if (self.chapters.count == 0 || !isfinite(playback_seconds) || playback_seconds < 0.0) {
+		return NSNotFound;
+	}
+
+	for (NSUInteger i = 0; i < self.chapters.count; i++) {
+		MBPodcastChapter* chapter = self.chapters[i];
+		Float64 start_seconds = MAX(0.0, chapter.startSeconds);
+		Float64 next_start_seconds = DBL_MAX;
+		if ((i + 1) < self.chapters.count) {
+			MBPodcastChapter* next_chapter = self.chapters[i + 1];
+			next_start_seconds = MAX(start_seconds, next_chapter.startSeconds);
+		}
+
+		if (playback_seconds >= start_seconds && playback_seconds < next_start_seconds) {
+			return i;
+		}
+	}
+
+	MBPodcastChapter* last_chapter = self.chapters.lastObject;
+	if (last_chapter != nil && playback_seconds >= MAX(0.0, last_chapter.startSeconds)) {
+		return (self.chapters.count - 1);
+	}
+
+	return NSNotFound;
+}
+
+- (NSString*) chapterDurationStringForIndex:(NSUInteger) index
+{
+	Float64 duration_seconds = [self chapterDurationSecondsAtIndex:index];
+	if (!isfinite(duration_seconds) || duration_seconds <= 0.0) {
+		return @"";
+	}
+
+	NSInteger total_seconds = (NSInteger) llround(duration_seconds);
+	if (total_seconds < 60) {
+		return [NSString stringWithFormat:@"%lds", (long) MAX(1, total_seconds)];
+	}
+
+	NSInteger total_minutes = (NSInteger) lround(duration_seconds / 60.0);
+	return [NSString stringWithFormat:@"%ldm", (long) MAX(1, total_minutes)];
+}
+
+- (void) updateCurrentChapterIndexForPlaybackSeconds:(Float64) playback_seconds
+{
+	NSUInteger next_chapter_index = [self chapterIndexForPlaybackSeconds:playback_seconds];
+	if (self.currentChapterIndex == next_chapter_index) {
+		return;
+	}
+
+	NSUInteger previous_chapter_index = self.currentChapterIndex;
+	self.currentChapterIndex = next_chapter_index;
+
+	if (self.chaptersTableView == nil) {
+		return;
+	}
+
+	NSMutableIndexSet* row_indexes = [NSMutableIndexSet indexSet];
+	if (previous_chapter_index != NSNotFound && previous_chapter_index < self.chapters.count) {
+		[row_indexes addIndex:previous_chapter_index];
+	}
+	if (next_chapter_index != NSNotFound && next_chapter_index < self.chapters.count) {
+		[row_indexes addIndex:next_chapter_index];
+	}
+
+	if (row_indexes.count == 0) {
+		return;
+	}
+
+	NSIndexSet* column_indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, self.chaptersTableView.numberOfColumns)];
+	[self.chaptersTableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+}
+
 - (Float64) displayedDurationSeconds
 {
 	Float64 duration_seconds = 0.0;
@@ -1240,6 +1390,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 
 	self.currentTimeLabel.stringValue = [self formattedTimeStringForSeconds:current_seconds];
 	self.remainingTimeLabel.stringValue = [NSString stringWithFormat:@"-%@", [self formattedTimeStringForSeconds:remaining_seconds]];
+	[self updateCurrentChapterIndexForPlaybackSeconds:current_seconds];
 }
 
 - (void) persistPlaybackRecordsToDisk
@@ -1689,6 +1840,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		self.currentTimeLabel.textColor = [NSColor secondaryLabelColor];
 		self.remainingTimeLabel.textColor = [NSColor secondaryLabelColor];
 		self.playbackRatePopUpButton.contentTintColor = [NSColor labelColor];
+		self.chaptersSeparatorLineView.layer.backgroundColor = [NSColor separatorColor].CGColor;
 		[self updatePlaybackButtonImage];
 		[self.progressSlider refreshAppearance];
 		[self.chaptersTableView reloadData];
@@ -1732,15 +1884,16 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 
 	MBPodcastChapter* chapter = self.chapters[(NSUInteger) row];
 	NSTextField* text_field = cell_view.textField;
+	BOOL is_current_chapter = (self.currentChapterIndex == (NSUInteger) row);
 	if ([table_column.identifier isEqualToString:@"ChapterTimeColumn"]) {
-		text_field.stringValue = [self formattedTimeStringForSeconds:chapter.startSeconds];
-		text_field.font = [NSFont monospacedDigitSystemFontOfSize:11.0 weight:NSFontWeightMedium];
-		text_field.textColor = [NSColor secondaryLabelColor];
-		text_field.alignment = NSTextAlignmentLeft;
+		text_field.stringValue = [self chapterDurationStringForIndex:(NSUInteger) row];
+		text_field.font = [NSFont monospacedDigitSystemFontOfSize:11.0 weight:is_current_chapter ? NSFontWeightSemibold : NSFontWeightMedium];
+		text_field.textColor = is_current_chapter ? [NSColor labelColor] : [NSColor secondaryLabelColor];
+		text_field.alignment = NSTextAlignmentRight;
 	}
 	else {
 		text_field.stringValue = [chapter.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-		text_field.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular];
+		text_field.font = [NSFont systemFontOfSize:12.0 weight:is_current_chapter ? NSFontWeightSemibold : NSFontWeightRegular];
 		text_field.textColor = [NSColor labelColor];
 		text_field.alignment = NSTextAlignmentLeft;
 	}
@@ -1755,13 +1908,29 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		return 20.0;
 	}
 
-	return 22.0;
+	return 30.0;
 }
 
 - (BOOL) tableView:(NSTableView*) table_view shouldSelectRow:(NSInteger) row
 {
 	#pragma unused(row)
-	return (table_view != self.chaptersTableView);
+	return (table_view == self.chaptersTableView);
+}
+
+- (void) tableViewSelectionDidChange:(NSNotification*) notification
+{
+	NSTableView* table_view = [notification.object isKindOfClass:[NSTableView class]] ? (NSTableView*) notification.object : nil;
+	if (table_view != self.chaptersTableView) {
+		return;
+	}
+
+	NSInteger selected_row = table_view.selectedRow;
+	if (selected_row < 0 || selected_row >= (NSInteger) self.chapters.count) {
+		return;
+	}
+
+	[self seekToChapterAtIndex:(NSUInteger) selected_row];
+	[table_view deselectAll:nil];
 }
 
 - (void) configurePlayerForCurrentEntry
@@ -1963,6 +2132,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 			}
 
 			[self applyPreferredPlaybackRateIfNeeded];
+			[self.chaptersTableView reloadData];
 		});
 		return;
 	}
@@ -1995,6 +2165,40 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	Float64 target_seconds = MAX(0.0, current_seconds - 30.0);
 	CMTime target_time = CMTimeMakeWithSeconds(target_seconds, NSEC_PER_SEC);
 	[self.player seekToTime:target_time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero];
+}
+
+- (void) seekToChapterAtIndex:(NSUInteger) index
+{
+	if (index >= self.chapters.count) {
+		return;
+	}
+
+	if (self.player == nil) {
+		[self configurePlayerForCurrentEntry];
+	}
+
+	if (self.player == nil) {
+		return;
+	}
+
+	MBPodcastChapter* chapter = self.chapters[index];
+	Float64 target_seconds = MAX(0.0, chapter.startSeconds);
+	CMTime target_time = CMTimeMakeWithSeconds(target_seconds, NSEC_PER_SEC);
+	__weak typeof(self) weak_self = self;
+	[self.player seekToTime:target_time toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:^(BOOL finished) {
+		if (!finished) {
+			return;
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			MBPodcastController* strong_self = weak_self;
+			if (strong_self == nil || strong_self.isScrubbing) {
+				return;
+			}
+
+			[strong_self updateProgressSliderForCurrentTime];
+		});
+	}];
 }
 
 - (IBAction) toggleChaptersList:(id) sender
