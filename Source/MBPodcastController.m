@@ -255,6 +255,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 - (NSMutableDictionary* _Nullable) playbackRecordForEntry:(MBEntry*) entry createIfNeeded:(BOOL) create_if_needed;
 - (NSInteger) id3MajorVersionForAudioFileURL:(NSURL*) file_url;
 - (BOOL) isMP3AudioFileURL:(NSURL*) file_url;
+- (void) loadChaptersForAudioFileURL:(NSURL*) file_url completion:(void (^ _Nullable)(void)) completion;
 - (void) loadChaptersForCachedAudioFileURL:(NSURL*) file_url completion:(void (^ _Nullable)(void)) completion;
 - (void) loadChapterMetadataGroupsForAsset:(AVAsset*) asset completion:(void (^)(NSArray* chapters)) completion;
 - (void) loadID3MetadataForAudioFileURL:(NSURL*) file_url asset:(AVAsset*) asset completion:(void (^)(NSArray* chapters)) completion;
@@ -1527,7 +1528,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	[task resume];
 }
 
-- (void) loadChaptersForCachedAudioFileURL:(NSURL*) file_url completion:(void (^ _Nullable)(void)) completion
+- (void) loadChaptersForAudioFileURL:(NSURL*) file_url completion:(void (^ _Nullable)(void)) completion
 {
 	[self loadPodcastChaptersForAudioFileURL:file_url completion:^(NSArray* chapters) {
 		dispatch_async(dispatch_get_main_queue(), ^{
@@ -1539,6 +1540,11 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 			}
 		});
 	}];
+}
+
+- (void) loadChaptersForCachedAudioFileURL:(NSURL*) file_url completion:(void (^ _Nullable)(void)) completion
+{
+	[self loadChaptersForAudioFileURL:file_url completion:completion];
 }
 
 - (void) loadPodcastChaptersForAudioFileURL:(NSURL*) file_url completion:(void (^)(NSArray* chapters)) completion
@@ -1802,6 +1808,11 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 		return NO;
 	}
 
+	NSString* normalized_file_url = [self normalizedEnclosureURLString:file_url.absoluteString];
+	if (normalized_file_url.length > 0 && [normalized_file_url isEqualToString:current_enclosure_url]) {
+		return YES;
+	}
+
 	NSURL* current_cache_file_url = [self cachedAudioFileURLForURLString:current_enclosure_url createDirectory:NO];
 	if (current_cache_file_url == nil) {
 		return NO;
@@ -1968,6 +1979,9 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 			playback_url = cache_file_url;
 			[self loadChaptersForCachedAudioFileURL:cache_file_url completion:nil];
 		}
+	}
+	else {
+		[self loadChaptersForAudioFileURL:podcast_url completion:nil];
 	}
 
 	AVPlayerItem* player_item = [AVPlayerItem playerItemWithURL:playback_url];
