@@ -32,7 +32,6 @@ static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
 static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
-static CGFloat const InkwellSidebarPodcastPaneHeight = 118.0;
 static CGFloat const InkwellSidebarPodcastPaneAnimationOffset = 12.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
@@ -254,6 +253,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
 - (void) updateCachedReadState:(BOOL) is_read forEntryIDs:(NSArray*) entry_ids;
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
+- (void) updatePodcastPaneHeightAnimated:(BOOL) animated;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
 - (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
 - (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id;
@@ -456,6 +456,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		strong_self.keepsPausedPodcastPaneVisibleUntilSelectionChange = (!is_playing && strong_self.currentPodcastEntry != nil && !is_current_podcast_selected);
 		[strong_self updatePodcastPaneForSelectedItem:selected_item];
 	};
+	podcast_controller.paneHeightChangedHandler = ^(CGFloat preferred_height) {
+		#pragma unused(preferred_height)
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self updatePodcastPaneHeightAnimated:YES];
+	};
 
 	NSView* podcast_view = podcast_controller.view;
 	podcast_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -585,8 +594,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[NSLayoutConstraint activateConstraints:@[
 		[podcast_view.leadingAnchor constraintEqualToAnchor:podcast_clip_view.leadingAnchor],
 		[podcast_view.trailingAnchor constraintEqualToAnchor:podcast_clip_view.trailingAnchor],
+		[podcast_view.topAnchor constraintEqualToAnchor:podcast_clip_view.topAnchor],
 		[podcast_view.bottomAnchor constraintEqualToAnchor:podcast_clip_view.bottomAnchor],
-		[podcast_view.heightAnchor constraintEqualToConstant:InkwellSidebarPodcastPaneHeight]
 	]];
 
 	self.recapBoxView = recap_box;
@@ -964,7 +973,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		context.duration = 0.18;
 		context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
 		context.allowsImplicitAnimation = YES;
-		self.podcastHeightConstraint.constant = is_visible ? InkwellSidebarPodcastPaneHeight : 0.0;
+		self.podcastHeightConstraint.constant = is_visible ? self.podcastController.preferredPaneHeight : 0.0;
 		self.podcastContainerView.alphaValue = is_visible ? 1.0 : 0.0;
 		if (self.podcastContentView.layer != nil) {
 			self.podcastContentView.layer.transform = is_visible ? CATransform3DIdentity : CATransform3DMakeTranslation(0.0, -InkwellSidebarPodcastPaneAnimationOffset, 0.0);
@@ -983,6 +992,40 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[self.podcastContainerView setNeedsDisplay:YES];
 		}
 	}];
+}
+
+- (void) updatePodcastPaneHeightAnimated:(BOOL) animated
+{
+	if (![NSThread isMainThread]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self updatePodcastPaneHeightAnimated:animated];
+		});
+		return;
+	}
+
+	if (!self.podcastPaneDisplayed || self.podcastContainerView == nil || self.podcastHeightConstraint == nil) {
+		return;
+	}
+
+	CGFloat target_height = self.podcastController.preferredPaneHeight;
+	if (fabs(self.podcastHeightConstraint.constant - target_height) < DBL_EPSILON) {
+		return;
+	}
+
+	if (!animated) {
+		self.podcastHeightConstraint.constant = target_height;
+		[self.view layoutSubtreeIfNeeded];
+		return;
+	}
+
+	[self.view layoutSubtreeIfNeeded];
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.18;
+		context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+		context.allowsImplicitAnimation = YES;
+		self.podcastHeightConstraint.constant = target_height;
+		[self.view layoutSubtreeIfNeeded];
+	} completionHandler:nil];
 }
 
 - (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry
