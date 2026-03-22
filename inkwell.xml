@@ -5,6 +5,32 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.1</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Added podcast controls when viewing a blog post that has an audio file attached.</li>
+					<li>Fixed row selection with arrow keys after marking a post as unread.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Mon, 23 Mar 2026 08:00:00 -0200</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.1.zip"
+				sparkle:shortVersionString="1.1"
+				sparkle:version="15"
+				sparkle:edSignature="/b+KkhJLwpe56wnpRZjvOZ7pDEowmLp95O2k/IltcMX87DwxD6qewO5VWRQcyEu5nURVwPl8fWBFtXlU0wqqAw=="
+				length="5378731"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.0.2</title>
  			<description><![CDATA[
 				<style>
