@@ -56,6 +56,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy, nullable) BOOL (^focusDetailHandler)(void);
 @property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
 @property (copy, nullable) void (^focusChangedHandler)(void);
+@property (copy, nullable) BOOL (^moveSelectionFromRememberedRowHandler)(NSInteger direction);
 
 @end
 
@@ -76,6 +77,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		BOOL is_right_arrow_key = (key_code == NSRightArrowFunctionKey);
 		if (!has_disallowed_modifiers && is_right_arrow_key && self.focusDetailHandler != nil && self.focusDetailHandler()) {
 			return;
+		}
+
+		BOOL is_up_arrow_key = (key_code == NSUpArrowFunctionKey);
+		BOOL is_down_arrow_key = (key_code == NSDownArrowFunctionKey);
+		if (!has_disallowed_modifiers && self.selectedRow < 0 && (is_up_arrow_key || is_down_arrow_key) && self.moveSelectionFromRememberedRowHandler != nil) {
+			NSInteger direction = is_down_arrow_key ? 1 : -1;
+			if (self.moveSelectionFromRememberedRowHandler(direction)) {
+				return;
+			}
 		}
 	}
 
@@ -245,6 +255,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (assign) BOOL suppressSelectionChangedHandler;
 @property (assign) MBSidebarContentMode contentMode;
 @property (assign) NSInteger allPostsFeedID;
+@property (assign) NSInteger rememberedDeselectedRow;
 @property (copy) NSString* allPostsSiteName;
 @property (copy) NSString* allPostsFeedHost;
 @property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
@@ -267,6 +278,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) clearSavedSelectedEntryID;
 - (void) saveSelectedEntryIDForCurrentSelection;
 - (void) deselectSidebarSelectionPreservingDetail;
+- (void) clearRememberedDeselectedRow;
 - (void) clearPreservedHiddenReadState;
 - (void) scrollTableToTop;
 - (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
@@ -274,6 +286,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) stopObservingWindowKeyState;
 - (void) windowKeyStateDidChange:(NSNotification*) notification;
 - (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
+- (BOOL) moveSelectionFromRememberedRow:(NSInteger) direction;
 - (BOOL) openSelectedItemInBrowser;
 - (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (NSString*) bookmarkToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
@@ -352,6 +365,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		_sortOrder = [self savedSortOrder];
 		self.searchQuery = @"";
 		self.selectedRowForStyling = -1;
+		self.rememberedDeselectedRow = -1;
 		self.allItems = @[];
 		self.bookmarkItems = @[];
 		self.allPostsItems = @[];
@@ -498,6 +512,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	};
 	table_view.contextMenuHandler = ^NSMenu* {
 		return [weak_self sidebarContextMenu];
+	};
+	table_view.moveSelectionFromRememberedRowHandler = ^BOOL(NSInteger direction) {
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self moveSelectionFromRememberedRow:direction];
 	};
 	table_view.focusChangedHandler = ^{
 		dispatch_async(dispatch_get_main_queue(), ^{
@@ -685,6 +707,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) refreshData
 {
+	[self clearRememberedDeselectedRow];
+
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		[self fetchBookmarks];
 		return;
@@ -704,6 +728,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (self.client == nil || self.token.length == 0) {
 		return;
 	}
+
+	[self clearRememberedDeselectedRow];
 
 	BOOL was_showing_special_mode = [self isShowingSpecialMode];
 	if (self.contentMode != MBSidebarContentModeBookmarks) {
@@ -731,6 +757,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self clearRememberedDeselectedRow];
+
 	BOOL was_showing_special_mode = [self isShowingSpecialMode];
 	if (self.contentMode != MBSidebarContentModeAllPosts) {
 		[self clearPreservedHiddenReadState];
@@ -755,6 +783,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (self.contentMode == MBSidebarContentModeFeeds) {
 		return;
 	}
+
+	[self clearRememberedDeselectedRow];
 
 	NSInteger preferred_entry_id = [self savedSelectedEntryID];
 	[self clearPreservedHiddenReadState];
@@ -918,6 +948,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	self.hideReadPosts = !self.hideReadPosts;
 	[[NSUserDefaults standardUserDefaults] setBool:self.hideReadPosts forKey:InkwellHideReadPostsDefaultsKey];
+	[self clearRememberedDeselectedRow];
 	if (self.hideReadPosts) {
 		self.preservedVisibleEntryIDsForHiddenReadPosts = nil;
 	}
@@ -2000,6 +2031,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self updatePodcastPaneForSelectedItem:nil];
 }
 
+- (void) clearRememberedDeselectedRow
+{
+	self.rememberedDeselectedRow = -1;
+}
+
 - (void) scrollTableToTop
 {
 	if (self.tableView == nil) {
@@ -2797,6 +2833,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			if (should_mark_as_unread) {
 				[strong_self clearSavedSelectedEntryID];
 				[strong_self deselectSidebarSelectionPreservingDetail];
+				strong_self.rememberedDeselectedRow = selected_row;
+			}
+			else {
+				[strong_self clearRememberedDeselectedRow];
 			}
 			if (strong_self.hideReadPosts) {
 				[strong_self applyFiltersAndReload];
@@ -3527,6 +3567,36 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return NO;
 }
 
+- (BOOL) moveSelectionFromRememberedRow:(NSInteger) direction
+{
+	if (self.tableView == nil || self.items.count == 0) {
+		[self clearRememberedDeselectedRow];
+		return NO;
+	}
+
+	NSInteger remembered_row = self.rememberedDeselectedRow;
+	if (remembered_row < 0 || remembered_row >= self.items.count) {
+		[self clearRememberedDeselectedRow];
+		return NO;
+	}
+
+	NSInteger target_row = remembered_row + direction;
+	if (target_row < 0) {
+		target_row = 0;
+	}
+	else if (target_row >= self.items.count) {
+		target_row = self.items.count - 1;
+	}
+
+	[self clearRememberedDeselectedRow];
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) target_row];
+	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+	self.selectedRowForStyling = target_row;
+	[self.tableView scrollRowToVisible:target_row];
+	return YES;
+}
+
 - (void) tableViewSelectionDidChange:(NSNotification *)notification
 {
 	#pragma unused(notification)
@@ -3542,6 +3612,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self clearRememberedDeselectedRow];
 	[self saveSelectedEntryIDForCurrentSelection];
 	[self notifySelectionChanged];
 }
