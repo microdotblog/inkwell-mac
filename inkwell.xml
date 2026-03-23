@@ -21,7 +21,7 @@
 					<li>Fixed row selection with arrow keys after marking a post as unread.</li>
 				</ul>
  			]]></description>
-			<pubDate>Mon, 23 Mar 2026 08:00:00 -0200</pubDate>
+			<pubDate>Mon, 23 Mar 2026 08:45:00 -0200</pubDate>
 			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.1.zip"
 				sparkle:shortVersionString="1.1"
 				sparkle:version="15"
