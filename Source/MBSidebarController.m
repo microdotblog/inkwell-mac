@@ -214,6 +214,35 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 @end
 
+@interface MBSidebarRecapBoxView : NSBox
+@end
+
+@implementation MBSidebarRecapBoxView
+
+- (instancetype) initWithFrame:(NSRect) frame_rect
+{
+	self = [super initWithFrame:frame_rect];
+	if (self) {
+		[self updateFillColor];
+	}
+	return self;
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self updateFillColor];
+}
+
+- (void) updateFillColor
+{
+	[self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+		self.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
+	}];
+}
+
+@end
+
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
 @property (assign) BOOL hasLoadedRemoteItems;
@@ -404,13 +433,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSView *container_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 600.0)];
 	container_view.translatesAutoresizingMaskIntoConstraints = NO;
 
-	NSBox* recap_box = [[NSBox alloc] initWithFrame:NSZeroRect];
+	MBSidebarRecapBoxView* recap_box = [[MBSidebarRecapBoxView alloc] initWithFrame:NSZeroRect];
 	recap_box.translatesAutoresizingMaskIntoConstraints = NO;
 	recap_box.boxType = NSBoxCustom;
 	recap_box.borderColor = [NSColor separatorColor];
 	recap_box.borderWidth = 1.0;
 	recap_box.cornerRadius = 0.0;
-	recap_box.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
 	recap_box.hidden = YES;
 
 	NSButton* recap_button = [NSButton buttonWithTitle:@"Reading Recap" target:self action:@selector(showReadingRecap:)];
