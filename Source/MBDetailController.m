@@ -203,6 +203,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
 - (NSString*) initialThemeStyleBlockForPosts;
 - (NSString*) initialThemeStyleBlockForReadingRecap;
+- (NSString*) readingRecapAvatarFallbackScript;
 - (NSString*) normalizedRecapColorString:(NSString*) color_hex;
 - (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
 - (BOOL) hasStoredTextBackgroundPreference;
@@ -257,6 +258,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 	WKUserScript* selection_script = [[WKUserScript alloc] initWithSource:[self selectionObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:selection_script];
+	WKUserScript* reading_recap_avatar_script = [[WKUserScript alloc] initWithSource:[self readingRecapAvatarFallbackScript] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+	[user_content_controller addUserScript:reading_recap_avatar_script];
 	WKUserScript* scroll_script = [[WKUserScript alloc] initWithSource:[self scrollObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:scroll_script];
 	WKUserScript* link_hover_script = [[WKUserScript alloc] initWithSource:[self linkHoverObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
@@ -1326,6 +1329,42 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		"document.addEventListener('keyup', postSelectionState);"
 		"window.addEventListener('load', postSelectionState);"
 		"postSelectionState();"
+			"})();";
+}
+
+- (NSString*) readingRecapAvatarFallbackScript
+{
+	return @"(function() {"
+		"if (window.__inkwellRecapAvatarFallbackInstalled) { return; }"
+		"window.__inkwellRecapAvatarFallbackInstalled = true;"
+		"function isRecapAvatarImage(imageEl) {"
+			"if (!imageEl || imageEl.tagName != 'IMG') { return false; }"
+			"if (!imageEl.closest) { return false; }"
+			"return !!imageEl.closest('.reading-recap .reading-header h2');"
+		"}"
+		"function replaceWithFallback(imageEl) {"
+			"if (!isRecapAvatarImage(imageEl) || !imageEl.parentNode) { return; }"
+			"if (imageEl.dataset.inkwellAvatarFallbackApplied == 'true') { return; }"
+			"imageEl.dataset.inkwellAvatarFallbackApplied = 'true';"
+			"var fallbackEl = document.createElement('span');"
+			"fallbackEl.className = 'reading-recap-avatar-fallback';"
+			"fallbackEl.setAttribute('aria-hidden', 'true');"
+			"imageEl.parentNode.replaceChild(fallbackEl, imageEl);"
+		"}"
+		"function updateBrokenRecapAvatars() {"
+			"var imageEls = document.querySelectorAll('.reading-recap .reading-header h2 img');"
+			"for (var i = 0; i < imageEls.length; i++) {"
+				"var imageEl = imageEls[i];"
+				"if (imageEl.complete && imageEl.naturalWidth === 0) {"
+					"replaceWithFallback(imageEl);"
+				"}"
+			"}"
+		"}"
+		"document.addEventListener('error', function(event) {"
+			"replaceWithFallback(event.target);"
+		"}, true);"
+		"document.addEventListener('DOMContentLoaded', updateBrokenRecapAvatars);"
+		"window.addEventListener('load', updateBrokenRecapAvatars);"
 		"})();";
 }
 
