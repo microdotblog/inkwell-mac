@@ -2321,11 +2321,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return NO;
 	}
 
-	if (!self.hasLoadedRemoteItems || self.isFetching) {
+	BOOL has_fading_entry_ids = (self.fadingEntryIDs.count > 0);
+	if (!has_fading_entry_ids) {
 		return NO;
 	}
 
-	return (self.fadingEntryIDs.count > 0);
+	if (!self.hasLoadedRemoteItems || self.isFetching) {
+		return self.hasFadingEntryIDsCache;
+	}
+
+	return YES;
 }
 
 - (BOOL) shouldShowPremiumRequiredView
