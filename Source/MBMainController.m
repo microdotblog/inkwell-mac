@@ -29,6 +29,7 @@ static CGFloat const InkwellMainWindowDefaultHeight = 760.0;
 static CGFloat const InkwellMainWindowMinWidth = 760.0;
 static CGFloat const InkwellMainWindowMinHeight = 520.0;
 static NSString* const InkwellMainWindowAutosaveName = @"InkwellWindow";
+static NSString* const InkwellMainSplitViewAutosaveName = @"InkwellSplit";
 static NSString* const InkwellNewFeedChoiceCellIdentifier = @"InkwellNewFeedChoiceCell";
 static CGFloat const InkwellNewFeedSheetWidth = 460.0;
 static CGFloat const InkwellNewFeedSheetCollapsedHeight = 152.0;
@@ -453,6 +454,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	[split_view_controller addSplitViewItem:sidebar_item];
 	[split_view_controller addSplitViewItem:detail_item];
 	split_view_controller.splitView.dividerStyle = NSSplitViewDividerStyleThin;
+	split_view_controller.splitView.autosaveName = InkwellMainSplitViewAutosaveName;
 	[split_view_controller.splitView setPosition:InkwellSidebarPaneWidth ofDividerAtIndex:0];
 	self.mainSplitView = split_view_controller.splitView;
 
