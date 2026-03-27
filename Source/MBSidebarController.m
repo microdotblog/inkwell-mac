@@ -2497,6 +2497,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		if (status_code == 200) {
 			[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 			if (self.readingRecapHandler != nil) {
+//				NSLog(@"Reading Recap HTML: %@", html ?: @"");
 				self.readingRecapHandler(html ?: @"");
 			}
 			return;
