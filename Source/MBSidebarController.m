@@ -659,7 +659,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		[podcast_view.leadingAnchor constraintEqualToAnchor:podcast_clip_view.leadingAnchor],
 		[podcast_view.trailingAnchor constraintEqualToAnchor:podcast_clip_view.trailingAnchor],
 		[podcast_view.topAnchor constraintEqualToAnchor:podcast_clip_view.topAnchor],
-		[podcast_view.bottomAnchor constraintEqualToAnchor:podcast_clip_view.bottomAnchor],
 	]];
 
 	self.recapBoxView = recap_box;
