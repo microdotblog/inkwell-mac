@@ -31,6 +31,7 @@
 		:root {
 			--recap-text: #2a241f;
 			--recap-muted: #6b6258;
+			--recap-list-text: #6b7280;
 			--recap-link: #4779b2;
 			--recap-topics-background: rgba(0, 0, 0, 0.08);
 			--recap-blockquote-background: #e1e3f0;
@@ -41,6 +42,7 @@
 			:root {
 				--recap-text: #e6ebf3;
 				--recap-muted: #b5bdcb;
+				--recap-list-text: #9ca3af;
 				--recap-link: #7cb7ff;
 				--recap-topics-background: rgba(255, 255, 255, 0.16);
 				--recap-blockquote-background: #2a3446;
@@ -157,6 +159,10 @@
 
 		.reading-recap ul {
 			margin-bottom: 0;
+		}
+
+		.reading-recap li {
+			color: var(--recap-list-text);
 		}
 
 		.reading-recap-photos a img {
