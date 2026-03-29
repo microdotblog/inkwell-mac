@@ -87,6 +87,24 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[super scrollPageDown:sender];
 }
 
+- (void) scrollLineUp:(id) sender
+{
+	if (self.scrollPageUpHandler != nil && self.scrollPageUpHandler()) {
+		return;
+	}
+
+	[super scrollLineUp:sender];
+}
+
+- (void) scrollLineDown:(id) sender
+{
+	if (self.scrollPageDownHandler != nil && self.scrollPageDownHandler()) {
+		return;
+	}
+
+	[super scrollLineDown:sender];
+}
+
 - (void) willOpenMenu:(NSMenu*) menu withEvent:(NSEvent*) event
 {
 	[super willOpenMenu:menu withEvent:event];
@@ -210,9 +228,12 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (assign) BOOL hasTextSelection;
 @property (assign) BOOL isTopBarMaterialVisible;
 @property (assign) BOOL isShowingReadingRecap;
+@property (strong) id keyDownEventMonitor;
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
 
+- (NSEvent* _Nullable) monitoredKeyDownEvent:(NSEvent*) event;
+- (BOOL) detailPaneContainsFirstResponder;
 - (BOOL) handleReadingRecapPageUp;
 - (BOOL) handleReadingRecapPageDown;
 - (void) scrollReadingRecapForward:(BOOL) is_forward;
@@ -348,6 +369,15 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		[strong_self promptToDeleteHoveredHighlight:nil];
 	};
 
+	self.keyDownEventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent * _Nullable(NSEvent *event) {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return event;
+		}
+
+		return [strong_self monitoredKeyDownEvent:event];
+	}];
+
 	MBLinkHoverBubble* hovered_link_bubble_view = [[MBLinkHoverBubble alloc] initWithFrame:NSZeroRect];
 	hovered_link_bubble_view.hidden = YES;
 
@@ -394,6 +424,11 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 - (void) dealloc
 {
+	if (self.keyDownEventMonitor != nil) {
+		[NSEvent removeMonitor:self.keyDownEventMonitor];
+		self.keyDownEventMonitor = nil;
+	}
+
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellSelectionChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellScrollChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellHighlightHoverScriptMessageName];
@@ -529,6 +564,64 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
 	[self.webView loadHTMLString:recap_html baseURL:[self baseURLForEntry:nil]];
 	[self focusDetailPane];
+}
+
+- (NSEvent* _Nullable) monitoredKeyDownEvent:(NSEvent*) event
+{
+	if (!self.isShowingReadingRecap || ![self detailPaneContainsFirstResponder]) {
+		return event;
+	}
+
+	NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+	BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
+	if (has_disallowed_modifiers) {
+		return event;
+	}
+
+	NSString* characters = event.charactersIgnoringModifiers ?: @"";
+	if (characters.length == 0) {
+		return event;
+	}
+
+	unichar key_code = [characters characterAtIndex:0];
+	if (key_code == NSUpArrowFunctionKey) {
+		[self scrollReadingRecapForward:NO];
+		return nil;
+	}
+	if (key_code == NSDownArrowFunctionKey) {
+		[self scrollReadingRecapForward:YES];
+		return nil;
+	}
+
+	return event;
+}
+
+- (BOOL) detailPaneContainsFirstResponder
+{
+	NSWindow* window = self.view.window ?: self.webView.window;
+	if (window == nil) {
+		return NO;
+	}
+
+	NSResponder* first_responder = window.firstResponder;
+	if (first_responder == self.webView) {
+		return YES;
+	}
+	if (![first_responder isKindOfClass:[NSView class]]) {
+		return NO;
+	}
+
+	NSView* first_responder_view = (NSView *) first_responder;
+	NSView* current_view = first_responder_view;
+	while (current_view != nil) {
+		if (current_view == self.webView) {
+			return YES;
+		}
+
+		current_view = current_view.superview;
+	}
+
+	return NO;
 }
 
 - (BOOL) handleReadingRecapPageUp
