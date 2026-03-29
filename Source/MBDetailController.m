@@ -43,6 +43,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @interface MBDetailWebView : WKWebView
 
 @property (copy, nullable) BOOL (^focusSidebarHandler)(void);
+@property (copy, nullable) BOOL (^scrollPageUpHandler)(void);
+@property (copy, nullable) BOOL (^scrollPageDownHandler)(void);
 @property (copy, nullable) void (^deleteHoveredHighlightHandler)(void);
 @property (copy, nullable) BOOL (^shouldShowHighlightMenuItemHandler)(void);
 @property (copy, nullable) BOOL (^shouldShowDeleteHighlightMenuItemHandler)(void);
@@ -65,6 +67,24 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	}
 
 	[super keyDown:event];
+}
+
+- (void) scrollPageUp:(id) sender
+{
+	if (self.scrollPageUpHandler != nil && self.scrollPageUpHandler()) {
+		return;
+	}
+
+	[super scrollPageUp:sender];
+}
+
+- (void) scrollPageDown:(id) sender
+{
+	if (self.scrollPageDownHandler != nil && self.scrollPageDownHandler()) {
+		return;
+	}
+
+	[super scrollPageDown:sender];
 }
 
 - (void) willOpenMenu:(NSMenu*) menu withEvent:(NSEvent*) event
@@ -189,23 +209,28 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (copy) NSString* hoveredLinkURLString;
 @property (assign) BOOL hasTextSelection;
 @property (assign) BOOL isTopBarMaterialVisible;
+@property (assign) BOOL isShowingReadingRecap;
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
 
+- (BOOL) handleReadingRecapPageUp;
+- (BOOL) handleReadingRecapPageDown;
+- (void) scrollReadingRecapForward:(BOOL) is_forward;
+- (NSString *) javaScriptForScrollingReadingRecapForward:(BOOL) is_forward;
 - (void) applyReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
-- (NSString*) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
-- (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
-- (NSString*) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
-- (NSURL*) baseURLForEntry:(MBEntry* _Nullable) entry;
+- (NSString *) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
+- (NSString *) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
+- (NSString *) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
+- (NSURL *) baseURLForEntry:(MBEntry* _Nullable) entry;
 - (void) updateWebViewUnderPageBackgroundColor;
-- (NSColor*) colorFromHexString:(NSString*) color_hex;
-- (NSString*) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
-- (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
-- (NSString*) initialThemeStyleBlockForPosts;
-- (NSString*) initialThemeStyleBlockForReadingRecap;
-- (NSString*) readingRecapAvatarFallbackScript;
-- (NSString*) normalizedRecapColorString:(NSString*) color_hex;
-- (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
+- (NSColor *) colorFromHexString:(NSString*) color_hex;
+- (NSString *) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
+- (NSString *) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
+- (NSString *) initialThemeStyleBlockForPosts;
+- (NSString *) initialThemeStyleBlockForReadingRecap;
+- (NSString *) readingRecapAvatarFallbackScript;
+- (NSString *) normalizedRecapColorString:(NSString*) color_hex;
+- (NSString *) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
 - (BOOL) hasStoredTextBackgroundPreference;
 - (BOOL) canDeleteHighlight:(MBHighlight*) highlight;
 - (BOOL) canDeleteHoveredHighlight;
@@ -281,6 +306,22 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		}
 
 		return strong_self.focusSidebarHandler();
+	};
+	web_view.scrollPageUpHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self handleReadingRecapPageUp];
+	};
+	web_view.scrollPageDownHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self handleReadingRecapPageDown];
 	};
 	web_view.shouldShowHighlightMenuItemHandler = ^BOOL {
 		MBDetailController* strong_self = weak_self;
@@ -441,6 +482,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self clearHoveredHighlight];
 	[self updateHoveredLinkURLString:@""];
 	[self updateWebViewUnderPageBackgroundColor];
+	self.isShowingReadingRecap = NO;
 
 	if (item == nil) {
 		self.currentEntryID = 0;
@@ -480,11 +522,106 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self clearHoveredHighlight];
 	[self updateHoveredLinkURLString:@""];
 	[self updateWebViewUnderPageBackgroundColor];
+	self.isShowingReadingRecap = YES;
 	self.currentEntryID = 0;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
 	[self.webView loadHTMLString:recap_html baseURL:[self baseURLForEntry:nil]];
+	[self focusDetailPane];
+}
+
+- (BOOL) handleReadingRecapPageUp
+{
+	if (!self.isShowingReadingRecap || self.webView == nil) {
+		return NO;
+	}
+
+	[self scrollReadingRecapForward:NO];
+	return YES;
+}
+
+- (BOOL) handleReadingRecapPageDown
+{
+	if (!self.isShowingReadingRecap || self.webView == nil) {
+		return NO;
+	}
+
+	[self scrollReadingRecapForward:YES];
+	return YES;
+}
+
+- (void) scrollReadingRecapForward:(BOOL) is_forward
+{
+	if (self.webView == nil) {
+		return;
+	}
+
+	NSString* script = [self javaScriptForScrollingReadingRecapForward:is_forward];
+	[self.webView evaluateJavaScript:script completionHandler:nil];
+}
+
+- (NSString *) javaScriptForScrollingReadingRecapForward:(BOOL) is_forward
+{
+	NSString* is_forward_value = is_forward ? @"true" : @"false";
+	CGFloat scroll_inset = InkwellDetailTopBarHeight;
+	return [NSString stringWithFormat:@"(function(){"
+		"function currentScrollTop(){"
+			"if(typeof window.scrollY==='number'){return window.scrollY;}"
+			"if(document.documentElement&&typeof document.documentElement.scrollTop==='number'){return document.documentElement.scrollTop;}"
+			"if(document.body&&typeof document.body.scrollTop==='number'){return document.body.scrollTop;}"
+			"return 0;"
+		"}"
+		"function maxScrollTop(){"
+			"var bodyHeight=document.body?document.body.scrollHeight:0;"
+			"var docHeight=document.documentElement?document.documentElement.scrollHeight:0;"
+			"return Math.max(0,Math.max(bodyHeight,docHeight)-window.innerHeight);"
+		"}"
+		"function smoothScrollTo(targetTop){"
+			"var adjustedTop=targetTop-scrollInset;"
+			"var clampedTop=Math.max(0,Math.min(maxScrollTop(),adjustedTop));"
+			"window.scrollTo({top:clampedTop,behavior:'smooth'});"
+		"}"
+		"function fallbackScroll(isForward){"
+			"var pageStep=Math.max(window.innerHeight*0.9,120);"
+			"var currentTop=currentScrollTop();"
+			"var fallbackTop=isForward?(currentTop+pageStep):(currentTop-pageStep);"
+			"window.scrollTo({top:Math.max(0,Math.min(maxScrollTop(),fallbackTop)),behavior:'smooth'});"
+		"}"
+		"var scrollInset=%0.2f;"
+		"var isForward=%@;"
+		"var recapEls=document.querySelectorAll('.reading-recap');"
+		"if(!recapEls||recapEls.length===0){"
+			"fallbackScroll(isForward);"
+			"return;"
+		"}"
+		"var currentTop=currentScrollTop();"
+		"var currentVisibleTop=currentTop+scrollInset;"
+		"var threshold=Math.max(window.innerHeight*0.08,24);"
+		"var recapTops=[];"
+		"for(var index=0;index<recapEls.length;index++){"
+			"var recapEl=recapEls[index];"
+			"var rect=recapEl.getBoundingClientRect();"
+			"recapTops.push(rect.top+currentTop);"
+		"}"
+		"if(isForward){"
+			"for(var nextIndex=0;nextIndex<recapTops.length;nextIndex++){"
+				"if(recapTops[nextIndex]>currentVisibleTop+threshold){"
+					"smoothScrollTo(recapTops[nextIndex]);"
+					"return;"
+				"}"
+			"}"
+			"fallbackScroll(true);"
+			"return;"
+		"}"
+		"for(var previousIndex=recapTops.length-1;previousIndex>=0;previousIndex--){"
+			"if(recapTops[previousIndex]<currentVisibleTop-threshold){"
+				"smoothScrollTo(recapTops[previousIndex]);"
+				"return;"
+			"}"
+		"}"
+		"fallbackScroll(false);"
+		"})();", scroll_inset, is_forward_value];
 }
 
 - (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
