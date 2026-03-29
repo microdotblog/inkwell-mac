@@ -206,6 +206,8 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 @property (nonatomic, strong) NSTableView* chaptersTableView;
 @property (nonatomic, strong) NSView* chaptersSeparatorLineView;
 @property (nonatomic, strong) NSLayoutConstraint* chaptersContainerHeightConstraint;
+@property (nonatomic, strong) NSLayoutConstraint* chaptersScrollViewTopConstraint;
+@property (nonatomic, strong) NSLayoutConstraint* chaptersScrollViewBottomConstraint;
 @property (nonatomic, strong) NSButton* backButton;
 @property (nonatomic, strong) NSButton* playButton;
 @property (nonatomic, strong) NSButton* forwardButton;
@@ -471,14 +473,18 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	chapters_separator_line_view.translatesAutoresizingMaskIntoConstraints = NO;
 	chapters_separator_line_view.wantsLayer = YES;
 	chapters_separator_line_view.hidden = YES;
+	NSLayoutConstraint* chapters_scroll_view_top_constraint = [chapters_scroll_view.topAnchor constraintEqualToAnchor:chapters_container_view.topAnchor constant:12.0];
+	NSLayoutConstraint* chapters_scroll_view_bottom_constraint = [chapters_scroll_view.bottomAnchor constraintEqualToAnchor:chapters_container_view.bottomAnchor constant:-12.0];
+	chapters_scroll_view_top_constraint.priority = NSLayoutPriorityDefaultLow;
+	chapters_scroll_view_bottom_constraint.priority = NSLayoutPriorityDefaultLow;
 
 	[chapters_container_view addSubview:chapters_scroll_view];
 	[chapters_container_view addSubview:chapters_separator_line_view];
 	[NSLayoutConstraint activateConstraints:@[
 		[chapters_scroll_view.leadingAnchor constraintEqualToAnchor:chapters_container_view.leadingAnchor constant:12.0],
 		[chapters_scroll_view.trailingAnchor constraintEqualToAnchor:chapters_container_view.trailingAnchor constant:-10.0],
-		[chapters_scroll_view.topAnchor constraintEqualToAnchor:chapters_container_view.topAnchor constant:12.0],
-		[chapters_scroll_view.bottomAnchor constraintEqualToAnchor:chapters_container_view.bottomAnchor constant:-12.0],
+		chapters_scroll_view_top_constraint,
+		chapters_scroll_view_bottom_constraint,
 		[chapters_separator_line_view.leadingAnchor constraintEqualToAnchor:chapters_container_view.leadingAnchor],
 		[chapters_separator_line_view.trailingAnchor constraintEqualToAnchor:chapters_container_view.trailingAnchor],
 		[chapters_separator_line_view.bottomAnchor constraintEqualToAnchor:chapters_container_view.bottomAnchor],
@@ -646,6 +652,8 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	self.chaptersTableView = chapters_table_view;
 	self.chaptersSeparatorLineView = chapters_separator_line_view;
 	self.chaptersContainerHeightConstraint = chapters_container_height_constraint;
+	self.chaptersScrollViewTopConstraint = chapters_scroll_view_top_constraint;
+	self.chaptersScrollViewBottomConstraint = chapters_scroll_view_bottom_constraint;
 	self.backButton = back_button;
 	self.playButton = play_button;
 	self.forwardButton = forward_button;
@@ -735,6 +743,8 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	self.artworkButton.isExpanded = self.isShowingChapterList;
 	self.artworkButton.accessibilityLabel = self.isShowingChapterList ? @"Hide Chapters" : @"Show Chapters";
 	self.chaptersSeparatorLineView.hidden = !self.isShowingChapterList;
+	self.chaptersScrollViewTopConstraint.priority = self.isShowingChapterList ? NSLayoutPriorityRequired : NSLayoutPriorityDefaultLow;
+	self.chaptersScrollViewBottomConstraint.priority = self.isShowingChapterList ? NSLayoutPriorityRequired : NSLayoutPriorityDefaultLow;
 
 	if (animated) {
 		[self.view layoutSubtreeIfNeeded];

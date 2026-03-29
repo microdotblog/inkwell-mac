@@ -7,12 +7,14 @@
 
 #import "MBDetailController.h"
 #import "MBClient.h"
+#import "MBDetailWebView.h"
 #import "MBEntry.h"
 #import "MBHighlight.h"
 #import "MBLinkHoverBubble.h"
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellDetailTopBarHeight = 52.0;
+static CGFloat const InkwellDetailScrollingAdjust = 18.0;
 static NSString* const InkwellPostTemplateName = @"PostTemplate";
 static NSString* const InkwellRecapTemplateName = @"RecapTemplate";
 static NSString* const InkwellPostTemplateType = @"html";
@@ -31,110 +33,11 @@ static NSString* const InkwellReaderHighlightLightBackgroundHex = @"#FFF9D6";
 static NSString* const InkwellReaderHighlightDarkBackgroundHex = @"#A96733";
 static NSString* const InkwellPreferencesDarkBlueBackgroundHex = @"#1c2435";
 static NSString* const InkwellPreferencesBlackBackgroundHex = @"#000000";
-static NSInteger const InkwellDetailDeleteHighlightContextMenuItemTag = 7100;
-static NSInteger const InkwellDetailHighlightContextMenuItemTag = 7101;
-static NSInteger const InkwellDetailHighlightContextMenuSeparatorTag = 7102;
 static CGFloat const InkwellDetailLinkBubbleHorizontalInset = 14.0;
 static CGFloat const InkwellDetailLinkBubbleBottomInset = 14.0;
 static CGFloat const InkwellDetailLinkBubbleHorizontalPadding = 12.0;
 static CGFloat const InkwellDetailLinkBubbleVerticalPadding = 6.0;
 static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
-
-@interface MBDetailWebView : WKWebView
-
-@property (copy, nullable) BOOL (^focusSidebarHandler)(void);
-@property (copy, nullable) void (^deleteHoveredHighlightHandler)(void);
-@property (copy, nullable) BOOL (^shouldShowHighlightMenuItemHandler)(void);
-@property (copy, nullable) BOOL (^shouldShowDeleteHighlightMenuItemHandler)(void);
-
-@end
-
-@implementation MBDetailWebView
-
-- (void) keyDown:(NSEvent*) event
-{
-	NSString* characters = event.charactersIgnoringModifiers ?: @"";
-	if (characters.length > 0) {
-		unichar key_code = [characters characterAtIndex:0];
-		NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
-		BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
-		BOOL is_left_arrow_key = (key_code == NSLeftArrowFunctionKey);
-		if (!has_disallowed_modifiers && is_left_arrow_key && self.focusSidebarHandler != nil && self.focusSidebarHandler()) {
-			return;
-		}
-	}
-
-	[super keyDown:event];
-}
-
-- (void) willOpenMenu:(NSMenu*) menu withEvent:(NSEvent*) event
-{
-	[super willOpenMenu:menu withEvent:event];
-	#pragma unused(event)
-
-	if (menu == nil) {
-		return;
-	}
-
-	while ([menu indexOfItemWithTag:InkwellDetailDeleteHighlightContextMenuItemTag] != -1) {
-		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailDeleteHighlightContextMenuItemTag];
-		[menu removeItemAtIndex:existing_index];
-	}
-
-	while ([menu indexOfItemWithTag:InkwellDetailHighlightContextMenuItemTag] != -1) {
-		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailHighlightContextMenuItemTag];
-		[menu removeItemAtIndex:existing_index];
-	}
-
-	while ([menu indexOfItemWithTag:InkwellDetailHighlightContextMenuSeparatorTag] != -1) {
-		NSInteger existing_index = [menu indexOfItemWithTag:InkwellDetailHighlightContextMenuSeparatorTag];
-		[menu removeItemAtIndex:existing_index];
-	}
-
-	BOOL should_show_delete_highlight_item = NO;
-	if (self.shouldShowDeleteHighlightMenuItemHandler != nil) {
-		should_show_delete_highlight_item = self.shouldShowDeleteHighlightMenuItemHandler();
-	}
-
-	BOOL should_show_highlight_item = NO;
-	if (self.shouldShowHighlightMenuItemHandler != nil) {
-		should_show_highlight_item = self.shouldShowHighlightMenuItemHandler();
-	}
-	if (!should_show_delete_highlight_item && !should_show_highlight_item) {
-		return;
-	}
-
-	NSMenuItem* separator_item = [NSMenuItem separatorItem];
-	separator_item.tag = InkwellDetailHighlightContextMenuSeparatorTag;
-
-	[menu insertItem:separator_item atIndex:0];
-	if (should_show_highlight_item) {
-		SEL highlight_selector = NSSelectorFromString(@"highlightSelectedItem:");
-		NSMenuItem* highlight_item = [[NSMenuItem alloc] initWithTitle:@"Highlight" action:highlight_selector keyEquivalent:@""];
-		highlight_item.target = nil;
-		highlight_item.tag = InkwellDetailHighlightContextMenuItemTag;
-		highlight_item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
-		[menu insertItem:highlight_item atIndex:0];
-	}
-	if (should_show_delete_highlight_item) {
-		NSMenuItem* delete_item = [[NSMenuItem alloc] initWithTitle:@"Delete Highlight" action:@selector(deleteHoveredHighlight:) keyEquivalent:@""];
-		delete_item.target = self;
-		delete_item.tag = InkwellDetailDeleteHighlightContextMenuItemTag;
-		[menu insertItem:delete_item atIndex:0];
-	}
-}
-
-- (IBAction) deleteHoveredHighlight:(id) sender
-{
-	#pragma unused(sender)
-	if (self.deleteHoveredHighlightHandler == nil) {
-		return;
-	}
-
-	self.deleteHoveredHighlightHandler();
-}
-
-@end
 
 @interface MBDetailTopBarView : NSVisualEffectView
 @end
@@ -189,22 +92,36 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (copy) NSString* hoveredLinkURLString;
 @property (assign) BOOL hasTextSelection;
 @property (assign) BOOL isTopBarMaterialVisible;
+@property (assign) BOOL isShowingReadingRecap;
+@property (strong) id keyDownEventMonitor;
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
 
+- (NSEvent* _Nullable) monitoredKeyDownEvent:(NSEvent*) event;
+- (BOOL) detailPaneContainsFirstResponder;
+- (BOOL) handleReadingRecapPageUp;
+- (BOOL) handleReadingRecapPageDown;
+- (void) scrollReadingRecapForward:(BOOL) is_forward;
+- (NSString *) bundledJavaScriptNamed:(NSString*) script_name;
+- (NSString *) detailRuntimeScript;
+- (NSString *) selectionObserverScript;
+- (NSString *) scrollObserverScript;
+- (NSString *) linkHoverObserverScript;
+- (NSString *) javaScriptForRuntimeFunction:(NSString*) function_name payload:(id _Nullable) payload;
+- (NSString *) jsonStringForJavaScriptObject:(id _Nullable) object;
 - (void) applyReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
-- (NSString*) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
-- (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
-- (NSString*) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
-- (NSURL*) baseURLForEntry:(MBEntry* _Nullable) entry;
+- (NSString *) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme;
+- (NSString *) readingRecapTagByApplyingStyles:(NSString*) tag darkTheme:(BOOL) is_dark_theme;
+- (NSURL *) baseURLForEntry:(MBEntry* _Nullable) entry;
 - (void) updateWebViewUnderPageBackgroundColor;
-- (NSColor*) colorFromHexString:(NSString*) color_hex;
-- (NSString*) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
-- (NSString*) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
-- (NSString*) initialThemeStyleBlockForPosts;
-- (NSString*) initialThemeStyleBlockForReadingRecap;
-- (NSString*) normalizedRecapColorString:(NSString*) color_hex;
-- (NSString*) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
+- (NSColor *) colorFromHexString:(NSString*) color_hex;
+- (NSString *) htmlAttributeValue:(NSString*) attribute_name inTag:(NSString*) tag;
+- (NSString *) htmlTag:(NSString*) tag bySettingStyleDeclarations:(NSString*) style_declarations;
+- (NSString *) initialThemeStyleBlockForPosts;
+- (NSString *) initialThemeStyleBlockForReadingRecap;
+- (NSString *) readingRecapAvatarFallbackScript;
+- (NSString *) normalizedRecapColorString:(NSString*) color_hex;
+- (NSString *) recapColorString:(NSString*) color_hex withOpacity:(NSString*) opacity_hex;
 - (BOOL) hasStoredTextBackgroundPreference;
 - (BOOL) canDeleteHighlight:(MBHighlight*) highlight;
 - (BOOL) canDeleteHoveredHighlight;
@@ -255,8 +172,12 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[user_content_controller addScriptMessageHandler:self.highlightHoverScriptMessageHandler name:InkwellHighlightHoverScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.linkHoverScriptMessageHandler name:InkwellLinkHoverScriptMessageName];
 
+	WKUserScript* detail_runtime_script = [[WKUserScript alloc] initWithSource:[self detailRuntimeScript] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+	[user_content_controller addUserScript:detail_runtime_script];
 	WKUserScript* selection_script = [[WKUserScript alloc] initWithSource:[self selectionObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:selection_script];
+	WKUserScript* reading_recap_avatar_script = [[WKUserScript alloc] initWithSource:[self readingRecapAvatarFallbackScript] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
+	[user_content_controller addUserScript:reading_recap_avatar_script];
 	WKUserScript* scroll_script = [[WKUserScript alloc] initWithSource:[self scrollObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:scroll_script];
 	WKUserScript* link_hover_script = [[WKUserScript alloc] initWithSource:[self linkHoverObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
@@ -278,6 +199,22 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		}
 
 		return strong_self.focusSidebarHandler();
+	};
+	web_view.scrollPageUpHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self handleReadingRecapPageUp];
+	};
+	web_view.scrollPageDownHandler = ^BOOL {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return NO;
+		}
+
+		return [strong_self handleReadingRecapPageDown];
 	};
 	web_view.shouldShowHighlightMenuItemHandler = ^BOOL {
 		MBDetailController* strong_self = weak_self;
@@ -303,6 +240,15 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 		[strong_self promptToDeleteHoveredHighlight:nil];
 	};
+
+	self.keyDownEventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent * _Nullable(NSEvent *event) {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return event;
+		}
+
+		return [strong_self monitoredKeyDownEvent:event];
+	}];
 
 	MBLinkHoverBubble* hovered_link_bubble_view = [[MBLinkHoverBubble alloc] initWithFrame:NSZeroRect];
 	hovered_link_bubble_view.hidden = YES;
@@ -350,6 +296,11 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 - (void) dealloc
 {
+	if (self.keyDownEventMonitor != nil) {
+		[NSEvent removeMonitor:self.keyDownEventMonitor];
+		self.keyDownEventMonitor = nil;
+	}
+
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellSelectionChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellScrollChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellHighlightHoverScriptMessageName];
@@ -438,6 +389,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self clearHoveredHighlight];
 	[self updateHoveredLinkURLString:@""];
 	[self updateWebViewUnderPageBackgroundColor];
+	self.isShowingReadingRecap = NO;
 
 	if (item == nil) {
 		self.currentEntryID = 0;
@@ -477,11 +429,105 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self clearHoveredHighlight];
 	[self updateHoveredLinkURLString:@""];
 	[self updateWebViewUnderPageBackgroundColor];
+	self.isShowingReadingRecap = YES;
 	self.currentEntryID = 0;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
 	[self.webView loadHTMLString:recap_html baseURL:[self baseURLForEntry:nil]];
+	[self focusDetailPane];
+}
+
+- (NSEvent* _Nullable) monitoredKeyDownEvent:(NSEvent*) event
+{
+	if (!self.isShowingReadingRecap || ![self detailPaneContainsFirstResponder]) {
+		return event;
+	}
+
+	NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+	BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
+	if (has_disallowed_modifiers) {
+		return event;
+	}
+
+	NSString* characters = event.charactersIgnoringModifiers ?: @"";
+	if (characters.length == 0) {
+		return event;
+	}
+
+	unichar key_code = [characters characterAtIndex:0];
+	if (key_code == NSUpArrowFunctionKey) {
+		[self scrollReadingRecapForward:NO];
+		return nil;
+	}
+	if (key_code == NSDownArrowFunctionKey) {
+		[self scrollReadingRecapForward:YES];
+		return nil;
+	}
+
+	return event;
+}
+
+- (BOOL) detailPaneContainsFirstResponder
+{
+	NSWindow* window = self.view.window ?: self.webView.window;
+	if (window == nil) {
+		return NO;
+	}
+
+	NSResponder* first_responder = window.firstResponder;
+	if (first_responder == self.webView) {
+		return YES;
+	}
+	if (![first_responder isKindOfClass:[NSView class]]) {
+		return NO;
+	}
+
+	NSView* first_responder_view = (NSView *) first_responder;
+	NSView* current_view = first_responder_view;
+	while (current_view != nil) {
+		if (current_view == self.webView) {
+			return YES;
+		}
+
+		current_view = current_view.superview;
+	}
+
+	return NO;
+}
+
+- (BOOL) handleReadingRecapPageUp
+{
+	if (!self.isShowingReadingRecap || self.webView == nil) {
+		return NO;
+	}
+
+	[self scrollReadingRecapForward:NO];
+	return YES;
+}
+
+- (BOOL) handleReadingRecapPageDown
+{
+	if (!self.isShowingReadingRecap || self.webView == nil) {
+		return NO;
+	}
+
+	[self scrollReadingRecapForward:YES];
+	return YES;
+}
+
+- (void) scrollReadingRecapForward:(BOOL) is_forward
+{
+	if (self.webView == nil) {
+		return;
+	}
+
+	NSDictionary* payload = @{
+		@"is_forward": @(is_forward),
+		@"scroll_inset": @(InkwellDetailTopBarHeight + InkwellDetailScrollingAdjust)
+	};
+	NSString* script = [self javaScriptForRuntimeFunction:@"scrollReadingRecap" payload:payload];
+	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
 - (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
@@ -522,7 +568,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 - (void) requestSelectionHighlightPayloadWithCompletion:(void (^)(NSDictionary* _Nullable payload)) completion
 {
-	NSString* script = @"(window.inkwellHighlights && window.inkwellHighlights.getSelectionPayload) ? window.inkwellHighlights.getSelectionPayload() : null;";
+	NSString* script = [self javaScriptForRuntimeFunction:@"getSelectionPayload" payload:nil];
 	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError * _Nullable error) {
 		#pragma unused(error)
 		NSDictionary* payload = nil;
@@ -538,7 +584,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 - (void) clearSelection
 {
-	NSString* script = @"if (window.inkwellHighlights && window.inkwellHighlights.clearSelection) { window.inkwellHighlights.clearSelection(); }";
+	NSString* script = [self javaScriptForRuntimeFunction:@"clearSelection" payload:nil];
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 	[self updateSelectionState:NO];
 }
@@ -583,16 +629,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		[range_payload addObject:dictionary];
 	}
 
-	NSData* json_data = [NSJSONSerialization dataWithJSONObject:range_payload options:0 error:nil];
-	NSString* json_string = @"[]";
-	if (json_data.length > 0) {
-		NSString* parsed_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
-		if (parsed_string.length > 0) {
-			json_string = parsed_string;
-		}
-	}
-
-	NSString* script = [NSString stringWithFormat:@"if (window.inkwellHighlights && window.inkwellHighlights.restoreHighlights) { window.inkwellHighlights.restoreHighlights(%@); }", json_string];
+	NSString* script = [self javaScriptForRuntimeFunction:@"restoreHighlights" payload:range_payload];
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
@@ -798,65 +835,18 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	NSString* quote_border_color = is_dark_background ? @"#4f5b73" : @"#d2d2d7";
 	NSString* reader_highlight_background = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkBackgroundHex : InkwellReaderHighlightLightBackgroundHex;
 
-	NSString* escaped_background_hex = [self escapedJavaScriptString:background_hex];
-	NSString* escaped_font_css = [self escapedJavaScriptString:font_css];
-	NSString* escaped_text_color = [self escapedJavaScriptString:text_color];
-	NSString* escaped_link_color = [self escapedJavaScriptString:link_color];
-	NSString* escaped_quote_color = [self escapedJavaScriptString:quote_color];
-	NSString* escaped_quote_border_color = [self escapedJavaScriptString:quote_border_color];
-	NSString* escaped_reader_highlight_background = [self escapedJavaScriptString:reader_highlight_background];
-
-	NSString* script = [NSString stringWithFormat:@"(function(){"
-		"var bg='%@';"
-		"var font='%@';"
-		"var text='%@';"
-		"var link='%@';"
-		"var quote='%@';"
-		"var quoteBorder='%@';"
-		"var readerHighlightBg='%@';"
-		"var contentSize=%0.2f;"
-		"var titleSize=%0.2f;"
-		"var body=document.body;"
-		"if(!body){return;}"
-		"document.documentElement.style.setProperty('--reader-highlight-background',readerHighlightBg);"
-		"document.documentElement.style.backgroundColor=bg;"
-		"document.documentElement.style.color=text;"
-		"body.style.backgroundColor=bg;"
-		"body.style.color=text;"
-		"body.style.fontFamily=font;"
-		"body.style.fontSize=contentSize+'px';"
-		"var content=document.querySelector('.content');"
-		"if(content){content.style.fontFamily=font;content.style.fontSize=contentSize+'px';}"
-		"var titleNodes=document.querySelectorAll('.post-title');"
-		"for(var t=0;t<titleNodes.length;t++){"
-			"titleNodes[t].style.fontFamily=font;"
-			"titleNodes[t].style.fontSize=titleSize+'px';"
-			"titleNodes[t].style.color=text;"
-		"}"
-		"var nodes=document.querySelectorAll('.post-content,p,li,td,th,pre,blockquote');"
-		"for(var i=0;i<nodes.length;i++){"
-			"nodes[i].style.fontFamily=font;"
-			"nodes[i].style.fontSize=contentSize+'px';"
-			"nodes[i].style.color=text;"
-		"}"
-		"var links=document.querySelectorAll('a');"
-		"for(var j=0;j<links.length;j++){links[j].style.color=link;}"
-		"var quotes=document.querySelectorAll('blockquote');"
-		"for(var k=0;k<quotes.length;k++){"
-			"if(quotes[k].closest && quotes[k].closest('.reading-recap')){continue;}"
-			"quotes[k].style.color=quote;"
-			"quotes[k].style.borderLeftColor=quoteBorder;"
-		"}"
-		"})();",
-		escaped_background_hex,
-		escaped_font_css,
-		escaped_text_color,
-		escaped_link_color,
-		escaped_quote_color,
-		escaped_quote_border_color,
-		escaped_reader_highlight_background,
-		content_font_size,
-		title_font_size];
+	NSDictionary* payload = @{
+		@"background_hex": background_hex ?: @"",
+		@"font_css": font_css ?: @"",
+		@"text_color": text_color ?: @"",
+		@"link_color": link_color ?: @"",
+		@"quote_color": quote_color ?: @"",
+		@"quote_border_color": quote_border_color ?: @"",
+		@"reader_highlight_background": reader_highlight_background ?: @"",
+		@"content_font_size": @(content_font_size),
+		@"title_font_size": @(title_font_size)
+	};
+	NSString* script = [self javaScriptForRuntimeFunction:@"applyPreferredTextSettings" payload:payload];
 
 	__weak typeof(self) weak_self = self;
 	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError * _Nullable error) {
@@ -888,66 +878,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		return;
 	}
 
-	NSString* script = [self javaScriptForApplyingReadingRecapColorsForDarkTheme:is_dark_theme];
+	NSString* script = [self javaScriptForRuntimeFunction:@"applyReadingRecapColors" payload:@{ @"is_dark_theme": @(is_dark_theme) }];
 	[self.webView evaluateJavaScript:script completionHandler:nil];
-}
-
-- (NSString*) javaScriptForApplyingReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme
-{
-	NSString* is_dark_value = is_dark_theme ? @"true" : @"false";
-	return [NSString stringWithFormat:@"(function(){"
-		"function normalizeRecapColor(rawColor){"
-			"var normalizedColor=(rawColor||'').trim();"
-			"if(!normalizedColor){return '';}"
-			"if(!/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(normalizedColor)){return '';}"
-			"var hex=normalizedColor.slice(1);"
-			"if(hex.length==3||hex.length==4){"
-				"var expanded='';"
-				"for(var i=0;i<hex.length;i++){expanded+=hex.charAt(i)+hex.charAt(i);}"
-				"return '#'+expanded;"
-			"}"
-			"return '#'+hex;"
-		"}"
-		"function withRecapColorOpacity(colorValue,opacityHex){"
-			"var normalizedColor=normalizeRecapColor(colorValue);"
-			"if(!normalizedColor){return '';}"
-			"var baseColor=normalizedColor.length==9?normalizedColor.slice(0,7):normalizedColor;"
-			"var normalizedOpacity=(opacityHex||'80').trim().toLowerCase();"
-			"var safeOpacity=/^[0-9a-f]{2}$/i.test(normalizedOpacity)?normalizedOpacity:'80';"
-			"return baseColor+safeOpacity;"
-		"}"
-		"var isDarkTheme=%@;"
-		"var recapEls=document.querySelectorAll('.reading-recap');"
-		"for(var index=0;index<recapEls.length;index++){"
-			"var recapEl=recapEls[index];"
-			"var lightColor=normalizeRecapColor(recapEl.dataset.colorLight);"
-			"var darkColor=normalizeRecapColor(recapEl.dataset.colorDark||recapEl.dataset.colorRight);"
-			"var recapBaseColor=isDarkTheme?(darkColor||lightColor):(lightColor||darkColor);"
-			"var recapColor=withRecapColorOpacity(recapBaseColor,'80');"
-			"var recapTopicsColor=withRecapColorOpacity(recapBaseColor,'e6');"
-			"var recapBlockquoteBackground=withRecapColorOpacity(recapBaseColor,'99');"
-			"var recapBlockquoteBorder=withRecapColorOpacity(recapBaseColor,'ff');"
-			"recapEl.style.backgroundColor=recapColor||'';"
-			"if(recapTopicsColor){"
-				"recapEl.style.setProperty('--recap-topics-background',recapTopicsColor);"
-			"}"
-			"else{"
-				"recapEl.style.removeProperty('--recap-topics-background');"
-			"}"
-			"if(recapBlockquoteBackground){"
-				"recapEl.style.setProperty('--recap-blockquote-background',recapBlockquoteBackground);"
-			"}"
-			"else{"
-				"recapEl.style.removeProperty('--recap-blockquote-background');"
-			"}"
-			"if(recapBlockquoteBorder){"
-				"recapEl.style.setProperty('--recap-blockquote-border',recapBlockquoteBorder);"
-			"}"
-			"else{"
-				"recapEl.style.removeProperty('--recap-blockquote-border');"
-			"}"
-		"}"
-		"})();", is_dark_value];
 }
 
 - (NSString*) htmlStringByApplyingReadingRecapStyles:(NSString*) html darkTheme:(BOOL) is_dark_theme
@@ -1304,95 +1236,78 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	return cached_template;
 }
 
+- (NSString *) bundledJavaScriptNamed:(NSString*) script_name
+{
+	static NSMutableDictionary* cached_scripts;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		cached_scripts = [NSMutableDictionary dictionary];
+	});
+
+	if (script_name.length == 0) {
+		return @"";
+	}
+
+	@synchronized (cached_scripts) {
+		NSString* cached_script = cached_scripts[script_name];
+		if (cached_script != nil) {
+			return cached_script;
+		}
+
+		NSString* path = [[NSBundle mainBundle] pathForResource:script_name ofType:@"js"];
+		NSString* script_source = @"";
+		if (path.length > 0) {
+			script_source = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] ?: @"";
+		}
+		cached_scripts[script_name] = script_source;
+		return script_source;
+	}
+}
+
+- (NSString *) detailRuntimeScript
+{
+	return [self bundledJavaScriptNamed:@"detail_runtime"];
+}
+
 - (NSString*) selectionObserverScript
 {
-	return @"(function() {"
-		"if (window.__inkwellSelectionObserverInstalled) { return; }"
-		"window.__inkwellSelectionObserverInstalled = true;"
-		"function postSelectionState() {"
-			"var selection = window.getSelection();"
-			"var hasSelection = false;"
-			"if (selection && !selection.isCollapsed && selection.rangeCount > 0 && selection.toString().trim().length > 0) {"
-				"var content = document.querySelector('.post-content');"
-				"if (content) {"
-					"var range = selection.getRangeAt(0);"
-					"hasSelection = content.contains(range.commonAncestorContainer);"
-				"}"
-			"}"
-			"window.webkit.messageHandlers.selectionChanged.postMessage(hasSelection);"
-		"}"
-		"document.addEventListener('selectionchange', postSelectionState);"
-		"document.addEventListener('mouseup', postSelectionState);"
-		"document.addEventListener('keyup', postSelectionState);"
-		"window.addEventListener('load', postSelectionState);"
-		"postSelectionState();"
-		"})();";
+	return [self bundledJavaScriptNamed:@"detail_selection_observer"];
+}
+
+- (NSString*) readingRecapAvatarFallbackScript
+{
+	return [self bundledJavaScriptNamed:@"detail_recap_avatar_fallback"];
 }
 
 - (NSString*) scrollObserverScript
 {
-	return @"(function() {"
-		"if (window.__inkwellScrollObserverInstalled) { return; }"
-		"window.__inkwellScrollObserverInstalled = true;"
-		"function currentScrollTop() {"
-			"if (typeof window.scrollY === 'number') { return window.scrollY; }"
-			"if (document.documentElement && typeof document.documentElement.scrollTop === 'number') { return document.documentElement.scrollTop; }"
-			"if (document.body && typeof document.body.scrollTop === 'number') { return document.body.scrollTop; }"
-			"return 0;"
-		"}"
-		"function postScrollState() {"
-			"window.webkit.messageHandlers.scrollChanged.postMessage(currentScrollTop() > 1);"
-		"}"
-		"window.addEventListener('scroll', postScrollState, { passive: true });"
-		"window.addEventListener('load', postScrollState);"
-		"postScrollState();"
-		"})();";
+	return [self bundledJavaScriptNamed:@"detail_scroll_observer"];
 }
 
 - (NSString*) linkHoverObserverScript
 {
-	return @"(function() {"
-		"if (window.__inkwellLinkHoverObserverInstalled) { return; }"
-		"window.__inkwellLinkHoverObserverInstalled = true;"
-		"var currentHref = '';"
-		"function closestLink(node) {"
-			"while (node) {"
-				"if (node.nodeType === 1) {"
-					"if (node.matches && node.matches('a[href]')) { return node; }"
-					"if (node.closest) {"
-						"var found = node.closest('a[href]');"
-						"if (found) { return found; }"
-					"}"
-				"}"
-				"node = node.parentNode;"
-			"}"
-			"return null;"
-		"}"
-		"function hrefForLink(link) {"
-			"if (!link) { return ''; }"
-			"try { return link.href || ''; }"
-			"catch (e) { return ''; }"
-		"}"
-		"function postHref(href) {"
-			"var nextHref = (href || '').trim();"
-			"if (nextHref === currentHref) { return; }"
-			"currentHref = nextHref;"
-			"window.webkit.messageHandlers.linkHover.postMessage(nextHref);"
-		"}"
-		"document.addEventListener('mouseover', function(event) {"
-			"postHref(hrefForLink(closestLink(event.target)));"
-		"}, true);"
-		"document.addEventListener('mouseout', function(event) {"
-			"var fromLink = closestLink(event.target);"
-			"var toLink = closestLink(event.relatedTarget);"
-			"if (fromLink && toLink && fromLink === toLink) { return; }"
-			"postHref(hrefForLink(toLink));"
-		"}, true);"
-		"window.addEventListener('blur', function() { postHref(''); });"
-		"window.addEventListener('pagehide', function() { postHref(''); });"
-		"window.addEventListener('load', function() { postHref(''); });"
-		"postHref('');"
-		"})();";
+	return [self bundledJavaScriptNamed:@"detail_link_hover_observer"];
+}
+
+- (NSString *) javaScriptForRuntimeFunction:(NSString*) function_name payload:(id _Nullable) payload
+{
+	NSString* payload_json = [self jsonStringForJavaScriptObject:payload];
+	return [NSString stringWithFormat:@"window.inkwellDetail ? window.inkwellDetail.%@(%@) : null;", function_name, payload_json];
+}
+
+- (NSString *) jsonStringForJavaScriptObject:(id _Nullable) object
+{
+	if (object == nil) {
+		return @"null";
+	}
+
+	NSData* json_data = [NSJSONSerialization dataWithJSONObject:object options:0 error:nil];
+	if (json_data.length == 0) {
+		return @"null";
+	}
+
+	NSString* json_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
+	return json_string.length > 0 ? json_string : @"null";
 }
 
 - (void) updateSelectionState:(BOOL) has_selection
@@ -1584,15 +1499,6 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	CGFloat blue = (rgb_value & 0xFF) / 255.0;
 	CGFloat luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
 	return (luminance < 0.45);
-}
-
-- (NSString*) escapedJavaScriptString:(NSString*) string
-{
-	NSString* escaped_string = [string stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"];
-	escaped_string = [escaped_string stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"];
-	escaped_string = [escaped_string stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
-	escaped_string = [escaped_string stringByReplacingOccurrencesOfString:@"\r" withString:@""];
-	return escaped_string ?: @"";
 }
 
 - (NSString *) escapedHTMLString:(NSString *)string

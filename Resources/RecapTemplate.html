@@ -31,6 +31,7 @@
 		:root {
 			--recap-text: #2a241f;
 			--recap-muted: #6b6258;
+			--recap-list-text: #6b7280;
 			--recap-link: #4779b2;
 			--recap-topics-background: rgba(0, 0, 0, 0.08);
 			--recap-blockquote-background: #e1e3f0;
@@ -41,6 +42,7 @@
 			:root {
 				--recap-text: #e6ebf3;
 				--recap-muted: #b5bdcb;
+				--recap-list-text: #9ca3af;
 				--recap-link: #7cb7ff;
 				--recap-topics-background: rgba(255, 255, 255, 0.16);
 				--recap-blockquote-background: #2a3446;
@@ -84,6 +86,17 @@
 			height: 20px;
 			flex: 0 0 auto;
 			object-fit: cover;
+		}
+
+		.reading-recap .reading-header h2 action-text-attachment .reading-recap-avatar-fallback,
+		.reading-recap .reading-header h2 .reading-recap-avatar-fallback {
+			display: inline-flex;
+			width: 20px;
+			height: 20px;
+			margin-right: 4px;
+			border-radius: 999px;
+			flex: 0 0 auto;
+			background: rgba(128, 128, 128, 0.3);
 		}
 
 		.reading-recap .reading-header .topics {
@@ -138,13 +151,18 @@
 		}
 
 		.reading-recap blockquote footer {
-			margin-top: 0.5rem;
+			margin-top: 0.3rem;
+			font-size: 0.95rem;
 			color: var(--recap-muted);
 			text-align: right;
 		}
 
 		.reading-recap ul {
 			margin-bottom: 0;
+		}
+
+		.reading-recap li {
+			color: var(--recap-list-text);
 		}
 
 		.reading-recap-photos a img {

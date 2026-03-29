@@ -37,6 +37,7 @@ static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
+static NSString* const InkwellFadingEntryIDsCacheFilename = @"FadingEntryIDs.json";
 static NSString* const InkwellSidebarSelectedEntryCacheFilename = @"SidebarSelectedEntry.json";
 static NSString* const InkwellHideReadPostsDefaultsKey = @"HideReadPosts";
 static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
@@ -214,6 +215,35 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 @end
 
+@interface MBSidebarRecapBoxView : NSBox
+@end
+
+@implementation MBSidebarRecapBoxView
+
+- (instancetype) initWithFrame:(NSRect) frame_rect
+{
+	self = [super initWithFrame:frame_rect];
+	if (self) {
+		[self updateFillColor];
+	}
+	return self;
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self updateFillColor];
+}
+
+- (void) updateFillColor
+{
+	[self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+		self.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
+	}];
+}
+
+@end
+
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
 @property (assign) BOOL hasLoadedRemoteItems;
@@ -259,6 +289,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy) NSString* allPostsSiteName;
 @property (copy) NSString* allPostsFeedHost;
 @property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
+@property (copy) NSArray* fadingEntryIDs;
+@property (assign) BOOL hasFadingEntryIDsCache;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -303,7 +335,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) resetAllPostsModeState;
 - (void) cacheRecentEntries;
 - (NSURL* _Nullable) recentEntriesCacheURL;
+- (NSURL* _Nullable) fadingEntryIDsCacheURL;
 - (NSURL* _Nullable) selectedEntryCacheURL;
+- (NSArray*) loadCachedFadingEntryIDs;
+- (void) cacheFadingEntryIDs:(NSArray*) entry_ids;
+- (NSArray*) normalizedFadingEntryIDsFromObjects:(NSArray*) objects;
+- (void) updateFadingEntryIDsFromCurrentItemsIsFinished:(BOOL) is_finished preserveCachedValueDuringFetch:(BOOL) preserve_cached_value_during_fetch;
 - (NSDictionary*) serializedRecentEntriesPayload;
 - (NSDictionary*) dictionaryFromEntry:(MBEntry*) entry;
 - (MBEntry* _Nullable) entryFromDictionary:(NSDictionary*) dictionary;
@@ -375,6 +412,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.contentMode = MBSidebarContentModeFeeds;
 		self.allPostsSiteName = @"";
 		self.allPostsFeedHost = @"";
+		self.fadingEntryIDs = @[];
+		NSURL* fading_cache_url = [self fadingEntryIDsCacheURL];
+		self.hasFadingEntryIDsCache = (fading_cache_url != nil && [[NSFileManager defaultManager] fileExistsAtPath:fading_cache_url.path]);
+		if (self.hasFadingEntryIDsCache) {
+			self.fadingEntryIDs = [self loadCachedFadingEntryIDs];
+		}
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -404,13 +447,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSView *container_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 600.0)];
 	container_view.translatesAutoresizingMaskIntoConstraints = NO;
 
-	NSBox* recap_box = [[NSBox alloc] initWithFrame:NSZeroRect];
+	MBSidebarRecapBoxView* recap_box = [[MBSidebarRecapBoxView alloc] initWithFrame:NSZeroRect];
 	recap_box.translatesAutoresizingMaskIntoConstraints = NO;
 	recap_box.boxType = NSBoxCustom;
 	recap_box.borderColor = [NSColor separatorColor];
 	recap_box.borderWidth = 1.0;
 	recap_box.cornerRadius = 0.0;
-	recap_box.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
 	recap_box.hidden = YES;
 
 	NSButton* recap_button = [NSButton buttonWithTitle:@"Reading Recap" target:self action:@selector(showReadingRecap:)];
@@ -617,7 +659,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		[podcast_view.leadingAnchor constraintEqualToAnchor:podcast_clip_view.leadingAnchor],
 		[podcast_view.trailingAnchor constraintEqualToAnchor:podcast_clip_view.trailingAnchor],
 		[podcast_view.topAnchor constraintEqualToAnchor:podcast_clip_view.topAnchor],
-		[podcast_view.bottomAnchor constraintEqualToAnchor:podcast_clip_view.bottomAnchor],
 	]];
 
 	self.recapBoxView = recap_box;
@@ -678,6 +719,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 				if (cached_items.count > 0) {
 					self.allItems = [cached_items copy];
+					if (!self.hasFadingEntryIDsCache) {
+						[self updateFadingEntryIDsFromCurrentItemsIsFinished:NO preserveCachedValueDuringFetch:NO];
+					}
 					if ([icons_by_host isKindOfClass:[NSDictionary class]]) {
 						self.iconURLByHost = [self normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host];
 						[self.client primeFeedIconsCacheWithMap:self.iconURLByHost];
@@ -1176,6 +1220,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.isFetching = YES;
 	[self updateRecapUI];
 	__block BOOL did_fetch_icons = NO;
+	BOOL preserve_cached_fading_value_during_fetch = self.hasFadingEntryIDsCache;
 	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
 		if (is_finished) {
 			self.isFetching = NO;
@@ -1189,6 +1234,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[] unreadEntryIDs:unread_entry_ids];
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
+		[self updateFadingEntryIDsFromCurrentItemsIsFinished:is_finished preserveCachedValueDuringFetch:preserve_cached_fading_value_during_fetch];
 		[self applyFiltersAndReload];
 
 		if (!did_fetch_icons) {
@@ -1346,9 +1392,87 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:InkwellRecentEntriesCacheFilename createDirectoryIfNeeded:YES];
 }
 
+- (NSURL* _Nullable) fadingEntryIDsCacheURL
+{
+	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:InkwellFadingEntryIDsCacheFilename createDirectoryIfNeeded:YES];
+}
+
 - (NSURL* _Nullable) selectedEntryCacheURL
 {
 	return [MBPathUtilities appFileURLForSearchPathDirectory:NSCachesDirectory filename:InkwellSidebarSelectedEntryCacheFilename createDirectoryIfNeeded:YES];
+}
+
+- (NSArray*) loadCachedFadingEntryIDs
+{
+	NSURL* cache_url = [self fadingEntryIDsCacheURL];
+	if (cache_url == nil) {
+		return @[];
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+	if (data.length == 0) {
+		return @[];
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if (![payload isKindOfClass:[NSArray class]]) {
+		return @[];
+	}
+
+	return [self normalizedFadingEntryIDsFromObjects:(NSArray*) payload];
+}
+
+- (void) cacheFadingEntryIDs:(NSArray*) entry_ids
+{
+	NSURL* cache_url = [self fadingEntryIDsCacheURL];
+	if (cache_url == nil) {
+		return;
+	}
+
+	NSArray* normalized_entry_ids = [self normalizedFadingEntryIDsFromObjects:(entry_ids ?: @[])];
+	NSData* data = [NSJSONSerialization dataWithJSONObject:normalized_entry_ids options:0 error:nil];
+	if (data.length == 0) {
+		return;
+	}
+
+	if ([data writeToURL:cache_url atomically:YES]) {
+		self.hasFadingEntryIDsCache = YES;
+	}
+}
+
+- (NSArray*) normalizedFadingEntryIDsFromObjects:(NSArray*) objects
+{
+	NSMutableArray* normalized_entry_ids = [NSMutableArray array];
+	NSMutableSet* seen_entry_ids = [NSMutableSet set];
+	for (id object in objects ?: @[]) {
+		NSInteger entry_id = [self integerValueFromObject:object];
+		if (entry_id <= 0) {
+			continue;
+		}
+
+		NSNumber* entry_id_value = @(entry_id);
+		if ([seen_entry_ids containsObject:entry_id_value]) {
+			continue;
+		}
+
+		[seen_entry_ids addObject:entry_id_value];
+		[normalized_entry_ids addObject:entry_id_value];
+	}
+
+	return [normalized_entry_ids copy];
+}
+
+- (void) updateFadingEntryIDsFromCurrentItemsIsFinished:(BOOL) is_finished preserveCachedValueDuringFetch:(BOOL) preserve_cached_value_during_fetch
+{
+	NSArray* current_entry_ids = [self normalizedFadingEntryIDsFromObjects:[self allFadingEntryIDs]];
+	BOOL should_update_visible_entry_ids = (is_finished || !preserve_cached_value_during_fetch);
+	if (should_update_visible_entry_ids) {
+		self.fadingEntryIDs = current_entry_ids;
+	}
+
+	if (should_update_visible_entry_ids && (current_entry_ids.count > 0 || is_finished || self.hasFadingEntryIDsCache)) {
+		[self cacheFadingEntryIDs:current_entry_ids];
+	}
 }
 
 - (void) cacheRecentEntries
@@ -2075,7 +2199,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.recapToTableTopConstraint.constant = (should_show_recap || should_show_special_mode) ? 8.0 : 0.0;
 	}
 
-	NSInteger fading_count = [self allFadingItems].count;
+	NSInteger fading_count = self.fadingEntryIDs.count;
 	if (self.recapCountLabel != nil) {
 		self.recapCountLabel.stringValue = [self recapCountStringForPostsCount:fading_count];
 	}
@@ -2196,11 +2320,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return NO;
 	}
 
-	if (!self.hasLoadedRemoteItems || self.isFetching) {
+	BOOL has_fading_entry_ids = (self.fadingEntryIDs.count > 0);
+	if (!has_fading_entry_ids) {
 		return NO;
 	}
 
-	return ([self allFadingEntryIDs].count > 0);
+	if (!self.hasLoadedRemoteItems || self.isFetching) {
+		return self.hasFadingEntryIDsCache;
+	}
+
+	return YES;
 }
 
 - (BOOL) shouldShowPremiumRequiredView
@@ -2313,7 +2442,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	NSArray* entry_ids = [self allFadingEntryIDs];
+	NSArray* entry_ids = [self.fadingEntryIDs copy];
 	self.recapRequestIdentifier += 1;
 	NSInteger request_identifier = self.recapRequestIdentifier;
 	[self setRecapFetching:YES];
@@ -2372,6 +2501,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		if (status_code == 200) {
 			[self finishReadingRecapPollingForRequestIdentifier:request_identifier];
 			if (self.readingRecapHandler != nil) {
+//				NSLog(@"Reading Recap HTML: %@", html ?: @"");
 				self.readingRecapHandler(html ?: @"");
 			}
 			return;
