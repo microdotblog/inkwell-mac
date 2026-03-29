@@ -5,6 +5,35 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.1.1</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Improved Reading Recap with styling tweaks, keyboard navigation with arrows, and now always enabled even during a sync.</li>
+					<li>Added a Delete menu item in settings to unsubscribe from a feed, in addition to command-delete.</li>
+					<li>Fixed unread syncing and sidebar row selection to better track many quick changes.</li>
+					<li>Fixed remembering sidebar width position when restarting the app.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Sun, 29 Mar 2026 19:15:00 -0000</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.1.1.zip"
+				sparkle:shortVersionString="1.1.1"
+				sparkle:version="16"
+				sparkle:edSignature="1Hw2szROH0EhIAGXbeEJRhlYe0rzR1glc4U+tT/RFCK4piog7iyimjIj2D5gIIGjAf95N+Q/Lr6kfCO2GnpXCg=="
+				length="5393416"
+				type="application/octet-stream" />
+"application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.1</title>
  			<description><![CDATA[
 				<style>
