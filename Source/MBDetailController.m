@@ -13,6 +13,7 @@
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellDetailTopBarHeight = 52.0;
+static CGFloat const InkwellDetailScrollingAdjust = 18.0;
 static NSString* const InkwellPostTemplateName = @"PostTemplate";
 static NSString* const InkwellRecapTemplateName = @"RecapTemplate";
 static NSString* const InkwellPostTemplateType = @"html";
@@ -657,7 +658,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (NSString *) javaScriptForScrollingReadingRecapForward:(BOOL) is_forward
 {
 	NSString* is_forward_value = is_forward ? @"true" : @"false";
-	CGFloat scroll_inset = InkwellDetailTopBarHeight;
+	CGFloat scroll_inset = InkwellDetailTopBarHeight + InkwellDetailScrollingAdjust;
 	return [NSString stringWithFormat:@"(function(){"
 		"function currentScrollTop(){"
 			"if(typeof window.scrollY==='number'){return window.scrollY;}"
