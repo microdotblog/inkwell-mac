@@ -395,7 +395,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		}
 
 		MBEntry* selected_item = [strong_self.sidebarController selectedItem];
-		if (selected_item != nil && strong_self.detailController.displayedEntryID <= 0) {
+		if (selected_item != nil && strong_self.detailController.displayedEntryID <= 0 && !strong_self.detailController.isShowingReadingRecap) {
 			[strong_self.detailController showSidebarItem:selected_item];
 			[strong_self.highlightsController updateForSelectedEntry:selected_item];
 			[strong_self updateConversationForSelectedItem:selected_item];

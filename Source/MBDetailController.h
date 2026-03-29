@@ -21,6 +21,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSArray* (^highlightsProvider)(NSInteger entry_id);
 @property (nonatomic, copy, nullable) BOOL (^focusSidebarHandler)(void);
 @property (nonatomic, copy, nullable) void (^highlightDeletedHandler)(MBHighlight* highlight);
+@property (nonatomic, assign, readonly) BOOL isShowingReadingRecap;
 
 - (BOOL) hasSelection;
 - (BOOL) focusDetailPane;
