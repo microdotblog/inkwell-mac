@@ -289,7 +289,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy) NSString* allPostsSiteName;
 @property (copy) NSString* allPostsFeedHost;
 @property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
-@property (strong) NSMutableSet* pendingAutoReadEntryIDs;
+@property (strong) NSMutableDictionary* pendingReadStateOverridesByEntryID;
 @property (copy) NSArray* fadingEntryIDs;
 @property (assign) BOOL hasFadingEntryIDsCache;
 
@@ -414,7 +414,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.contentMode = MBSidebarContentModeFeeds;
 		self.allPostsSiteName = @"";
 		self.allPostsFeedHost = @"";
-		self.pendingAutoReadEntryIDs = [NSMutableSet set];
+		self.pendingReadStateOverridesByEntryID = [NSMutableDictionary dictionary];
 		self.fadingEntryIDs = @[];
 		NSURL* fading_cache_url = [self fadingEntryIDsCacheURL];
 		self.hasFadingEntryIDsCache = (fading_cache_url != nil && [[NSFileManager defaultManager] fileExistsAtPath:fading_cache_url.path]);
@@ -2950,27 +2950,36 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	BOOL should_mark_as_unread = selected_item.isRead;
 	NSInteger entry_id = selected_item.entryID;
 	NSInteger selected_row = self.tableView.selectedRow;
+	NSNumber* entry_id_value = @(entry_id);
+	self.pendingReadStateOverridesByEntryID[entry_id_value] = @(!should_mark_as_unread);
+	[self reloadRowForEntryID:entry_id preferredRow:selected_row];
 	__weak typeof(self) weak_self = self;
 	void (^completion_handler)(NSError* _Nullable) = ^(NSError* _Nullable error) {
-		if (error != nil) {
-			return;
-		}
-
 		dispatch_async(dispatch_get_main_queue(), ^{
 			MBSidebarController* strong_self = weak_self;
 			if (strong_self == nil) {
 				return;
 			}
 
+			[strong_self.pendingReadStateOverridesByEntryID removeObjectForKey:entry_id_value];
+			if (error != nil) {
+				[strong_self reloadRowForEntryID:entry_id preferredRow:selected_row];
+				return;
+			}
+
 			[strong_self updateCachedReadState:!should_mark_as_unread forEntryID:entry_id];
 			if (should_mark_as_unread) {
-				[strong_self clearSavedSelectedEntryID];
-				[strong_self deselectSidebarSelectionPreservingDetail];
-				strong_self.rememberedDeselectedRow = selected_row;
+				BOOL should_clear_selection = ([strong_self currentSelectedEntryID] == entry_id);
+				if (should_clear_selection) {
+					[strong_self clearSavedSelectedEntryID];
+					[strong_self deselectSidebarSelectionPreservingDetail];
+					strong_self.rememberedDeselectedRow = selected_row;
+				}
 			}
 			else {
 				[strong_self clearRememberedDeselectedRow];
 			}
+
 			if (strong_self.hideReadPosts) {
 				[strong_self applyFiltersAndReload];
 			}
@@ -3139,14 +3148,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSInteger entry_id = item.entryID;
 	NSNumber* entry_id_value = @(entry_id);
-	if ([self.pendingAutoReadEntryIDs containsObject:entry_id_value]) {
+	if (self.pendingReadStateOverridesByEntryID[entry_id_value] != nil) {
 		return;
 	}
 
-	[self.pendingAutoReadEntryIDs addObject:entry_id_value];
+	self.pendingReadStateOverridesByEntryID[entry_id_value] = @YES;
 	[self.client markAsRead:entry_id token:self.token completion:^(NSError * _Nullable error) {
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self.pendingAutoReadEntryIDs removeObject:entry_id_value];
+			[self.pendingReadStateOverridesByEntryID removeObjectForKey:entry_id_value];
 			if (error != nil) {
 				[self reloadRowForEntryID:entry_id preferredRow:row];
 				return;
@@ -3194,11 +3203,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return NO;
 	}
 
+	NSNumber* pending_read_state = self.pendingReadStateOverridesByEntryID[@(entry.entryID)];
+	if (pending_read_state != nil) {
+		return [pending_read_state boolValue];
+	}
+
 	if (entry.isRead) {
 		return YES;
 	}
 
-	return (entry.entryID > 0 && [self.pendingAutoReadEntryIDs containsObject:@(entry.entryID)]);
+	return NO;
 }
 
 - (void) updateCachedReadState:(BOOL) is_read forEntryIDs:(NSArray*) entry_ids

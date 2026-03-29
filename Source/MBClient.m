@@ -52,6 +52,8 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 @property (strong) NSURLSession *session;
 @property (assign) NSInteger activeRequestCount;
 @property (copy) NSSet* cachedUnreadEntryIDs;
+@property (assign) NSInteger unreadFetchRequestIDCounter;
+@property (assign) NSInteger latestAppliedUnreadFetchRequestID;
 @property (copy) NSDictionary<NSNumber*, NSNumber*>* unreadStateOverridesByEntryID;
 @property (copy) NSArray* cachedHighlights;
 @property (copy) NSDictionary<NSString*, NSString*>* cachedFeedIconsByHostMap;
@@ -60,7 +62,8 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 @property (strong) NSMutableArray* pendingFeedIconsCompletions;
 
 - (NSArray*) defaultEntryQueryItemsForPageNumber:(NSInteger) page_number;
-- (NSSet*) unreadEntryIDsByMergingRemoteUnreadEntryIDs:(NSSet* _Nullable) unread_entry_ids updateCache:(BOOL) update_cache;
+- (NSInteger) nextUnreadFetchRequestID;
+- (NSSet*) unreadEntryIDsByMergingRemoteUnreadEntryIDs:(NSSet* _Nullable) unread_entry_ids requestID:(NSInteger) request_id updateCache:(BOOL) update_cache;
 - (void) recordUnreadStateMutationForEntryIDs:(NSArray*) entry_ids shouldMarkUnread:(BOOL) should_mark_unread;
 
 @end
@@ -74,6 +77,8 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		[MBPathUtilities cleanupLegacyFiles];
 		self.session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]];
 		self.cachedUnreadEntryIDs = [self loadCachedUnreadEntryIDs];
+		self.unreadFetchRequestIDCounter = 0;
+		self.latestAppliedUnreadFetchRequestID = 0;
 		self.unreadStateOverridesByEntryID = @{};
 		self.cachedHighlights = [self loadCachedHighlights];
 		self.cachedFeedIconsByHostMap = @{};
@@ -253,6 +258,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		return;
 	}
 
+	NSInteger unread_fetch_request_id = [self nextUnreadFetchRequestID];
 	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	NSMutableURLRequest *unread_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
 	unread_request.HTTPMethod = @"GET";
@@ -272,7 +278,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		}
 
 		BOOL did_load_remote_unread_entry_ids = (unread_entry_ids != nil);
-		[self unreadEntryIDsByMergingRemoteUnreadEntryIDs:unread_entry_ids updateCache:did_load_remote_unread_entry_ids];
+		[self unreadEntryIDsByMergingRemoteUnreadEntryIDs:unread_entry_ids requestID:unread_fetch_request_id updateCache:did_load_remote_unread_entry_ids];
 
 		NSMutableURLRequest *subscriptions_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedSubscriptionsEndpoint]];
 		subscriptions_request.HTTPMethod = @"GET";
@@ -291,7 +297,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 			NSMutableArray* accumulated_entries = [NSMutableArray array];
 			NSMutableSet* seen_entry_ids = [NSMutableSet set];
 			[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
-				NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil updateCache:NO];
+					NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil requestID:0 updateCache:NO];
 				[self finishWithSubscriptions:subscriptions entries:updated_entries unreadEntryIDs:current_unread_entry_ids isFinished:NO error:nil completion:completion];
 			} completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
 				if (entries_error != nil) {
@@ -299,7 +305,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 					return;
 				}
 
-				NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil updateCache:NO];
+				NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil requestID:0 updateCache:NO];
 				[self finishWithSubscriptions:subscriptions entries:entries unreadEntryIDs:current_unread_entry_ids isFinished:YES error:nil completion:completion];
 			}];
 		}];
@@ -322,6 +328,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		return;
 	}
 
+	NSInteger unread_fetch_request_id = [self nextUnreadFetchRequestID];
 	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	NSMutableURLRequest* unread_request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
 	unread_request.HTTPMethod = @"GET";
@@ -341,12 +348,12 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		}
 
 		BOOL did_load_remote_unread_entry_ids = (unread_entry_ids != nil);
-		[self unreadEntryIDsByMergingRemoteUnreadEntryIDs:unread_entry_ids updateCache:did_load_remote_unread_entry_ids];
+		[self unreadEntryIDsByMergingRemoteUnreadEntryIDs:unread_entry_ids requestID:unread_fetch_request_id updateCache:did_load_remote_unread_entry_ids];
 
 		NSMutableArray* accumulated_entries = [NSMutableArray array];
 		NSMutableSet* seen_entry_ids = [NSMutableSet set];
 		[self fetchPagedEntriesForFeedID:feed_id authorizationValue:authorization_value pageNumber:1 accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
-			NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil updateCache:NO];
+			NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil requestID:0 updateCache:NO];
 			[self finishWithAllEntries:updated_entries unreadEntryIDs:current_unread_entry_ids isFinished:NO error:nil completion:completion];
 		} completion:^(NSArray* _Nullable entries, NSError* _Nullable entries_error) {
 			if (entries_error != nil) {
@@ -354,7 +361,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 				return;
 			}
 
-			NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil updateCache:NO];
+			NSSet* current_unread_entry_ids = [self unreadEntryIDsByMergingRemoteUnreadEntryIDs:nil requestID:0 updateCache:NO];
 			[self finishWithAllEntries:entries unreadEntryIDs:current_unread_entry_ids isFinished:YES error:nil completion:completion];
 		}];
 	}];
@@ -1713,23 +1720,36 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	[task resume];
 }
 
-- (NSSet*) unreadEntryIDsByMergingRemoteUnreadEntryIDs:(NSSet* _Nullable) unread_entry_ids updateCache:(BOOL) update_cache
+- (NSInteger) nextUnreadFetchRequestID
+{
+	@synchronized (self) {
+		self.unreadFetchRequestIDCounter += 1;
+		return self.unreadFetchRequestIDCounter;
+	}
+}
+
+- (NSSet*) unreadEntryIDsByMergingRemoteUnreadEntryIDs:(NSSet* _Nullable) unread_entry_ids requestID:(NSInteger) request_id updateCache:(BOOL) update_cache
 {
 	NSSet* resolved_unread_entry_ids = nil;
 	BOOL should_cache = NO;
 
 	@synchronized (self) {
-		NSSet* source_unread_entry_ids = unread_entry_ids;
-		BOOL did_load_remote_unread_entry_ids = (source_unread_entry_ids != nil);
-		if (source_unread_entry_ids == nil) {
-			source_unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
+		NSSet* source_unread_entry_ids = self.cachedUnreadEntryIDs ?: [NSSet set];
+		BOOL did_load_remote_unread_entry_ids = (unread_entry_ids != nil);
+		BOOL should_apply_remote_unread_entry_ids = NO;
+		if (did_load_remote_unread_entry_ids && update_cache) {
+			if (request_id >= self.latestAppliedUnreadFetchRequestID) {
+				source_unread_entry_ids = unread_entry_ids;
+				self.latestAppliedUnreadFetchRequestID = request_id;
+				should_apply_remote_unread_entry_ids = YES;
+			}
 		}
 
 		NSMutableSet* merged_unread_entry_ids = [NSMutableSet setWithSet:source_unread_entry_ids];
 		NSMutableDictionary* remaining_overrides = [NSMutableDictionary dictionary];
 		for (NSNumber* entry_id_value in self.unreadStateOverridesByEntryID) {
 			BOOL should_mark_unread = [self.unreadStateOverridesByEntryID[entry_id_value] boolValue];
-			BOOL server_matches_override = (did_load_remote_unread_entry_ids && ([source_unread_entry_ids containsObject:entry_id_value] == should_mark_unread));
+			BOOL server_matches_override = (should_apply_remote_unread_entry_ids && ([source_unread_entry_ids containsObject:entry_id_value] == should_mark_unread));
 			if (server_matches_override) {
 				continue;
 			}
@@ -1746,7 +1766,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 
 		resolved_unread_entry_ids = [merged_unread_entry_ids copy];
 		self.unreadStateOverridesByEntryID = [remaining_overrides copy];
-		if (update_cache) {
+		if (should_apply_remote_unread_entry_ids) {
 			self.cachedUnreadEntryIDs = resolved_unread_entry_ids;
 			should_cache = YES;
 		}
