@@ -463,6 +463,10 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 	rename_item.target = self;
 	[menu addItem:rename_item];
 
+	NSMenuItem* delete_item = [[NSMenuItem alloc] initWithTitle:@"Delete" action:@selector(deleteSelectedFeedAction:) keyEquivalent:@""];
+	delete_item.target = self;
+	[menu addItem:delete_item];
+
 	[menu addItem:[NSMenuItem separatorItem]];
 
 	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:[NSString mb_openInBrowserString] action:@selector(openSelectedFeedInBrowserAction:) keyEquivalent:@""];
@@ -492,6 +496,12 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 	[self.view.window beginSheet:self.renameSheetWindow completionHandler:nil];
 	[self.renameSheetWindow makeFirstResponder:self.renameSheetTextField];
 	[self.renameSheetTextField selectText:nil];
+}
+
+- (IBAction) deleteSelectedFeedAction:(id) sender
+{
+	#pragma unused(sender)
+	[self deleteSelectedFeed];
 }
 
 - (IBAction) openSelectedFeedInBrowserAction:(id) sender
@@ -1004,6 +1014,9 @@ static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 	MBSubscription* subscription = [self selectedSubscription];
 	if (menu_item.action == @selector(renameSelectedFeedAction:)) {
 		return [self canRenameSubscription:subscription];
+	}
+	if (menu_item.action == @selector(deleteSelectedFeedAction:)) {
+		return [self canDeleteSubscription:subscription];
 	}
 	if (menu_item.action == @selector(openSelectedFeedInBrowserAction:)) {
 		return ([self browserURLStringForSubscription:subscription].length > 0);
