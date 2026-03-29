@@ -289,6 +289,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy) NSString* allPostsSiteName;
 @property (copy) NSString* allPostsFeedHost;
 @property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
+@property (strong) NSMutableSet* pendingAutoReadEntryIDs;
 @property (copy) NSArray* fadingEntryIDs;
 @property (assign) BOOL hasFadingEntryIDsCache;
 
@@ -354,6 +355,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSArray*) allFadingEntryIDs;
 - (NSArray*) cachedItemsForFeedID:(NSInteger) feed_id;
 - (NSArray*) filteredItemsForReadVisibility:(NSArray*) items selectedEntryID:(NSInteger)selected_entry_id;
+- (BOOL) entryShowsReadState:(MBEntry*) entry;
 - (NSArray*) sortedItems:(NSArray*) items;
 - (NSComparisonResult) compareEntry:(MBEntry*) first_entry toEntry:(MBEntry*) second_entry;
 - (NSString*) recapCountStringForPostsCount:(NSInteger)post_count;
@@ -412,6 +414,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.contentMode = MBSidebarContentModeFeeds;
 		self.allPostsSiteName = @"";
 		self.allPostsFeedHost = @"";
+		self.pendingAutoReadEntryIDs = [NSMutableSet set];
 		self.fadingEntryIDs = @[];
 		NSURL* fading_cache_url = [self fadingEntryIDsCacheURL];
 		self.hasFadingEntryIDsCache = (fading_cache_url != nil && [[NSFileManager defaultManager] fileExistsAtPath:fading_cache_url.path]);
@@ -2094,7 +2097,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	if (item.isRead) {
+	if ([self entryShowsReadState:item]) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
 	}
@@ -3135,18 +3138,28 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	NSInteger entry_id = item.entryID;
-	[self.client markAsRead:entry_id token:self.token completion:^(NSError * _Nullable error) {
-		if (error != nil) {
-			return;
-		}
+	NSNumber* entry_id_value = @(entry_id);
+	if ([self.pendingAutoReadEntryIDs containsObject:entry_id_value]) {
+		return;
+	}
 
-		[self updateCachedReadState:YES forEntryID:entry_id];
-		if (self.hideReadPosts) {
-			[self applyFiltersAndReload];
-		}
-		else {
-			[self reloadRowForEntryID:entry_id preferredRow:row];
-		}
+	[self.pendingAutoReadEntryIDs addObject:entry_id_value];
+	[self.client markAsRead:entry_id token:self.token completion:^(NSError * _Nullable error) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self.pendingAutoReadEntryIDs removeObject:entry_id_value];
+			if (error != nil) {
+				[self reloadRowForEntryID:entry_id preferredRow:row];
+				return;
+			}
+
+			[self updateCachedReadState:YES forEntryID:entry_id];
+			if (self.hideReadPosts) {
+				[self applyFiltersAndReload];
+			}
+			else {
+				[self reloadRowForEntryID:entry_id preferredRow:row];
+			}
+		});
 	}];
 }
 
@@ -3173,6 +3186,19 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			cached_entry.isRead = is_read;
 		}
 	}
+}
+
+- (BOOL) entryShowsReadState:(MBEntry*) entry
+{
+	if (![entry isKindOfClass:[MBEntry class]]) {
+		return NO;
+	}
+
+	if (entry.isRead) {
+		return YES;
+	}
+
+	return (entry.entryID > 0 && [self.pendingAutoReadEntryIDs containsObject:@(entry.entryID)]);
 }
 
 - (void) updateCachedReadState:(BOOL) is_read forEntryIDs:(NSArray*) entry_ids
@@ -3371,7 +3397,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
 		date_color = [selected_text_color colorWithAlphaComponent:0.55];
 	}
-	else if (item.isRead && self.contentMode != MBSidebarContentModeBookmarks) {
+	else if ([self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks) {
 		title_color = [NSColor disabledControlTextColor];
 		subtitle_color = [NSColor disabledControlTextColor];
 		subscription_color = [NSColor disabledControlTextColor];
