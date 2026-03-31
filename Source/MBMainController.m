@@ -1782,7 +1782,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		item.label = @"Highlight";
 		item.paletteLabel = @"Highlight";
 		item.toolTip = @"Highlight";
-		item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
+		item.image = [NSImage imageNamed:@"icon_highlighter"];
 		item.target = self;
 		item.action = @selector(highlightSelectedItem:);
 		return item;
