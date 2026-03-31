@@ -618,7 +618,6 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (IBAction) showReadingRecap:(id)sender
 {
-	[self selectFilterSegment:InkwellFilterFadingSegmentIndex];
 	[self.sidebarController showReadingRecap:sender];
 }
 
