@@ -21,6 +21,7 @@ static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"Inkw
 static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"InkwellToolbarSearch";
 static NSToolbarItemIdentifier const InkwellToolbarHighlightItemIdentifier = @"InkwellToolbarHighlight";
 static NSToolbarItemIdentifier const InkwellToolbarRepliesItemIdentifier = @"InkwellToolbarReplies";
+static NSToolbarItemIdentifier const InkwellToolbarNewPostItemIdentifier = @"InkwellToolbarNewPost";
 static NSToolbarItemIdentifier const InkwellToolbarProgressItemIdentifier = @"InkwellToolbarProgress";
 static NSInteger const InkwellFilterTodaySegmentIndex = 0;
 static NSInteger const InkwellFilterRecentSegmentIndex = 1;
@@ -93,6 +94,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
 - (BOOL) isFilterSelectionDisabled;
 - (void) updateFilterSegmentedControlEnabledState;
+- (BOOL) canCreateNewPost;
 - (BOOL) canShareSelectedItem;
 - (BOOL) canPrintCurrentContent;
 - (BOOL) canHighlightSelectedItem;
@@ -244,6 +246,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		[weak_self.detailController showSidebarItem:item];
 		[weak_self.highlightsController updateForSelectedEntry:item];
 		[weak_self updateConversationForSelectedItem:item];
+		[weak_self.window.toolbar validateVisibleItems];
 	};
 	self.sidebarController.focusDetailHandler = ^BOOL {
 		MBMainController* strong_self = weak_self;
@@ -972,7 +975,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return ![self isFilterSelectionDisabled];
 	}
 	if (menu_item.action == @selector(newPost:)) {
-		return ([self.sidebarController selectedItem] != nil);
+		return [self canCreateNewPost];
 	}
 	if (menu_item.action == @selector(share:)) {
 		return [self canShareSelectedItem];
@@ -1035,6 +1038,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	return YES;
 }
 
+- (BOOL) canCreateNewPost
+{
+	return ([self.sidebarController selectedItem] != nil);
+}
+
 - (BOOL) canShareSelectedItem
 {
 	MBEntry* selected_item = [self.sidebarController selectedItem];
@@ -1053,6 +1061,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
 {
+	if (toolbar_item.action == @selector(newPost:)) {
+		return [self canCreateNewPost];
+	}
 	if (toolbar_item.action == @selector(highlightSelectedItem:)) {
 		return [self canHighlightSelectedItem];
 	}
@@ -1693,6 +1704,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		NSToolbarFlexibleSpaceItemIdentifier,
 		InkwellToolbarRepliesItemIdentifier,
 		InkwellToolbarHighlightItemIdentifier,
+		InkwellToolbarNewPostItemIdentifier,
 		InkwellToolbarSearchItemIdentifier
 	];
 }
@@ -1705,7 +1717,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		InkwellToolbarProgressItemIdentifier,
 		NSToolbarFlexibleSpaceItemIdentifier,
 		InkwellToolbarSearchItemIdentifier,
-		InkwellToolbarHighlightItemIdentifier
+		InkwellToolbarHighlightItemIdentifier,
+		InkwellToolbarNewPostItemIdentifier
 	];
 }
 
@@ -1772,6 +1785,17 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		item.image = [NSImage imageWithSystemSymbolName:@"highlighter" accessibilityDescription:@"Highlight"];
 		item.target = self;
 		item.action = @selector(highlightSelectedItem:);
+		return item;
+	}
+
+	if ([item_identifier isEqualToString:InkwellToolbarNewPostItemIdentifier]) {
+		NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
+		item.label = @"New Post";
+		item.paletteLabel = @"New Post";
+		item.toolTip = @"New Post";
+		item.image = [NSImage imageWithSystemSymbolName:@"square.and.pencil" accessibilityDescription:@"New Post"];
+		item.target = self;
+		item.action = @selector(newPost:);
 		return item;
 	}
 
