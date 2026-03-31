@@ -14,7 +14,7 @@
 #import "MBWelcomeController.h"
 
 static NSString* const InkwellUnavailableMessage = @"Inkwell is not enabled for your account yet.";
-static NSString* const InkwellHelpURLString = @"https://help.micro.blog";
+static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-inkwell/4302";
 
 @interface MBAppDelegate ()
 
