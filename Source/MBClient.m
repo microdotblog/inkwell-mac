@@ -240,7 +240,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		}
 
 		if (!has_inkwell) {
-			NSError* inkwell_error = [NSError errorWithDomain:MBClientErrorDomain code:1025 userInfo:@{ NSLocalizedDescriptionKey: @"Inkwell is not enabled for your account yet." }];
+			NSError* inkwell_error = [NSError errorWithDomain:MBClientErrorDomain code:1025 userInfo:@{ NSLocalizedDescriptionKey: @"Inkwell requires a Micro.blog subscription." }];
 			[self finishVerify:NO error:inkwell_error completion:completion];
 			return;
 		}
