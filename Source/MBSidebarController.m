@@ -14,7 +14,10 @@
 #import "MBPathUtilities.h"
 #import "MBPodcastController.h"
 #import "MBRoundedImageView.h"
+#import "MBSidebarRecapBoxView.h"
 #import "MBSidebarCell.h"
+#import "MBSidebarRowView.h"
+#import "MBSidebarTableView.h"
 #import "MBSubscription.h"
 #import "NSStrings+Extras.h"
 
@@ -24,8 +27,6 @@ static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarAvatarInset = 3.0;
 static CGFloat const InkwellSidebarTextInset = 10.0;
 static CGFloat const InkwellSidebarRightInset = 10.0;
-static CGFloat const InkwellSidebarRowBackgroundHorizontalInset = 10.0;
-static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 static CGFloat const InkwellSidebarVerticalSpacing = 8.0;
 static CGFloat const InkwellSidebarTitleFontSize = 14.0;
 static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
@@ -50,199 +51,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	MBSidebarContentModeBookmarks = 1,
 	MBSidebarContentModeAllPosts = 2
 };
-
-@interface MBSidebarTableView : NSTableView
-
-@property (copy, nullable) BOOL (^openSelectedItemHandler)(void);
-@property (copy, nullable) BOOL (^focusDetailHandler)(void);
-@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
-@property (copy, nullable) void (^focusChangedHandler)(void);
-@property (copy, nullable) BOOL (^moveSelectionFromRememberedRowHandler)(NSInteger direction);
-
-@end
-
-@implementation MBSidebarTableView
-
-- (void) keyDown:(NSEvent*) event
-{
-	NSString* characters = event.charactersIgnoringModifiers ?: @"";
-	if (characters.length > 0) {
-		unichar key_code = [characters characterAtIndex:0];
-		NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
-		BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
-		BOOL is_return_key = (key_code == NSCarriageReturnCharacter || key_code == NSNewlineCharacter || key_code == NSEnterCharacter);
-		if (is_return_key && self.openSelectedItemHandler != nil && self.openSelectedItemHandler()) {
-			return;
-		}
-
-		BOOL is_right_arrow_key = (key_code == NSRightArrowFunctionKey);
-		if (!has_disallowed_modifiers && is_right_arrow_key && self.focusDetailHandler != nil && self.focusDetailHandler()) {
-			return;
-		}
-
-		BOOL is_up_arrow_key = (key_code == NSUpArrowFunctionKey);
-		BOOL is_down_arrow_key = (key_code == NSDownArrowFunctionKey);
-		if (!has_disallowed_modifiers && self.selectedRow < 0 && (is_up_arrow_key || is_down_arrow_key) && self.moveSelectionFromRememberedRowHandler != nil) {
-			NSInteger direction = is_down_arrow_key ? 1 : -1;
-			if (self.moveSelectionFromRememberedRowHandler(direction)) {
-				return;
-			}
-		}
-	}
-
-	[super keyDown:event];
-}
-
-- (BOOL) becomeFirstResponder
-{
-	BOOL did_become_first_responder = [super becomeFirstResponder];
-	if (did_become_first_responder && self.focusChangedHandler != nil) {
-		self.focusChangedHandler();
-	}
-
-	return did_become_first_responder;
-}
-
-- (BOOL) resignFirstResponder
-{
-	BOOL did_resign_first_responder = [super resignFirstResponder];
-	if (did_resign_first_responder && self.focusChangedHandler != nil) {
-		self.focusChangedHandler();
-	}
-
-	return did_resign_first_responder;
-}
-
-- (NSMenu*) menuForEvent:(NSEvent*) event
-{
-	if (self.contextMenuHandler == nil) {
-		return [super menuForEvent:event];
-	}
-
-	NSPoint point_in_window = event.locationInWindow;
-	NSPoint point_in_table = [self convertPoint:point_in_window fromView:nil];
-	NSInteger row = [self rowAtPoint:point_in_table];
-	if (row < 0 || row >= self.numberOfRows) {
-		return nil;
-	}
-
-	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
-	[self selectRowIndexes:index_set byExtendingSelection:NO];
-
-	NSMenu* menu = self.contextMenuHandler();
-	if (menu != nil) {
-		return menu;
-	}
-
-	return [super menuForEvent:event];
-}
-
-@end
-
-@interface MBSidebarRowView : NSTableRowView
-
-@property (nonatomic, strong) NSColor* customBackgroundColor;
-@property (nonatomic, strong) NSColor* customBorderColor;
-@property (nonatomic, strong) NSColor* customSelectionBackgroundColor;
-
-@end
-
-@implementation MBSidebarRowView
-
-- (void) setCustomBackgroundColor:(NSColor *)custom_background_color
-{
-	if ((_customBackgroundColor == custom_background_color) || [_customBackgroundColor isEqual:custom_background_color]) {
-		return;
-	}
-
-	_customBackgroundColor = custom_background_color;
-	[self setNeedsDisplay:YES];
-}
-
-- (void) setCustomSelectionBackgroundColor:(NSColor*) custom_selection_background_color
-{
-	if ((_customSelectionBackgroundColor == custom_selection_background_color) || [_customSelectionBackgroundColor isEqual:custom_selection_background_color]) {
-		return;
-	}
-
-	_customSelectionBackgroundColor = custom_selection_background_color;
-	[self setNeedsDisplay:YES];
-}
-
-- (void) setCustomBorderColor:(NSColor*) custom_border_color
-{
-	if ((_customBorderColor == custom_border_color) || [_customBorderColor isEqual:custom_border_color]) {
-		return;
-	}
-
-	_customBorderColor = custom_border_color;
-	[self setNeedsDisplay:YES];
-}
-
-- (void) drawBackgroundInRect:(NSRect)dirty_rect
-{
-	[super drawBackgroundInRect:dirty_rect];
-	#pragma unused(dirty_rect)
-	NSColor* fill_color = self.customSelectionBackgroundColor;
-	if (fill_color == nil) {
-		fill_color = self.customBackgroundColor;
-	}
-
-	if (fill_color == nil) {
-		return;
-	}
-
-	NSRect fill_rect = NSInsetRect(self.bounds, InkwellSidebarRowBackgroundHorizontalInset, InkwellSidebarRowBackgroundVerticalInset);
-	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:fill_rect xRadius:10.0 yRadius:10.0];
-	[fill_color setFill];
-	[background_path fill];
-	if (self.customBorderColor != nil) {
-		[self.customBorderColor setStroke];
-		background_path.lineWidth = 1.0;
-		[background_path stroke];
-	}
-}
-
-- (void) drawSelectionInRect:(NSRect)dirty_rect
-{
-	if (self.customSelectionBackgroundColor != nil) {
-		#pragma unused(dirty_rect)
-		return;
-	}
-
-	[super drawSelectionInRect:dirty_rect];
-}
-
-@end
-
-@interface MBSidebarRecapBoxView : NSBox
-@end
-
-@implementation MBSidebarRecapBoxView
-
-- (instancetype) initWithFrame:(NSRect) frame_rect
-{
-	self = [super initWithFrame:frame_rect];
-	if (self) {
-		[self updateFillColor];
-	}
-	return self;
-}
-
-- (void) viewDidChangeEffectiveAppearance
-{
-	[super viewDidChangeEffectiveAppearance];
-	[self updateFillColor];
-}
-
-- (void) updateFillColor
-{
-	[self.effectiveAppearance performAsCurrentDrawingAppearance:^{
-		self.fillColor = [[NSColor controlBackgroundColor] colorWithAlphaComponent:0.5];
-	}];
-}
-
-@end
 
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
