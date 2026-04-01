@@ -5,6 +5,33 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.1.2</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Added new post button to toolbar. It creates a link to the current blog post, with selected text if any as a quote.</li>
+					<li>Updated highlight button in the toolbar to add a little color.</li>
+					<li>Fixed View menu → Reading Recap to not switch selected tab.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Wed, 01 Apr 2026 11:55:00 -0000</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.1.2.zip"
+				sparkle:shortVersionString="1.1.2"
+				sparkle:version="17"
+				sparkle:edSignature="u7FTpyvNEOBsLyTJBfYHzu3Wypm4y6pzPbxW9OsoXl63ONNBqDNgfyLPxR+gp/mknhcbsqY+u27cRSQ4b7kUDQ=="
+				length="5395954"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.1.1</title>
  			<description><![CDATA[
 				<style>
