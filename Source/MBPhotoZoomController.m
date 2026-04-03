@@ -18,14 +18,28 @@ static CGFloat const InkwellPhotoMinimumZoomScale = 0.1;
 static CGFloat const InkwellPhotoMaximumZoomScale = 8.0;
 static CGFloat const InkwellPhotoZoomStep = 1.25;
 
+@interface MBPhotoTitlebarBackgroundView : NSView
+@end
+
+@implementation MBPhotoTitlebarBackgroundView
+
+- (BOOL) mouseDownCanMoveWindow
+{
+	return YES;
+}
+
+@end
+
 @interface MBPhotoZoomController () <NSToolbarDelegate, NSToolbarItemValidation, NSWindowDelegate>
 
 @property (nonatomic, strong) NSScrollView* scrollView;
 @property (nonatomic, strong) NSView* canvasView;
 @property (nonatomic, strong) NSImageView* imageView;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
+@property (nonatomic, strong) NSView* titlebarBackgroundView;
 @property (nonatomic, strong, nullable) NSURLSessionDataTask* imageTask;
 @property (nonatomic, strong, nullable) NSURL* imageURL;
+@property (nonatomic, assign) NSInteger imageLoadRequestID;
 @property (nonatomic, assign) NSSize imageSize;
 @property (nonatomic, assign) CGFloat zoomScale;
 @property (nonatomic, assign) BOOL didSetupContent;
@@ -36,7 +50,8 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 - (void) updateWindowTitle;
 - (NSString *) titleForImageURL:(NSURL *)image_url;
 - (void) setLoading:(BOOL) is_loading;
-- (void) applyLoadedImage:(NSImage *)image;
+- (void) revealLoadedImage:(NSImage *)image;
+- (void) resizeWindowToMatchImageAspect:(NSSize) image_size completion:(void (^)(void)) completion;
 - (NSSize) viewportSizeForPhotoLayout;
 - (CGFloat) defaultZoomScaleForImageSize:(NSSize) image_size;
 - (void) updateImageLayout;
@@ -119,6 +134,12 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	if (content_view == nil) {
 		return;
 	}
+	NSLayoutGuide* content_layout_guide = (NSLayoutGuide*) self.window.contentLayoutGuide;
+
+	MBPhotoTitlebarBackgroundView* titlebar_background_view = [[MBPhotoTitlebarBackgroundView alloc] initWithFrame:NSZeroRect];
+	titlebar_background_view.translatesAutoresizingMaskIntoConstraints = NO;
+	titlebar_background_view.wantsLayer = YES;
+	titlebar_background_view.layer.backgroundColor = [NSColor colorWithWhite:1.0 alpha:0.8].CGColor;
 
 	NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
 	scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -138,16 +159,21 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	NSProgressIndicator* progress_indicator = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
 	progress_indicator.translatesAutoresizingMaskIntoConstraints = NO;
 	progress_indicator.style = NSProgressIndicatorStyleSpinning;
-	progress_indicator.controlSize = NSControlSizeRegular;
+	progress_indicator.controlSize = NSControlSizeSmall;
 	progress_indicator.displayedWhenStopped = NO;
 
 	[content_view addSubview:scroll_view];
+	[content_view addSubview:titlebar_background_view];
 	[content_view addSubview:progress_indicator];
 	[NSLayoutConstraint activateConstraints:@[
 		[scroll_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
 		[scroll_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
 		[scroll_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
+		[titlebar_background_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
+		[titlebar_background_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
+		[titlebar_background_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
+		[titlebar_background_view.bottomAnchor constraintEqualToAnchor:content_layout_guide.topAnchor],
 		[progress_indicator.centerXAnchor constraintEqualToAnchor:content_view.centerXAnchor],
 		[progress_indicator.centerYAnchor constraintEqualToAnchor:content_view.centerYAnchor]
 	]];
@@ -156,6 +182,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	self.canvasView = canvas_view;
 	self.imageView = image_view;
 	self.progressIndicator = progress_indicator;
+	self.titlebarBackgroundView = titlebar_background_view;
 	self.didSetupContent = YES;
 }
 
@@ -167,10 +194,13 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	self.imageTask = nil;
 
 	self.imageView.image = nil;
+	self.imageView.alphaValue = 0.0;
 	self.imageSize = NSZeroSize;
 	self.zoomScale = 1.0;
 	[self updateImageLayout];
 	[self setLoading:YES];
+	self.imageLoadRequestID += 1;
+	NSInteger request_id = self.imageLoadRequestID;
 
 	NSURLRequest* request = [NSURLRequest requestWithURL:image_url cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:60.0];
 	__weak typeof(self) weak_self = self;
@@ -178,22 +208,35 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 		#pragma unused(response)
 		dispatch_async(dispatch_get_main_queue(), ^{
 			MBPhotoZoomController* strong_self = weak_self;
-			if (strong_self == nil || ![strong_self.imageURL isEqual:image_url]) {
+			if (strong_self == nil || strong_self.imageLoadRequestID != request_id || ![strong_self.imageURL isEqual:image_url]) {
 				return;
 			}
 
 			strong_self.imageTask = nil;
-			[strong_self setLoading:NO];
 			if (error != nil || data.length == 0) {
+				[strong_self setLoading:NO];
 				return;
 			}
 
 			NSImage* image = [[NSImage alloc] initWithData:data];
 			if (image == nil) {
+				[strong_self setLoading:NO];
 				return;
 			}
 
-			[strong_self applyLoadedImage:image];
+			NSSize image_size = image.size;
+			if (image_size.width <= 0.0 || image_size.height <= 0.0) {
+				image_size = NSMakeSize(1.0, 1.0);
+			}
+
+			[strong_self resizeWindowToMatchImageAspect:image_size completion:^{
+				if (strong_self.imageLoadRequestID != request_id || ![strong_self.imageURL isEqual:image_url]) {
+					return;
+				}
+
+				[strong_self setLoading:NO];
+				[strong_self revealLoadedImage:image];
+			}];
 		});
 	}];
 
@@ -233,9 +276,10 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	}
 }
 
-- (void) applyLoadedImage:(NSImage *)image
+- (void) revealLoadedImage:(NSImage *)image
 {
 	self.imageView.image = image;
+	self.imageView.alphaValue = 0.0;
 	self.imageSize = image.size;
 	if (self.imageSize.width <= 0.0 || self.imageSize.height <= 0.0) {
 		self.imageSize = NSMakeSize(1.0, 1.0);
@@ -243,6 +287,75 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 
 	self.zoomScale = [self defaultZoomScaleForImageSize:self.imageSize];
 	[self updateImageLayout];
+
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.3;
+		self.imageView.animator.alphaValue = 1.0;
+	} completionHandler:^{
+		self.imageView.alphaValue = 1.0;
+	}];
+}
+
+- (void) resizeWindowToMatchImageAspect:(NSSize) image_size completion:(void (^)(void)) completion
+{
+	if (self.window == nil || image_size.width <= 0.0 || image_size.height <= 0.0) {
+		if (completion != nil) {
+			completion();
+		}
+		return;
+	}
+
+	CGFloat image_aspect_ratio = image_size.width / image_size.height;
+	if (!isfinite(image_aspect_ratio) || image_aspect_ratio <= 0.0) {
+		if (completion != nil) {
+			completion();
+		}
+		return;
+	}
+
+	NSRect old_frame = self.window.frame;
+	CGFloat old_top = NSMaxY(old_frame);
+	CGFloat current_aspect_ratio = old_frame.size.width / old_frame.size.height;
+	CGFloat new_width = old_frame.size.width;
+	CGFloat new_height = old_frame.size.height;
+
+	if (image_aspect_ratio >= current_aspect_ratio) {
+		new_width = round(old_frame.size.height * image_aspect_ratio);
+	}
+	else {
+		new_height = round(old_frame.size.width / image_aspect_ratio);
+	}
+
+	new_width = MAX(self.window.minSize.width, new_width);
+	new_height = MAX(self.window.minSize.height, new_height);
+
+	NSScreen* screen = self.window.screen ?: NSScreen.mainScreen;
+	NSRect visible_frame = screen.visibleFrame;
+	if (!NSIsEmptyRect(visible_frame)) {
+		new_width = MIN(new_width, visible_frame.size.width);
+		new_height = MIN(new_height, visible_frame.size.height);
+	}
+
+	NSRect new_frame = old_frame;
+	new_frame.size.width = new_width;
+	new_frame.size.height = new_height;
+	new_frame.origin.y = old_top - new_height;
+
+	if (NSEqualRects(old_frame, new_frame)) {
+		if (completion != nil) {
+			completion();
+		}
+		return;
+	}
+
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.2;
+		[[self.window animator] setFrame:new_frame display:YES];
+	} completionHandler:^{
+		if (completion != nil) {
+			completion();
+		}
+	}];
 }
 
 - (NSSize) viewportSizeForPhotoLayout
