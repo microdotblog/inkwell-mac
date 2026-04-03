@@ -37,6 +37,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 - (NSString *) titleForImageURL:(NSURL *)image_url;
 - (void) setLoading:(BOOL) is_loading;
 - (void) applyLoadedImage:(NSImage *)image;
+- (NSSize) viewportSizeForPhotoLayout;
 - (CGFloat) defaultZoomScaleForImageSize:(NSSize) image_size;
 - (void) updateImageLayout;
 - (IBAction) zoomOut:(id) sender;
@@ -86,6 +87,8 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	NSWindow* window = [[NSWindow alloc] initWithContentRect:frame styleMask:style_mask backing:NSBackingStoreBuffered defer:NO];
 	window.releasedWhenClosed = NO;
 	window.minSize = NSMakeSize(InkwellPhotoWindowMinWidth, InkwellPhotoWindowMinHeight);
+	window.styleMask |= NSWindowStyleMaskFullSizeContentView;
+	window.titlebarAppearsTransparent = YES;
 	window.toolbarStyle = NSWindowToolbarStyleUnified;
 	window.delegate = self;
 
@@ -242,9 +245,19 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	[self updateImageLayout];
 }
 
+- (NSSize) viewportSizeForPhotoLayout
+{
+	NSSize viewport_size = self.scrollView.bounds.size;
+	if (viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
+		viewport_size = self.window.contentView.bounds.size;
+	}
+
+	return viewport_size;
+}
+
 - (CGFloat) defaultZoomScaleForImageSize:(NSSize) image_size
 {
-	NSSize viewport_size = self.scrollView.contentSize;
+	NSSize viewport_size = [self viewportSizeForPhotoLayout];
 	if (image_size.width <= 0.0 || image_size.height <= 0.0 || viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
 		return 1.0;
 	}
@@ -265,10 +278,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 		return;
 	}
 
-	NSSize viewport_size = self.scrollView.contentSize;
-	if (viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
-		viewport_size = self.window.contentView.bounds.size;
-	}
+	NSSize viewport_size = [self viewportSizeForPhotoLayout];
 
 	if (self.imageView.image == nil || self.imageSize.width <= 0.0 || self.imageSize.height <= 0.0) {
 		self.canvasView.frame = NSMakeRect(0.0, 0.0, MAX(1.0, viewport_size.width), MAX(1.0, viewport_size.height));
