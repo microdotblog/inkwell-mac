@@ -30,6 +30,66 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 
 @end
 
+@interface MBPhotoCanvasView : NSView
+@end
+
+@implementation MBPhotoCanvasView
+
+- (BOOL) shouldAllowDragScrolling
+{
+	NSScrollView* scroll_view = self.enclosingScrollView;
+	if (scroll_view == nil) {
+		return NO;
+	}
+
+	NSSize viewport_size = scroll_view.contentView.bounds.size;
+	return (NSWidth(self.bounds) > (viewport_size.width + 0.5) || NSHeight(self.bounds) > (viewport_size.height + 0.5));
+}
+
+- (void) mouseDown:(NSEvent *)event
+{
+	if (![self shouldAllowDragScrolling]) {
+		[super mouseDown:event];
+		return;
+	}
+
+	NSScrollView* scroll_view = self.enclosingScrollView;
+	NSClipView* clip_view = scroll_view.contentView;
+	NSPoint previous_location = [event locationInWindow];
+	[NSCursor.closedHandCursor push];
+
+	while (YES) {
+		NSEvent* next_event = [self.window nextEventMatchingMask:(NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp)];
+		if (next_event == nil) {
+			break;
+		}
+		if (next_event.type == NSEventTypeLeftMouseUp) {
+			break;
+		}
+
+		NSPoint current_location = [next_event locationInWindow];
+		CGFloat delta_x = current_location.x - previous_location.x;
+		CGFloat delta_y = current_location.y - previous_location.y;
+		previous_location = current_location;
+
+		NSPoint new_origin = clip_view.bounds.origin;
+		new_origin.x -= delta_x;
+		new_origin.y -= delta_y;
+
+		CGFloat max_x = MAX(0.0, NSWidth(self.bounds) - NSWidth(clip_view.bounds));
+		CGFloat max_y = MAX(0.0, NSHeight(self.bounds) - NSHeight(clip_view.bounds));
+		new_origin.x = MIN(MAX(0.0, new_origin.x), max_x);
+		new_origin.y = MIN(MAX(0.0, new_origin.y), max_y);
+
+		[clip_view scrollToPoint:new_origin];
+		[scroll_view reflectScrolledClipView:clip_view];
+	}
+
+	[NSCursor pop];
+}
+
+@end
+
 @interface MBPhotoZoomController () <NSToolbarDelegate, NSToolbarItemValidation, NSWindowDelegate>
 
 @property (nonatomic, strong) NSScrollView* scrollView;
@@ -149,7 +209,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	scroll_view.hasHorizontalScroller = YES;
 	scroll_view.autohidesScrollers = YES;
 
-	NSView* canvas_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, InkwellPhotoWindowDefaultWidth, InkwellPhotoWindowDefaultHeight)];
+	MBPhotoCanvasView* canvas_view = [[MBPhotoCanvasView alloc] initWithFrame:NSMakeRect(0.0, 0.0, InkwellPhotoWindowDefaultWidth, InkwellPhotoWindowDefaultHeight)];
 
 	NSImageView* image_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
 	image_view.imageScaling = NSImageScaleProportionallyUpOrDown;
@@ -360,7 +420,14 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 
 - (NSSize) viewportSizeForPhotoLayout
 {
-	NSSize viewport_size = self.scrollView.bounds.size;
+	[self.window.contentView layoutSubtreeIfNeeded];
+	[self.scrollView layoutSubtreeIfNeeded];
+	[self.scrollView.contentView layoutSubtreeIfNeeded];
+
+	NSSize viewport_size = self.scrollView.contentView.documentVisibleRect.size;
+	if (viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
+		viewport_size = self.scrollView.contentView.bounds.size;
+	}
 	if (viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
 		viewport_size = self.window.contentView.bounds.size;
 	}
@@ -404,9 +471,18 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	NSSize canvas_size = NSMakeSize(MAX(viewport_size.width, scaled_width), MAX(viewport_size.height, scaled_height));
 	CGFloat image_x = floor((canvas_size.width - scaled_width) / 2.0);
 	CGFloat image_y = floor((canvas_size.height - scaled_height) / 2.0);
+	NSClipView* clip_view = self.scrollView.contentView;
 
 	self.canvasView.frame = NSMakeRect(0.0, 0.0, canvas_size.width, canvas_size.height);
 	self.imageView.frame = NSMakeRect(image_x, image_y, scaled_width, scaled_height);
+
+	NSPoint new_origin = clip_view.bounds.origin;
+	CGFloat max_x = MAX(0.0, canvas_size.width - NSWidth(clip_view.bounds));
+	CGFloat max_y = MAX(0.0, canvas_size.height - NSHeight(clip_view.bounds));
+	new_origin.x = MIN(MAX(0.0, new_origin.x), max_x);
+	new_origin.y = MIN(MAX(0.0, new_origin.y), max_y);
+	[clip_view scrollToPoint:new_origin];
+	[self.scrollView reflectScrolledClipView:clip_view];
 }
 
 - (IBAction) zoomOut:(id) sender
