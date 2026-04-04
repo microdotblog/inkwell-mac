@@ -18,6 +18,7 @@ static CGFloat const InkwellPhotoWindowAutomaticMaxDimension = 800.0;
 static CGFloat const InkwellPhotoMinimumZoomScale = 0.1;
 static CGFloat const InkwellPhotoMaximumZoomScale = 8.0;
 static CGFloat const InkwellPhotoZoomStep = 1.25;
+static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 
 @interface MBPhotoTitlebarBackgroundView : NSView
 @end
@@ -27,6 +28,132 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 - (BOOL) mouseDownCanMoveWindow
 {
 	return YES;
+}
+
+@end
+
+@interface MBPhotoOverlayLinkField : NSTextField
+
+@property (nonatomic, strong, nullable) NSURL* destinationURL;
+@property (nonatomic, strong) NSColor* linkColor;
+@property (nonatomic, copy) NSString* displayString;
+@property (nonatomic, strong, nullable) NSTrackingArea* trackingArea;
+@property (nonatomic, assign) BOOL isHovering;
+
+- (void) updateTextAttributes;
+
+@end
+
+@implementation MBPhotoOverlayLinkField
+
+- (instancetype) initWithFrame:(NSRect)frameRect
+{
+	self = [super initWithFrame:frameRect];
+	if (self) {
+		self.bezeled = NO;
+		self.bordered = NO;
+		self.drawsBackground = NO;
+		self.editable = NO;
+		self.selectable = NO;
+		self.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium];
+		self.lineBreakMode = NSLineBreakByTruncatingTail;
+		self.maximumNumberOfLines = 1;
+		self.linkColor = [NSColor colorNamed:@"color_link"] ?: NSColor.linkColor;
+		self.displayString = @"";
+		[self updateTextAttributes];
+	}
+	return self;
+}
+
+- (void) updateTrackingAreas
+{
+	[super updateTrackingAreas];
+
+	if (self.trackingArea != nil) {
+		[self removeTrackingArea:self.trackingArea];
+		self.trackingArea = nil;
+	}
+
+	if (self.destinationURL == nil || self.bounds.size.width <= 0.0 || self.bounds.size.height <= 0.0) {
+		return;
+	}
+
+	NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+	self.trackingArea = [[NSTrackingArea alloc] initWithRect:self.bounds options:options owner:self userInfo:nil];
+	[self addTrackingArea:self.trackingArea];
+}
+
+- (void) resetCursorRects
+{
+	[super resetCursorRects];
+
+	if (self.destinationURL != nil) {
+		[self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+	}
+}
+
+- (void) mouseEntered:(NSEvent *)event
+{
+	#pragma unused(event)
+	self.isHovering = YES;
+	[self updateTextAttributes];
+}
+
+- (void) mouseExited:(NSEvent *)event
+{
+	#pragma unused(event)
+	self.isHovering = NO;
+	[self updateTextAttributes];
+}
+
+- (void) mouseUp:(NSEvent *)event
+{
+	#pragma unused(event)
+	if (self.destinationURL == nil) {
+		[super mouseUp:event];
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:self.destinationURL];
+}
+
+- (void) setDestinationURL:(NSURL *)destinationURL
+{
+	_destinationURL = destinationURL;
+	self.toolTip = destinationURL.absoluteString ?: @"";
+	[self updateTrackingAreas];
+	[self.window invalidateCursorRectsForView:self];
+}
+
+- (void) setLinkColor:(NSColor *)linkColor
+{
+	_linkColor = linkColor ?: NSColor.linkColor;
+	[self updateTextAttributes];
+}
+
+- (void) setDisplayString:(NSString *)displayString
+{
+	_displayString = [displayString copy] ?: @"";
+	[self updateTextAttributes];
+}
+
+- (void) updateTextAttributes
+{
+	NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
+	paragraph_style.lineBreakMode = NSLineBreakByTruncatingTail;
+
+	NSMutableDictionary* attributes = [@{
+		NSForegroundColorAttributeName: self.linkColor ?: NSColor.linkColor,
+		NSParagraphStyleAttributeName: paragraph_style
+	} mutableCopy];
+	if (self.font != nil) {
+		attributes[NSFontAttributeName] = self.font;
+	}
+	if (self.isHovering && self.destinationURL != nil) {
+		attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
+	}
+
+	self.attributedStringValue = [[NSAttributedString alloc] initWithString:(self.displayString ?: @"") attributes:attributes];
 }
 
 @end
@@ -98,8 +225,11 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 @property (nonatomic, strong) NSImageView* imageView;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
 @property (nonatomic, strong) NSView* titlebarBackgroundView;
+@property (nonatomic, strong) NSBox* relatedInfoBox;
+@property (nonatomic, strong) MBPhotoOverlayLinkField* relatedURLField;
 @property (nonatomic, strong, nullable) NSURLSessionDataTask* imageTask;
 @property (nonatomic, strong, nullable) NSURL* imageURL;
+@property (nonatomic, strong, nullable) NSURL* relatedPostURL;
 @property (nonatomic, assign) NSInteger imageLoadRequestID;
 @property (nonatomic, assign) NSSize imageSize;
 @property (nonatomic, assign) CGFloat zoomScale;
@@ -111,6 +241,9 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 - (NSURL *) expandedImageURLIfNeeded:(NSURL *)imageURL;
 - (void) updateWindowTitle;
 - (NSString *) titleForImageURL:(NSURL *)imageURL;
+- (NSURL * _Nullable) normalizedRelatedPostURL:(NSURL * _Nullable)relatedPostURL imageURL:(NSURL *)imageURL;
+- (NSString *) displayStringForRelatedPostURL:(NSURL *)relatedPostURL;
+- (void) updateRelatedInfoVisibility;
 - (void) setLoading:(BOOL) isLoading;
 - (void) revealLoadedImage:(NSImage *)image;
 - (void) resizeWindowToMatchImageAspect:(NSSize) imageSize completion:(void (^)(void)) completion;
@@ -177,16 +310,42 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 
 - (void) showWindowForImageURL:(NSURL *)imageURL
 {
+	[self showWindowForImageURL:imageURL relatedPostURL:nil];
+}
+
+- (void) showWindowForImageURL:(NSURL *)imageURL relatedPostURL:(NSURL * _Nullable)relatedPostURL
+{
 	if (imageURL == nil) {
 		return;
 	}
 
 	[self setupWindowIfNeeded];
 	[self setupContentIfNeeded];
+	self.relatedPostURL = [self normalizedRelatedPostURL:relatedPostURL imageURL:imageURL];
+	[self updateRelatedPostURL:self.relatedPostURL];
 	[super showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
 	[NSApp activateIgnoringOtherApps:YES];
 	[self loadImageURL:imageURL];
+}
+
+- (void) updateRelatedPostURL:(NSURL * _Nullable)relatedPostURL
+{
+	NSURL* normalized_post_url = [self normalizedRelatedPostURL:relatedPostURL imageURL:self.imageURL];
+	self.relatedPostURL = normalized_post_url;
+
+	if (normalized_post_url != nil) {
+		self.relatedURLField.hidden = NO;
+		self.relatedURLField.destinationURL = normalized_post_url;
+		self.relatedURLField.displayString = [self displayStringForRelatedPostURL:normalized_post_url];
+	}
+	else {
+		self.relatedURLField.hidden = YES;
+		self.relatedURLField.destinationURL = nil;
+		self.relatedURLField.displayString = @"";
+	}
+
+	[self updateRelatedInfoVisibility];
 }
 
 - (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) topLeftPoint
@@ -253,16 +412,16 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	titlebar_background_view.wantsLayer = YES;
 	titlebar_background_view.layer.backgroundColor = [NSColor colorWithWhite:1.0 alpha:0.8].CGColor;
 
-		NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-		scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
-		scroll_view.drawsBackground = NO;
-		scroll_view.borderType = NSNoBorder;
-		scroll_view.hasVerticalScroller = YES;
-		scroll_view.hasHorizontalScroller = YES;
-		scroll_view.autohidesScrollers = YES;
-		scroll_view.automaticallyAdjustsContentInsets = NO;
-		scroll_view.contentInsets = NSEdgeInsetsZero;
-		scroll_view.scrollerInsets = NSEdgeInsetsZero;
+	NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+	scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
+	scroll_view.drawsBackground = NO;
+	scroll_view.borderType = NSNoBorder;
+	scroll_view.hasVerticalScroller = YES;
+	scroll_view.hasHorizontalScroller = YES;
+	scroll_view.autohidesScrollers = YES;
+	scroll_view.automaticallyAdjustsContentInsets = NO;
+	scroll_view.contentInsets = NSEdgeInsetsZero;
+	scroll_view.scrollerInsets = NSEdgeInsetsZero;
 
 	MBPhotoCanvasView* canvas_view = [[MBPhotoCanvasView alloc] initWithFrame:NSMakeRect(0.0, 0.0, InkwellPhotoWindowDefaultWidth, InkwellPhotoWindowDefaultHeight)];
 
@@ -270,6 +429,21 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	image_view.imageScaling = NSImageScaleProportionallyUpOrDown;
 	[canvas_view addSubview:image_view];
 	scroll_view.documentView = canvas_view;
+
+	NSBox* related_info_box = [[NSBox alloc] initWithFrame:NSZeroRect];
+	related_info_box.translatesAutoresizingMaskIntoConstraints = NO;
+	related_info_box.boxType = NSBoxCustom;
+	related_info_box.borderType = NSNoBorder;
+	related_info_box.borderWidth = 0.0;
+	related_info_box.cornerRadius = 0.0;
+	related_info_box.fillColor = [NSColor colorNamed:@"color_photo_footer"];
+	related_info_box.hidden = YES;
+
+	MBPhotoOverlayLinkField* related_url_field = [[MBPhotoOverlayLinkField alloc] initWithFrame:NSZeroRect];
+	related_url_field.translatesAutoresizingMaskIntoConstraints = NO;
+	related_url_field.hidden = YES;
+
+	[related_info_box addSubview:related_url_field];
 
 	NSProgressIndicator* progress_indicator = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
 	progress_indicator.translatesAutoresizingMaskIntoConstraints = NO;
@@ -279,6 +453,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 
 	[content_view addSubview:scroll_view];
 	[content_view addSubview:titlebar_background_view];
+	[content_view addSubview:related_info_box];
 	[content_view addSubview:progress_indicator];
 	[NSLayoutConstraint activateConstraints:@[
 		[scroll_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
@@ -289,6 +464,13 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 		[titlebar_background_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
 		[titlebar_background_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
 		[titlebar_background_view.bottomAnchor constraintEqualToAnchor:content_layout_guide.topAnchor],
+		[related_info_box.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
+		[related_info_box.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
+		[related_info_box.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
+		[related_info_box.heightAnchor constraintEqualToConstant:InkwellPhotoRelatedPaneHeight],
+		[related_url_field.leadingAnchor constraintEqualToAnchor:related_info_box.leadingAnchor constant:20.0],
+		[related_url_field.centerYAnchor constraintEqualToAnchor:related_info_box.centerYAnchor],
+		[related_url_field.trailingAnchor constraintEqualToAnchor:related_info_box.trailingAnchor constant:-12.0],
 		[progress_indicator.centerXAnchor constraintEqualToAnchor:content_view.centerXAnchor],
 		[progress_indicator.centerYAnchor constraintEqualToAnchor:content_view.centerYAnchor]
 	]];
@@ -298,6 +480,8 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	self.imageView = image_view;
 	self.progressIndicator = progress_indicator;
 	self.titlebarBackgroundView = titlebar_background_view;
+	self.relatedInfoBox = related_info_box;
+	self.relatedURLField = related_url_field;
 	self.didSetupContent = YES;
 }
 
@@ -387,6 +571,43 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	}
 
 	return @"Photo";
+}
+
+- (NSURL * _Nullable) normalizedRelatedPostURL:(NSURL * _Nullable)relatedPostURL imageURL:(NSURL *)imageURL
+{
+	if (relatedPostURL == nil) {
+		return nil;
+	}
+
+	NSString* related_string = [relatedPostURL.absoluteString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* image_string = [imageURL.absoluteString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (related_string.length == 0) {
+		return nil;
+	}
+	if (image_string.length > 0 && [related_string isEqualToString:image_string]) {
+		return nil;
+	}
+
+	return relatedPostURL;
+}
+
+- (NSString *) displayStringForRelatedPostURL:(NSURL *)relatedPostURL
+{
+	NSString* display_string = [relatedPostURL.absoluteString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if ([display_string hasPrefix:@"https://"]) {
+		return [display_string substringFromIndex:8];
+	}
+	if ([display_string hasPrefix:@"http://"]) {
+		return [display_string substringFromIndex:7];
+	}
+	return display_string;
+}
+
+- (void) updateRelatedInfoVisibility
+{
+	BOOL has_url = (self.relatedPostURL != nil && self.relatedURLField.displayString.length > 0);
+	self.relatedInfoBox.hidden = !has_url;
+	self.relatedURLField.hidden = !has_url;
 }
 
 - (void) setLoading:(BOOL) isLoading

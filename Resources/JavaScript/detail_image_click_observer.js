@@ -54,7 +54,6 @@
 		var linkEl = imageEl.closest('a[href]');
 		var anchorHref = linkEl ? absoluteURL(linkEl.getAttribute('href')) : '';
 		var imageURL = imageLikeURL(anchorHref) || imageSrc;
-
 		if (!window.webkit || !window.webkit.messageHandlers || !window.webkit.messageHandlers.imageClicked) {
 			return;
 		}

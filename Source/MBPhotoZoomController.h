@@ -20,6 +20,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) topLeftPoint;
 - (NSPoint) nextWindowCascadeTopLeftPoint;
 - (void) showWindowForImageURL:(NSURL *)imageURL;
+- (void) showWindowForImageURL:(NSURL *)imageURL relatedPostURL:(NSURL * _Nullable)relatedPostURL;
+- (void) updateRelatedPostURL:(NSURL * _Nullable)relatedPostURL;
 
 @end
 

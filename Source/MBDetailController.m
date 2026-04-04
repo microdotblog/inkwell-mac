@@ -99,6 +99,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (strong) id keyDownEventMonitor;
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
+@property (strong, nullable) MBEntry* currentSidebarItem;
 @property (assign) NSPoint nextPhotoWindowCascadePoint;
 @property (assign) BOOL hasNextPhotoWindowCascadePoint;
 @property (strong) NSMutableArray* photoZoomControllers;
@@ -137,6 +138,10 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (void) updateHoveredHighlightWithScriptMessageBody:(id) body;
 - (void) updateHoveredLinkWithScriptMessageBody:(id) body;
 - (void) updateHoveredLinkURLString:(NSString*) url_string;
+- (NSURL * _Nullable) urlFromScriptMessageValue:(id) value;
+- (NSURL * _Nullable) anchorURLFromScriptMessageBody:(id) body;
+- (NSURL * _Nullable) currentPostURL;
+- (BOOL) URLLooksLikeImage:(NSURL *) url;
 - (void) promptToDeleteHoveredHighlight:(id) sender;
 - (void) deleteHighlight:(MBHighlight*) highlight;
 - (void) presentDeleteError:(NSError*) error;
@@ -144,6 +149,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (MBPhotoZoomController* _Nullable) existingPhotoWindowControllerForURL:(NSURL *) image_url;
 - (void) removePhotoWindowController:(MBPhotoZoomController*) controller;
 - (void) presentPhotoWindowForURL:(NSURL *) image_url;
+- (void) presentPhotoWindowForURL:(NSURL *) imageURL relatedPostURL:(NSURL * _Nullable) relatedPostURL;
 - (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex;
 - (BOOL) systemInterfaceStyleIsDark;
 - (BOOL) prefersDarkSystemAppearance;
@@ -415,12 +421,14 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 	if (item == nil) {
 		self.currentEntryID = 0;
+		self.currentSidebarItem = nil;
 		NSString* html = [self htmlForPostTitle:@"" author:@"" siteTitle:@"" content:@""];
 		[self.webView loadHTMLString:html baseURL:[self baseURLForEntry:nil]];
 		return;
 	}
 
 	self.currentEntryID = item.entryID;
+	self.currentSidebarItem = item;
 
 	NSString* safe_title = [self escapedHTMLString:item.title ?: @""];
 	NSString* entry_html = item.text ?: @"";
@@ -453,6 +461,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self updateWebViewUnderPageBackgroundColor];
 	self.isShowingReadingRecap = YES;
 	self.currentEntryID = 0;
+	self.currentSidebarItem = nil;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
@@ -579,7 +588,16 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	if ([script_message.name isEqualToString:InkwellImageClickedScriptMessageName]) {
 		NSURL* image_url = [self imageURLFromScriptMessageBody:script_message.body];
 		if (image_url != nil) {
-			[self presentPhotoWindowForURL:image_url];
+			NSURL* anchor_url = [self anchorURLFromScriptMessageBody:script_message.body];
+			NSURL* related_post_url = nil;
+			if (anchor_url != nil && ![self URLLooksLikeImage:anchor_url]) {
+				related_post_url = anchor_url;
+			}
+			if (related_post_url == nil) {
+				related_post_url = [self currentPostURL];
+			}
+
+			[self presentPhotoWindowForURL:image_url relatedPostURL:related_post_url];
 		}
 		return;
 	}
@@ -869,6 +887,56 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	return image_url;
 }
 
+- (NSURL * _Nullable) urlFromScriptMessageValue:(id) value
+{
+	if (value == nil) {
+		return nil;
+	}
+
+	NSString* url_string = [[value description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return nil;
+	}
+
+	NSURL* url = [NSURL URLWithString:url_string];
+	if (url == nil || url.scheme.length == 0) {
+		return nil;
+	}
+
+	return url;
+}
+
+- (NSURL * _Nullable) anchorURLFromScriptMessageBody:(id) body
+{
+	if (![body isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSDictionary* payload = (NSDictionary*) body;
+	return [self urlFromScriptMessageValue:payload[@"anchor_href"]];
+}
+
+- (NSURL * _Nullable) currentPostURL
+{
+	return [self urlFromScriptMessageValue:self.currentSidebarItem.url];
+}
+
+- (BOOL) URLLooksLikeImage:(NSURL *) url
+{
+	NSString* path_extension = [[url.pathExtension ?: @"" lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if (path_extension.length == 0) {
+		return NO;
+	}
+
+	static NSSet* image_extensions;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		image_extensions = [NSSet setWithArray:@[ @"apng", @"avif", @"bmp", @"gif", @"heic", @"heif", @"jpeg", @"jpg", @"png", @"svg", @"tif", @"tiff", @"webp" ]];
+	});
+
+	return [image_extensions containsObject:path_extension];
+}
+
 - (MBPhotoZoomController* _Nullable) existingPhotoWindowControllerForURL:(NSURL *) image_url
 {
 	if (image_url == nil) {
@@ -899,12 +967,18 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 - (void) presentPhotoWindowForURL:(NSURL *) image_url
 {
-	if (image_url == nil) {
+	[self presentPhotoWindowForURL:image_url relatedPostURL:nil];
+}
+
+- (void) presentPhotoWindowForURL:(NSURL *) imageURL relatedPostURL:(NSURL * _Nullable) relatedPostURL
+{
+	if (imageURL == nil) {
 		return;
 	}
 
-	MBPhotoZoomController* existing_controller = [self existingPhotoWindowControllerForURL:image_url];
+	MBPhotoZoomController* existing_controller = [self existingPhotoWindowControllerForURL:imageURL];
 	if (existing_controller != nil) {
+		[existing_controller updateRelatedPostURL:relatedPostURL];
 		[existing_controller showWindow:nil];
 		[existing_controller.window makeKeyAndOrderFront:nil];
 		[NSApp activateIgnoringOtherApps:YES];
@@ -926,7 +1000,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		[strong_self removePhotoWindowController:closing_controller];
 	};
 	[self.photoZoomControllers addObject:controller];
-	[controller showWindowForImageURL:image_url];
+	[controller showWindowForImageURL:imageURL relatedPostURL:relatedPostURL];
 	if (!self.hasNextPhotoWindowCascadePoint) {
 		self.nextPhotoWindowCascadePoint = [controller nextWindowCascadeTopLeftPoint];
 		self.hasNextPhotoWindowCascadePoint = YES;
