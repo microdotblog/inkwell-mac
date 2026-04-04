@@ -227,12 +227,15 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 @property (nonatomic, strong) NSView* titlebarBackgroundView;
 @property (nonatomic, strong) NSBox* relatedInfoBox;
 @property (nonatomic, strong) MBPhotoOverlayLinkField* relatedURLField;
+@property (nonatomic, strong) NSMagnificationGestureRecognizer* magnificationGestureRecognizer;
 @property (nonatomic, strong, nullable) NSURLSessionDataTask* imageTask;
 @property (nonatomic, strong, nullable) NSURL* imageURL;
 @property (nonatomic, strong, nullable) NSURL* relatedPostURL;
 @property (nonatomic, assign) NSInteger imageLoadRequestID;
 @property (nonatomic, assign) NSSize imageSize;
 @property (nonatomic, assign) CGFloat zoomScale;
+@property (nonatomic, assign) CGFloat gestureZoomStartScale;
+@property (nonatomic, assign) NSPoint gestureZoomRelativeCenterPoint;
 @property (nonatomic, assign) BOOL didSetupContent;
 
 - (void) setupWindowIfNeeded;
@@ -249,11 +252,13 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 - (void) resizeWindowToMatchImageAspect:(NSSize) imageSize completion:(void (^)(void)) completion;
 - (NSSize) viewportSizeForPhotoLayout;
 - (CGFloat) defaultZoomScaleForImageSize:(NSSize) imageSize;
+- (CGFloat) minimumZoomScaleForCurrentViewport;
 - (NSPoint) currentImageRelativeCenterPoint;
 - (void) scrollToTopLeft;
 - (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relativeCenterPoint;
 - (BOOL) needsScrollPositionPinnedToTopLeft;
 - (void) updateImageLayout;
+- (void) handleMagnificationGesture:(NSMagnificationGestureRecognizer*) gestureRecognizer;
 - (IBAction) zoomOut:(id) sender;
 - (IBAction) zoomIn:(id) sender;
 
@@ -299,6 +304,8 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	if (self) {
 		self.zoomScale = 1.0;
 		self.imageSize = NSZeroSize;
+		self.gestureZoomStartScale = 1.0;
+		self.gestureZoomRelativeCenterPoint = NSMakePoint(0.5, 0.5);
 	}
 	return self;
 }
@@ -423,6 +430,9 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	scroll_view.contentInsets = NSEdgeInsetsZero;
 	scroll_view.scrollerInsets = NSEdgeInsetsZero;
 
+	NSMagnificationGestureRecognizer* magnification_gesture_recognizer = [[NSMagnificationGestureRecognizer alloc] initWithTarget:self action:@selector(handleMagnificationGesture:)];
+	[scroll_view addGestureRecognizer:magnification_gesture_recognizer];
+
 	MBPhotoCanvasView* canvas_view = [[MBPhotoCanvasView alloc] initWithFrame:NSMakeRect(0.0, 0.0, InkwellPhotoWindowDefaultWidth, InkwellPhotoWindowDefaultHeight)];
 
 	NSImageView* image_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
@@ -482,6 +492,7 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	self.titlebarBackgroundView = titlebar_background_view;
 	self.relatedInfoBox = related_info_box;
 	self.relatedURLField = related_url_field;
+	self.magnificationGestureRecognizer = magnification_gesture_recognizer;
 	self.didSetupContent = YES;
 }
 
@@ -744,6 +755,29 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	return MAX(InkwellPhotoMinimumZoomScale, MIN(1.0, fit_scale));
 }
 
+- (CGFloat) minimumZoomScaleForCurrentViewport
+{
+	if (self.imageSize.width <= 0.0 || self.imageSize.height <= 0.0) {
+		return InkwellPhotoMinimumZoomScale;
+	}
+
+	NSSize viewport_size = [self viewportSizeForPhotoLayout];
+	if (viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
+		return InkwellPhotoMinimumZoomScale;
+	}
+
+	CGFloat available_width = MAX(1.0, viewport_size.width - 200.0);
+	CGFloat available_height = MAX(1.0, viewport_size.height - 200.0);
+	CGFloat width_scale = available_width / self.imageSize.width;
+	CGFloat height_scale = available_height / self.imageSize.height;
+	CGFloat edge_scale = MIN(width_scale, height_scale);
+	if (!isfinite(edge_scale) || edge_scale <= 0.0) {
+		return InkwellPhotoMinimumZoomScale;
+	}
+
+	return MAX(InkwellPhotoMinimumZoomScale, MIN(1.0, edge_scale));
+}
+
 - (NSPoint) currentImageRelativeCenterPoint
 {
 	if (self.imageView.image == nil || self.imageSize.width <= 0.0 || self.imageSize.height <= 0.0 || self.scrollView == nil) {
@@ -844,6 +878,32 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	[self.scrollView reflectScrolledClipView:clip_view];
 }
 
+- (void) handleMagnificationGesture:(NSMagnificationGestureRecognizer*) gestureRecognizer
+{
+	if (self.imageView.image == nil) {
+		return;
+	}
+
+	if (gestureRecognizer.state == NSGestureRecognizerStateBegan) {
+		self.gestureZoomStartScale = self.zoomScale;
+		self.gestureZoomRelativeCenterPoint = [self currentImageRelativeCenterPoint];
+	}
+
+	CGFloat magnification = gestureRecognizer.magnification;
+	CGFloat proposed_zoom_scale = self.gestureZoomStartScale * (1.0 + magnification);
+	CGFloat minimum_zoom_scale = [self minimumZoomScaleForCurrentViewport];
+	CGFloat clamped_zoom_scale = MIN(MAX(minimum_zoom_scale, proposed_zoom_scale), InkwellPhotoMaximumZoomScale);
+	if (fabs(clamped_zoom_scale - self.zoomScale) > 0.0001) {
+		self.zoomScale = clamped_zoom_scale;
+		[self updateImageLayout];
+		[self scrollToKeepImageRelativeCenterPoint:self.gestureZoomRelativeCenterPoint];
+	}
+
+	if (gestureRecognizer.state == NSGestureRecognizerStateEnded || gestureRecognizer.state == NSGestureRecognizerStateCancelled || gestureRecognizer.state == NSGestureRecognizerStateFailed) {
+		self.gestureZoomStartScale = self.zoomScale;
+	}
+}
+
 - (IBAction) zoomOut:(id) sender
 {
 	#pragma unused(sender)
@@ -852,7 +912,7 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	}
 
 	NSPoint relative_center_point = [self currentImageRelativeCenterPoint];
-	self.zoomScale = MAX(InkwellPhotoMinimumZoomScale, self.zoomScale / InkwellPhotoZoomStep);
+	self.zoomScale = MAX([self minimumZoomScaleForCurrentViewport], self.zoomScale / InkwellPhotoZoomStep);
 	[self updateImageLayout];
 	[self scrollToKeepImageRelativeCenterPoint:relative_center_point];
 }
@@ -891,7 +951,7 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 {
 	BOOL has_image = (self.imageView.image != nil);
 	if ([toolbar_item.itemIdentifier isEqualToString:InkwellPhotoToolbarZoomOutIdentifier]) {
-		return (has_image && self.zoomScale > (InkwellPhotoMinimumZoomScale + 0.001));
+		return (has_image && self.zoomScale > ([self minimumZoomScaleForCurrentViewport] + 0.001));
 	}
 	if ([toolbar_item.itemIdentifier isEqualToString:InkwellPhotoToolbarZoomInIdentifier]) {
 		return (has_image && self.zoomScale < (InkwellPhotoMaximumZoomScale - 0.001));
