@@ -151,6 +151,20 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	[self loadImageURL:image_url];
 }
 
+- (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) top_left_point
+{
+	[self setupWindowIfNeeded];
+	return [self.window cascadeTopLeftFromPoint:top_left_point];
+}
+
+- (NSPoint) nextWindowCascadeTopLeftPoint
+{
+	[self setupWindowIfNeeded];
+	NSRect frame = self.window.frame;
+	NSPoint top_left_point = NSMakePoint(NSMinX(frame), NSMaxY(frame));
+	return [self.window cascadeTopLeftFromPoint:top_left_point];
+}
+
 - (void) setupWindowIfNeeded
 {
 	if (self.window != nil) {
@@ -511,6 +525,14 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 {
 	#pragma unused(notification)
 	[self updateImageLayout];
+}
+
+- (void) windowWillClose:(NSNotification *)notification
+{
+	#pragma unused(notification)
+	if (self.windowWillCloseHandler != nil) {
+		self.windowWillCloseHandler(self);
+	}
 }
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item

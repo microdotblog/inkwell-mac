@@ -99,7 +99,9 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (strong) id keyDownEventMonitor;
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
-@property (strong) MBPhotoZoomController* photoZoomController;
+@property (assign) NSPoint nextPhotoWindowCascadePoint;
+@property (assign) BOOL hasNextPhotoWindowCascadePoint;
+@property (strong) NSMutableArray* photoZoomControllers;
 
 - (NSEvent* _Nullable) monitoredKeyDownEvent:(NSEvent*) event;
 - (BOOL) detailPaneContainsFirstResponder;
@@ -139,6 +141,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (void) deleteHighlight:(MBHighlight*) highlight;
 - (void) presentDeleteError:(NSError*) error;
 - (NSURL * _Nullable) imageURLFromScriptMessageBody:(id) body;
+- (MBPhotoZoomController* _Nullable) existingPhotoWindowControllerForURL:(NSURL *) image_url;
+- (void) removePhotoWindowController:(MBPhotoZoomController*) controller;
 - (void) presentPhotoWindowForURL:(NSURL *) image_url;
 - (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex;
 - (BOOL) systemInterfaceStyleIsDark;
@@ -153,6 +157,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	self = [super init];
 	if (self) {
 		self.token = @"";
+		self.photoZoomControllers = [[NSMutableArray alloc] init];
 	}
 	return self;
 }
@@ -317,7 +322,11 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellHighlightHoverScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellLinkHoverScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellImageClickedScriptMessageName];
-	[self.photoZoomController close];
+
+	for (MBPhotoZoomController* controller in [self.photoZoomControllers copy]) {
+		controller.windowWillCloseHandler = nil;
+		[controller close];
+	}
 }
 
 - (BOOL) hasSelection
@@ -860,17 +869,67 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	return image_url;
 }
 
+- (MBPhotoZoomController* _Nullable) existingPhotoWindowControllerForURL:(NSURL *) image_url
+{
+	if (image_url == nil) {
+		return nil;
+	}
+
+	for (MBPhotoZoomController* controller in self.photoZoomControllers) {
+		if ([controller.imageURL isEqual:image_url]) {
+			return controller;
+		}
+	}
+
+	return nil;
+}
+
+- (void) removePhotoWindowController:(MBPhotoZoomController*) controller
+{
+	if (controller == nil) {
+		return;
+	}
+
+	[self.photoZoomControllers removeObject:controller];
+	if (self.photoZoomControllers.count == 0) {
+		self.hasNextPhotoWindowCascadePoint = NO;
+	}
+}
+
 - (void) presentPhotoWindowForURL:(NSURL *) image_url
 {
 	if (image_url == nil) {
 		return;
 	}
 
-	if (self.photoZoomController == nil) {
-		self.photoZoomController = [[MBPhotoZoomController alloc] init];
+	MBPhotoZoomController* existing_controller = [self existingPhotoWindowControllerForURL:image_url];
+	if (existing_controller != nil) {
+		[existing_controller showWindow:nil];
+		[existing_controller.window makeKeyAndOrderFront:nil];
+		[NSApp activateIgnoringOtherApps:YES];
+		return;
 	}
 
-	[self.photoZoomController showWindowForImageURL:image_url];
+	MBPhotoZoomController* controller = [[MBPhotoZoomController alloc] init];
+	if (self.hasNextPhotoWindowCascadePoint) {
+		self.nextPhotoWindowCascadePoint = [controller cascadeWindowFromTopLeftPoint:self.nextPhotoWindowCascadePoint];
+	}
+
+	__weak typeof(self) weak_self = self;
+	controller.windowWillCloseHandler = ^(MBPhotoZoomController* closing_controller) {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self removePhotoWindowController:closing_controller];
+	};
+	[self.photoZoomControllers addObject:controller];
+	[controller showWindowForImageURL:image_url];
+	if (!self.hasNextPhotoWindowCascadePoint) {
+		self.nextPhotoWindowCascadePoint = [controller nextWindowCascadeTopLeftPoint];
+		self.hasNextPhotoWindowCascadePoint = YES;
+	}
 }
 
 - (void) applyPreferredTextSettings
