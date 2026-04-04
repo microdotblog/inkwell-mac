@@ -219,13 +219,16 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	titlebar_background_view.wantsLayer = YES;
 	titlebar_background_view.layer.backgroundColor = [NSColor colorWithWhite:1.0 alpha:0.8].CGColor;
 
-	NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-	scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
-	scroll_view.drawsBackground = NO;
-	scroll_view.borderType = NSNoBorder;
-	scroll_view.hasVerticalScroller = YES;
-	scroll_view.hasHorizontalScroller = YES;
-	scroll_view.autohidesScrollers = YES;
+		NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+		scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
+		scroll_view.drawsBackground = NO;
+		scroll_view.borderType = NSNoBorder;
+		scroll_view.hasVerticalScroller = YES;
+		scroll_view.hasHorizontalScroller = YES;
+		scroll_view.autohidesScrollers = YES;
+		scroll_view.automaticallyAdjustsContentInsets = NO;
+		scroll_view.contentInsets = NSEdgeInsetsZero;
+		scroll_view.scrollerInsets = NSEdgeInsetsZero;
 
 	MBPhotoCanvasView* canvas_view = [[MBPhotoCanvasView alloc] initWithFrame:NSMakeRect(0.0, 0.0, InkwellPhotoWindowDefaultWidth, InkwellPhotoWindowDefaultHeight)];
 
