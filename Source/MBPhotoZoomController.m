@@ -14,6 +14,7 @@ static CGFloat const InkwellPhotoWindowDefaultWidth = 500.0;
 static CGFloat const InkwellPhotoWindowDefaultHeight = 500.0;
 static CGFloat const InkwellPhotoWindowMinWidth = 280.0;
 static CGFloat const InkwellPhotoWindowMinHeight = 240.0;
+static CGFloat const InkwellPhotoWindowAutomaticMaxDimension = 800.0;
 static CGFloat const InkwellPhotoMinimumZoomScale = 0.1;
 static CGFloat const InkwellPhotoMaximumZoomScale = 8.0;
 static CGFloat const InkwellPhotoZoomStep = 1.25;
@@ -448,6 +449,12 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	}
 	else {
 		new_height = round(old_frame.size.width / image_aspect_ratio);
+	}
+
+	if (new_width > InkwellPhotoWindowAutomaticMaxDimension || new_height > InkwellPhotoWindowAutomaticMaxDimension) {
+		CGFloat scale = MIN(InkwellPhotoWindowAutomaticMaxDimension / new_width, InkwellPhotoWindowAutomaticMaxDimension / new_height);
+		new_width = round(new_width * scale);
+		new_height = round(new_height * scale);
 	}
 
 	new_width = MAX(self.window.minSize.width, new_width);
