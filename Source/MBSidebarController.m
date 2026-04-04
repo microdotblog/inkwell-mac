@@ -24,13 +24,6 @@
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSUserInterfaceItemIdentifier const InkwellSidebarRowIdentifier = @"InkwellSidebarRow";
 static CGFloat const InkwellSidebarAvatarSize = 26.0;
-static CGFloat const InkwellSidebarAvatarInset = 3.0;
-static CGFloat const InkwellSidebarTextInset = 10.0;
-static CGFloat const InkwellSidebarRightInset = 10.0;
-static CGFloat const InkwellSidebarVerticalSpacing = 8.0;
-static CGFloat const InkwellSidebarTitleFontSize = 14.0;
-static CGFloat const InkwellSidebarSubtitleFontSize = 14.0;
-static CGFloat const InkwellSidebarDateFontSize = 13.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static CGFloat const InkwellSidebarPodcastPaneAnimationOffset = 12.0;
@@ -100,6 +93,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSMutableDictionary* pendingReadStateOverridesByEntryID;
 @property (copy) NSArray* fadingEntryIDs;
 @property (assign) BOOL hasFadingEntryIDsCache;
+@property (strong) MBSidebarCell* sizingCellView;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -177,6 +171,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) isPremiumUser;
 - (BOOL) savedHideReadPosts;
 - (MBSidebarSortOrder) savedSortOrder;
+- (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item;
+- (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item includeAvatar:(BOOL) includeAvatar;
+- (CGFloat) fittingHeightForSidebarCellWithEntry:(MBEntry*) item width:(CGFloat) width;
 - (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry;
 - (void) setPodcastPaneVisible:(BOOL) is_visible;
 - (void) updatePodcastPaneForSelectedItem:(MBEntry* _Nullable) selected_item;
@@ -3148,49 +3145,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	MBEntry* item = self.items[(NSUInteger) row];
+	[self configureSidebarCellContent:cell_view entry:item];
+
 	MBRoundedImageView* avatar_view = cell_view.avatarView;
 	NSTextField* title_field = cell_view.titleTextField;
 	NSTextField* subtitle_field = cell_view.subtitleTextField;
 	NSTextField* subscription_field = cell_view.subscriptionTextField;
 	NSTextField* date_field = cell_view.dateTextField;
 	NSTextField* bookmark_field = cell_view.bookmarkTextField;
-
-	NSString* subtitle_value = item.summary ?: @"";
-	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
-
-	NSString* raw_title_value = item.title ?: @"";
-	BOOL has_post_title = (raw_title_value.length > 0);
-	NSString* title_value = raw_title_value;
-	if (!has_post_title) {
-		title_value = item.subscriptionTitle ?: @"";
-	}
-
-	NSString* subscription_value = has_post_title ? (item.subscriptionTitle ?: @"") : @"";
-	BOOL should_show_subtitle = (subtitle_value.length > 0);
-	BOOL should_show_subscription = (subscription_value.length > 0);
-
-	title_field.stringValue = title_value;
-	subtitle_field.stringValue = subtitle_value;
-	subtitle_field.hidden = !should_show_subtitle;
-	subscription_field.stringValue = subscription_value;
-	subscription_field.hidden = !should_show_subscription;
-	date_field.stringValue = date_value;
-	bookmark_field.hidden = !item.isBookmarked;
-	bookmark_field.stringValue = item.isBookmarked ? @"★ Bookmarked" : @"";
-	avatar_view.image = [self avatarImageForEntry:item];
-
-	NSLayoutConstraint* subscription_top_with_subtitle_constraint = cell_view.subscriptionTopWithSubtitleConstraint;
-	NSLayoutConstraint* subscription_top_without_subtitle_constraint = cell_view.subscriptionTopWithoutSubtitleConstraint;
-	NSLayoutConstraint* date_top_with_subscription_constraint = cell_view.dateTopWithSubscriptionConstraint;
-	NSLayoutConstraint* date_top_with_subtitle_constraint = cell_view.dateTopWithSubtitleConstraint;
-	NSLayoutConstraint* date_top_without_secondary_text_constraint = cell_view.dateTopWithoutSecondaryTextConstraint;
-	if (subscription_top_with_subtitle_constraint != nil && subscription_top_without_subtitle_constraint != nil && date_top_with_subscription_constraint != nil && date_top_with_subtitle_constraint != nil && date_top_without_secondary_text_constraint != nil) {
-		subscription_top_with_subtitle_constraint.active = (should_show_subscription && should_show_subtitle);
-		subscription_top_without_subtitle_constraint.active = (should_show_subscription && !should_show_subtitle);
-		date_top_with_subscription_constraint.active = should_show_subscription;
-		date_top_with_subtitle_constraint.active = (!should_show_subscription && should_show_subtitle);
-		date_top_without_secondary_text_constraint.active = (!should_show_subscription && !should_show_subtitle);
-	}
 
 	BOOL is_selected_row = (row == self.selectedRowForStyling);
 	if (!is_selected_row) {
@@ -3243,59 +3205,85 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return 54.0;
 	}
 
-	MBEntry *item = self.items[(NSUInteger) row];
-	CGFloat content_width = MAX(120.0, tableView.bounds.size.width - (InkwellSidebarAvatarInset + InkwellSidebarAvatarSize + InkwellSidebarTextInset + InkwellSidebarRightInset));
-	NSString *subtitle_value = item.summary ?: @"";
-	NSString *date_value = [self displayDateStringForCurrentMode:item.date];
-	NSFont *title_font = [NSFont systemFontOfSize:InkwellSidebarTitleFontSize weight:NSFontWeightSemibold];
-	NSFont *subtitle_font = [NSFont systemFontOfSize:InkwellSidebarSubtitleFontSize];
-	NSFont *date_font = [NSFont systemFontOfSize:InkwellSidebarDateFontSize];
+	MBEntry* item = self.items[(NSUInteger) row];
+	CGFloat table_width = MAX(120.0, tableView.bounds.size.width);
+	return [self fittingHeightForSidebarCellWithEntry:item width:table_width];
+}
 
-	NSString* title_value = item.title ?: @"";
-	BOOL has_post_title = (title_value.length > 0);
+- (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item
+{
+	[self configureSidebarCellContent:cell_view entry:item includeAvatar:YES];
+}
+
+- (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item includeAvatar:(BOOL) includeAvatar
+{
+	if (cell_view == nil || item == nil) {
+		return;
+	}
+
+	NSString* subtitle_value = item.summary ?: @"";
+	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
+	NSString* raw_title_value = item.title ?: @"";
+	BOOL has_post_title = (raw_title_value.length > 0);
+	NSString* title_value = raw_title_value;
 	if (!has_post_title) {
 		title_value = item.subscriptionTitle ?: @"";
 	}
+
 	NSString* subscription_value = has_post_title ? (item.subscriptionTitle ?: @"") : @"";
+	BOOL should_show_subtitle = (subtitle_value.length > 0);
+	BOOL should_show_subscription = (subscription_value.length > 0);
 
-	CGFloat title_height = [self heightForText:title_value font:title_font width:content_width maxLines:2];
-	CGFloat subtitle_height = [self heightForText:subtitle_value font:subtitle_font width:content_width maxLines:2];
-	CGFloat subscription_height = [self heightForText:subscription_value font:subtitle_font width:content_width maxLines:1];
-	CGFloat date_height = [self heightForText:date_value font:date_font width:content_width maxLines:1];
-	CGFloat row_height = 8.0 + title_height;
-	if (subtitle_height > 0.0) {
-		row_height += InkwellSidebarVerticalSpacing + subtitle_height;
+	cell_view.titleTextField.stringValue = title_value;
+	cell_view.subtitleTextField.stringValue = subtitle_value;
+	cell_view.subtitleTextField.hidden = !should_show_subtitle;
+	cell_view.subscriptionTextField.stringValue = subscription_value;
+	cell_view.subscriptionTextField.hidden = !should_show_subscription;
+	cell_view.dateTextField.stringValue = date_value;
+	cell_view.bookmarkTextField.hidden = !item.isBookmarked;
+	cell_view.bookmarkTextField.stringValue = item.isBookmarked ? @"★ Bookmarked" : @"";
+	if (includeAvatar) {
+		cell_view.avatarView.image = [self avatarImageForEntry:item];
 	}
-	if (subscription_height > 0.0) {
-		row_height += InkwellSidebarVerticalSpacing + subscription_height;
+	else {
+		cell_view.avatarView.image = nil;
 	}
-	row_height += InkwellSidebarVerticalSpacing + date_height + 8.0;
 
-	return MAX(50.0, ceil(row_height));
+	NSLayoutConstraint* subscription_top_with_subtitle_constraint = cell_view.subscriptionTopWithSubtitleConstraint;
+	NSLayoutConstraint* subscription_top_without_subtitle_constraint = cell_view.subscriptionTopWithoutSubtitleConstraint;
+	NSLayoutConstraint* date_top_with_subscription_constraint = cell_view.dateTopWithSubscriptionConstraint;
+	NSLayoutConstraint* date_top_with_subtitle_constraint = cell_view.dateTopWithSubtitleConstraint;
+	NSLayoutConstraint* date_top_without_secondary_text_constraint = cell_view.dateTopWithoutSecondaryTextConstraint;
+	if (subscription_top_with_subtitle_constraint != nil && subscription_top_without_subtitle_constraint != nil && date_top_with_subscription_constraint != nil && date_top_with_subtitle_constraint != nil && date_top_without_secondary_text_constraint != nil) {
+		subscription_top_with_subtitle_constraint.active = (should_show_subscription && should_show_subtitle);
+		subscription_top_without_subtitle_constraint.active = (should_show_subscription && !should_show_subtitle);
+		date_top_with_subscription_constraint.active = should_show_subscription;
+		date_top_with_subtitle_constraint.active = (!should_show_subscription && should_show_subtitle);
+		date_top_without_secondary_text_constraint.active = (!should_show_subscription && !should_show_subtitle);
+	}
 }
 
-- (CGFloat) heightForText:(NSString *)text font:(NSFont *)font width:(CGFloat)width maxLines:(NSInteger)max_lines
+- (CGFloat) fittingHeightForSidebarCellWithEntry:(MBEntry*) item width:(CGFloat) width
 {
-	if (text.length == 0 || font == nil) {
-		return 0.0;
+	if (item == nil) {
+		return 54.0;
 	}
 
-	NSRect text_rect = [text boundingRectWithSize:NSMakeSize(width, CGFLOAT_MAX)
-		options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
-		attributes:@{ NSFontAttributeName: font }];
-	CGFloat measured_height = ceil(NSHeight(text_rect));
-	if (max_lines <= 0) {
-		return measured_height;
+	if (self.sizingCellView == nil) {
+		self.sizingCellView = [[MBSidebarCell alloc] initWithFrame:NSZeroRect];
+		self.sizingCellView.translatesAutoresizingMaskIntoConstraints = NO;
 	}
 
-	CGFloat line_height = [self lineHeightForFont:font];
-	CGFloat maximum_height = line_height * (CGFloat) max_lines;
-	return MIN(measured_height, maximum_height);
-}
+	MBSidebarCell* cell_view = self.sizingCellView;
+	[self configureSidebarCellContent:cell_view entry:item includeAvatar:NO];
 
-- (CGFloat) lineHeightForFont:(NSFont *)font
-{
-	return ceil(font.ascender - font.descender + font.leading);
+	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
+	width_constraint.active = YES;
+	[cell_view layoutSubtreeIfNeeded];
+	CGFloat row_height = ceil(cell_view.fittingSize.height);
+	width_constraint.active = NO;
+
+	return MAX(50.0, row_height);
 }
 
 - (NSDate * _Nullable) dateValueFromEntry:(NSDictionary<NSString *, id> *)entry

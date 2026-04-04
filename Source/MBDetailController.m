@@ -11,6 +11,7 @@
 #import "MBEntry.h"
 #import "MBHighlight.h"
 #import "MBLinkHoverBubble.h"
+#import "MBPhotoZoomController.h"
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellDetailTopBarHeight = 52.0;
@@ -26,6 +27,7 @@ static NSString* const InkwellSelectionChangedScriptMessageName = @"selectionCha
 static NSString* const InkwellScrollChangedScriptMessageName = @"scrollChanged";
 static NSString* const InkwellHighlightHoverScriptMessageName = @"highlightHover";
 static NSString* const InkwellLinkHoverScriptMessageName = @"linkHover";
+static NSString* const InkwellImageClickedScriptMessageName = @"imageClicked";
 static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
@@ -84,6 +86,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (strong) MBWeakScriptMessageHandler* scrollScriptMessageHandler;
 @property (strong) MBWeakScriptMessageHandler* highlightHoverScriptMessageHandler;
 @property (strong) MBWeakScriptMessageHandler* linkHoverScriptMessageHandler;
+@property (strong) MBWeakScriptMessageHandler* imageClickedScriptMessageHandler;
 @property (strong, nullable) MBHighlight* hoveredHighlight;
 @property (assign) BOOL isDeletingHighlight;
 @property (strong) NSVisualEffectView* topBarView;
@@ -96,6 +99,10 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 @property (strong) id keyDownEventMonitor;
 @property (assign) NSInteger topBarAnimationID;
 @property (assign) NSInteger currentEntryID;
+@property (strong, nullable) MBEntry* currentSidebarItem;
+@property (assign) NSPoint nextPhotoWindowCascadePoint;
+@property (assign) BOOL hasNextPhotoWindowCascadePoint;
+@property (strong) NSMutableArray* photoZoomControllers;
 
 - (NSEvent* _Nullable) monitoredKeyDownEvent:(NSEvent*) event;
 - (BOOL) detailPaneContainsFirstResponder;
@@ -107,6 +114,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (NSString *) selectionObserverScript;
 - (NSString *) scrollObserverScript;
 - (NSString *) linkHoverObserverScript;
+- (NSString *) imageClickObserverScript;
 - (NSString *) javaScriptForRuntimeFunction:(NSString*) function_name payload:(id _Nullable) payload;
 - (NSString *) jsonStringForJavaScriptObject:(id _Nullable) object;
 - (void) applyReadingRecapColorsForDarkTheme:(BOOL) is_dark_theme;
@@ -130,9 +138,18 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (void) updateHoveredHighlightWithScriptMessageBody:(id) body;
 - (void) updateHoveredLinkWithScriptMessageBody:(id) body;
 - (void) updateHoveredLinkURLString:(NSString*) url_string;
+- (NSURL * _Nullable) urlFromScriptMessageValue:(id) value;
+- (NSURL * _Nullable) anchorURLFromScriptMessageBody:(id) body;
+- (NSURL * _Nullable) currentPostURL;
+- (BOOL) URLLooksLikeImage:(NSURL *) url;
 - (void) promptToDeleteHoveredHighlight:(id) sender;
 - (void) deleteHighlight:(MBHighlight*) highlight;
 - (void) presentDeleteError:(NSError*) error;
+- (NSURL * _Nullable) imageURLFromScriptMessageBody:(id) body;
+- (MBPhotoZoomController* _Nullable) existingPhotoWindowControllerForURL:(NSURL *) image_url;
+- (void) removePhotoWindowController:(MBPhotoZoomController*) controller;
+- (void) presentPhotoWindowForURL:(NSURL *) image_url;
+- (void) presentPhotoWindowForURL:(NSURL *) imageURL relatedPostURL:(NSURL * _Nullable) relatedPostURL;
 - (BOOL) shouldUseDarkReaderHighlightBackgroundForBackgroundHex:(NSString*) background_hex;
 - (BOOL) systemInterfaceStyleIsDark;
 - (BOOL) prefersDarkSystemAppearance;
@@ -146,6 +163,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	self = [super init];
 	if (self) {
 		self.token = @"";
+		self.photoZoomControllers = [[NSMutableArray alloc] init];
 	}
 	return self;
 }
@@ -167,10 +185,12 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	self.scrollScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	self.highlightHoverScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	self.linkHoverScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
+	self.imageClickedScriptMessageHandler = [[MBWeakScriptMessageHandler alloc] initWithTarget:self];
 	[user_content_controller addScriptMessageHandler:self.selectionScriptMessageHandler name:InkwellSelectionChangedScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.scrollScriptMessageHandler name:InkwellScrollChangedScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.highlightHoverScriptMessageHandler name:InkwellHighlightHoverScriptMessageName];
 	[user_content_controller addScriptMessageHandler:self.linkHoverScriptMessageHandler name:InkwellLinkHoverScriptMessageName];
+	[user_content_controller addScriptMessageHandler:self.imageClickedScriptMessageHandler name:InkwellImageClickedScriptMessageName];
 
 	WKUserScript* detail_runtime_script = [[WKUserScript alloc] initWithSource:[self detailRuntimeScript] injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];
 	[user_content_controller addUserScript:detail_runtime_script];
@@ -182,6 +202,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[user_content_controller addUserScript:scroll_script];
 	WKUserScript* link_hover_script = [[WKUserScript alloc] initWithSource:[self linkHoverObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
 	[user_content_controller addUserScript:link_hover_script];
+	WKUserScript* image_click_script = [[WKUserScript alloc] initWithSource:[self imageClickObserverScript] injectionTime:WKUserScriptInjectionTimeAtDocumentEnd forMainFrameOnly:YES];
+	[user_content_controller addUserScript:image_click_script];
 
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
 	configuration.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
@@ -305,6 +327,12 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellScrollChangedScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellHighlightHoverScriptMessageName];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellLinkHoverScriptMessageName];
+	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellImageClickedScriptMessageName];
+
+	for (MBPhotoZoomController* controller in [self.photoZoomControllers copy]) {
+		controller.windowWillCloseHandler = nil;
+		[controller close];
+	}
 }
 
 - (BOOL) hasSelection
@@ -393,12 +421,14 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 	if (item == nil) {
 		self.currentEntryID = 0;
+		self.currentSidebarItem = nil;
 		NSString* html = [self htmlForPostTitle:@"" author:@"" siteTitle:@"" content:@""];
 		[self.webView loadHTMLString:html baseURL:[self baseURLForEntry:nil]];
 		return;
 	}
 
 	self.currentEntryID = item.entryID;
+	self.currentSidebarItem = item;
 
 	NSString* safe_title = [self escapedHTMLString:item.title ?: @""];
 	NSString* entry_html = item.text ?: @"";
@@ -431,6 +461,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	[self updateWebViewUnderPageBackgroundColor];
 	self.isShowingReadingRecap = YES;
 	self.currentEntryID = 0;
+	self.currentSidebarItem = nil;
 
 	NSString* processed_html = [self processedReadingRecapHTML:html ?: @""];
 	NSString* recap_html = [self htmlForReadingRecapContent:processed_html];
@@ -551,6 +582,23 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 	if ([script_message.name isEqualToString:InkwellLinkHoverScriptMessageName]) {
 		[self updateHoveredLinkWithScriptMessageBody:script_message.body];
+		return;
+	}
+
+	if ([script_message.name isEqualToString:InkwellImageClickedScriptMessageName]) {
+		NSURL* image_url = [self imageURLFromScriptMessageBody:script_message.body];
+		if (image_url != nil) {
+			NSURL* anchor_url = [self anchorURLFromScriptMessageBody:script_message.body];
+			NSURL* related_post_url = nil;
+			if (anchor_url != nil && ![self URLLooksLikeImage:anchor_url]) {
+				related_post_url = anchor_url;
+			}
+			if (related_post_url == nil) {
+				related_post_url = [self currentPostURL];
+			}
+
+			[self presentPhotoWindowForURL:image_url relatedPostURL:related_post_url];
+		}
 		return;
 	}
 
@@ -814,6 +862,149 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	alert.messageText = @"Delete Failed";
 	alert.informativeText = error.localizedDescription ?: @"The highlight could not be deleted.";
 	[alert beginSheetModalForWindow:window completionHandler:nil];
+}
+
+- (NSURL * _Nullable) imageURLFromScriptMessageBody:(id) body
+{
+	if (![body isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSDictionary* payload = (NSDictionary*) body;
+	NSString* image_url_string = [[payload[@"image_url"] description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (image_url_string.length == 0) {
+		image_url_string = [[payload[@"image_src"] description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+	if (image_url_string.length == 0) {
+		return nil;
+	}
+
+	NSURL* image_url = [NSURL URLWithString:image_url_string];
+	if (image_url == nil || image_url.scheme.length == 0) {
+		return nil;
+	}
+
+	return image_url;
+}
+
+- (NSURL * _Nullable) urlFromScriptMessageValue:(id) value
+{
+	if (value == nil) {
+		return nil;
+	}
+
+	NSString* url_string = [[value description] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return nil;
+	}
+
+	NSURL* url = [NSURL URLWithString:url_string];
+	if (url == nil || url.scheme.length == 0) {
+		return nil;
+	}
+
+	return url;
+}
+
+- (NSURL * _Nullable) anchorURLFromScriptMessageBody:(id) body
+{
+	if (![body isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSDictionary* payload = (NSDictionary*) body;
+	return [self urlFromScriptMessageValue:payload[@"anchor_href"]];
+}
+
+- (NSURL * _Nullable) currentPostURL
+{
+	return [self urlFromScriptMessageValue:self.currentSidebarItem.url];
+}
+
+- (BOOL) URLLooksLikeImage:(NSURL *) url
+{
+	NSString* path_extension = [[url.pathExtension ?: @"" lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if (path_extension.length == 0) {
+		return NO;
+	}
+
+	static NSSet* image_extensions;
+	static dispatch_once_t once_token;
+	dispatch_once(&once_token, ^{
+		image_extensions = [NSSet setWithArray:@[ @"apng", @"avif", @"bmp", @"gif", @"heic", @"heif", @"jpeg", @"jpg", @"png", @"svg", @"tif", @"tiff", @"webp" ]];
+	});
+
+	return [image_extensions containsObject:path_extension];
+}
+
+- (MBPhotoZoomController* _Nullable) existingPhotoWindowControllerForURL:(NSURL *) image_url
+{
+	if (image_url == nil) {
+		return nil;
+	}
+
+	image_url = [MBPhotoZoomController normalizedImageURL:image_url];
+	for (MBPhotoZoomController* controller in self.photoZoomControllers) {
+		if ([controller.imageURL isEqual:image_url]) {
+			return controller;
+		}
+	}
+
+	return nil;
+}
+
+- (void) removePhotoWindowController:(MBPhotoZoomController*) controller
+{
+	if (controller == nil) {
+		return;
+	}
+
+	[self.photoZoomControllers removeObject:controller];
+	if (self.photoZoomControllers.count == 0) {
+		self.hasNextPhotoWindowCascadePoint = NO;
+	}
+}
+
+- (void) presentPhotoWindowForURL:(NSURL *) image_url
+{
+	[self presentPhotoWindowForURL:image_url relatedPostURL:nil];
+}
+
+- (void) presentPhotoWindowForURL:(NSURL *) imageURL relatedPostURL:(NSURL * _Nullable) relatedPostURL
+{
+	if (imageURL == nil) {
+		return;
+	}
+
+	MBPhotoZoomController* existing_controller = [self existingPhotoWindowControllerForURL:imageURL];
+	if (existing_controller != nil) {
+		[existing_controller updateRelatedPostURL:relatedPostURL];
+		[existing_controller showWindow:nil];
+		[existing_controller.window makeKeyAndOrderFront:nil];
+		[NSApp activateIgnoringOtherApps:YES];
+		return;
+	}
+
+	MBPhotoZoomController* controller = [[MBPhotoZoomController alloc] init];
+	if (self.hasNextPhotoWindowCascadePoint) {
+		self.nextPhotoWindowCascadePoint = [controller cascadeWindowFromTopLeftPoint:self.nextPhotoWindowCascadePoint];
+	}
+
+	__weak typeof(self) weak_self = self;
+	controller.windowWillCloseHandler = ^(MBPhotoZoomController* closing_controller) {
+		MBDetailController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self removePhotoWindowController:closing_controller];
+	};
+	[self.photoZoomControllers addObject:controller];
+	[controller showWindowForImageURL:imageURL relatedPostURL:relatedPostURL];
+	if (!self.hasNextPhotoWindowCascadePoint) {
+		self.nextPhotoWindowCascadePoint = [controller nextWindowCascadeTopLeftPoint];
+		self.hasNextPhotoWindowCascadePoint = YES;
+	}
 }
 
 - (void) applyPreferredTextSettings
@@ -1287,6 +1478,11 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (NSString*) linkHoverObserverScript
 {
 	return [self bundledJavaScriptNamed:@"detail_link_hover_observer"];
+}
+
+- (NSString*) imageClickObserverScript
+{
+	return [self bundledJavaScriptNamed:@"detail_image_click_observer"];
 }
 
 - (NSString *) javaScriptForRuntimeFunction:(NSString*) function_name payload:(id _Nullable) payload
