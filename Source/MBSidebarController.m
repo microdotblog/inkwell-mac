@@ -172,6 +172,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) savedHideReadPosts;
 - (MBSidebarSortOrder) savedSortOrder;
 - (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item;
+- (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item includeAvatar:(BOOL) includeAvatar;
 - (CGFloat) fittingHeightForSidebarCellWithEntry:(MBEntry*) item width:(CGFloat) width;
 - (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry;
 - (void) setPodcastPaneVisible:(BOOL) is_visible;
@@ -3211,6 +3212,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item
 {
+	[self configureSidebarCellContent:cell_view entry:item includeAvatar:YES];
+}
+
+- (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item includeAvatar:(BOOL) includeAvatar
+{
 	if (cell_view == nil || item == nil) {
 		return;
 	}
@@ -3236,7 +3242,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	cell_view.dateTextField.stringValue = date_value;
 	cell_view.bookmarkTextField.hidden = !item.isBookmarked;
 	cell_view.bookmarkTextField.stringValue = item.isBookmarked ? @"★ Bookmarked" : @"";
-	cell_view.avatarView.image = [self avatarImageForEntry:item];
+	if (includeAvatar) {
+		cell_view.avatarView.image = [self avatarImageForEntry:item];
+	}
+	else {
+		cell_view.avatarView.image = nil;
+	}
 
 	NSLayoutConstraint* subscription_top_with_subtitle_constraint = cell_view.subscriptionTopWithSubtitleConstraint;
 	NSLayoutConstraint* subscription_top_without_subtitle_constraint = cell_view.subscriptionTopWithoutSubtitleConstraint;
@@ -3264,7 +3275,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	MBSidebarCell* cell_view = self.sizingCellView;
-	[self configureSidebarCellContent:cell_view entry:item];
+	[self configureSidebarCellContent:cell_view entry:item includeAvatar:NO];
 
 	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
 	width_constraint.active = YES;
