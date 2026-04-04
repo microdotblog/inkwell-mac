@@ -106,17 +106,18 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 
 - (void) setupWindowIfNeeded;
 - (void) setupContentIfNeeded;
-- (void) loadImageURL:(NSURL *)image_url;
+- (void) loadImageURL:(NSURL *)imageURL;
+- (NSURL *) expandedImageURLIfNeeded:(NSURL *)imageURL;
 - (void) updateWindowTitle;
-- (NSString *) titleForImageURL:(NSURL *)image_url;
-- (void) setLoading:(BOOL) is_loading;
+- (NSString *) titleForImageURL:(NSURL *)imageURL;
+- (void) setLoading:(BOOL) isLoading;
 - (void) revealLoadedImage:(NSImage *)image;
-- (void) resizeWindowToMatchImageAspect:(NSSize) image_size completion:(void (^)(void)) completion;
+- (void) resizeWindowToMatchImageAspect:(NSSize) imageSize completion:(void (^)(void)) completion;
 - (NSSize) viewportSizeForPhotoLayout;
-- (CGFloat) defaultZoomScaleForImageSize:(NSSize) image_size;
+- (CGFloat) defaultZoomScaleForImageSize:(NSSize) imageSize;
 - (NSPoint) currentImageRelativeCenterPoint;
 - (void) scrollToTopLeft;
-- (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relative_center_point;
+- (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relativeCenterPoint;
 - (BOOL) needsScrollPositionPinnedToTopLeft;
 - (void) updateImageLayout;
 - (IBAction) zoomOut:(id) sender;
@@ -125,6 +126,38 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 @end
 
 @implementation MBPhotoZoomController
+
++ (NSURL * _Nullable) normalizedImageURL:(NSURL *)imageURL
+{
+	if (imageURL == nil) {
+		return nil;
+	}
+
+	NSString* absolute_string = imageURL.absoluteString ?: @"";
+	NSArray* prefixes = @[ @"https://micro.blog/photos/", @"https://cdn.micro.blog/photos/" ];
+	for (NSString* prefix in prefixes) {
+		if (![absolute_string hasPrefix:prefix]) {
+			continue;
+		}
+
+		// skip the thumbnail size part of the path
+		NSString* remainder = [absolute_string substringFromIndex:prefix.length];
+		NSRange slash_range = [remainder rangeOfString:@"/"];
+		if (slash_range.location == NSNotFound) {
+			break;
+		}
+
+		NSString* encoded_url_string = [remainder substringFromIndex:(slash_range.location + 1)];
+		NSString* decoded_url_string = [encoded_url_string stringByRemovingPercentEncoding] ?: encoded_url_string;
+		NSURL* expanded_url = [NSURL URLWithString:decoded_url_string];
+		if (expanded_url != nil && expanded_url.scheme.length > 0) {
+			return expanded_url;
+		}
+		break;
+	}
+
+	return imageURL;
+}
 
 - (instancetype) init
 {
@@ -141,9 +174,9 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	[self.imageTask cancel];
 }
 
-- (void) showWindowForImageURL:(NSURL *)image_url
+- (void) showWindowForImageURL:(NSURL *)imageURL
 {
-	if (image_url == nil) {
+	if (imageURL == nil) {
 		return;
 	}
 
@@ -152,13 +185,13 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	[super showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
 	[NSApp activateIgnoringOtherApps:YES];
-	[self loadImageURL:image_url];
+	[self loadImageURL:imageURL];
 }
 
-- (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) top_left_point
+- (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) topLeftPoint
 {
 	[self setupWindowIfNeeded];
-	return [self.window cascadeTopLeftFromPoint:top_left_point];
+	return [self.window cascadeTopLeftFromPoint:topLeftPoint];
 }
 
 - (NSPoint) nextWindowCascadeTopLeftPoint
@@ -267,9 +300,14 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	self.didSetupContent = YES;
 }
 
-- (void) loadImageURL:(NSURL *)image_url
+- (void) loadImageURL:(NSURL *)imageURL
 {
-	self.imageURL = image_url;
+	imageURL = [self expandedImageURLIfNeeded:imageURL];
+	if (imageURL == nil) {
+		return;
+	}
+
+	self.imageURL = imageURL;
 	[self updateWindowTitle];
 	[self.imageTask cancel];
 	self.imageTask = nil;
@@ -283,13 +321,13 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	self.imageLoadRequestID += 1;
 	NSInteger request_id = self.imageLoadRequestID;
 
-	NSURLRequest* request = [NSURLRequest requestWithURL:image_url cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:60.0];
+	NSURLRequest* request = [NSURLRequest requestWithURL:imageURL cachePolicy:NSURLRequestReturnCacheDataElseLoad timeoutInterval:60.0];
 	__weak typeof(self) weak_self = self;
 	NSURLSessionDataTask* image_task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		#pragma unused(response)
 		dispatch_async(dispatch_get_main_queue(), ^{
 			MBPhotoZoomController* strong_self = weak_self;
-			if (strong_self == nil || strong_self.imageLoadRequestID != request_id || ![strong_self.imageURL isEqual:image_url]) {
+			if (strong_self == nil || strong_self.imageLoadRequestID != request_id || ![strong_self.imageURL isEqual:imageURL]) {
 				return;
 			}
 
@@ -311,7 +349,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 			}
 
 			[strong_self resizeWindowToMatchImageAspect:image_size completion:^{
-				if (strong_self.imageLoadRequestID != request_id || ![strong_self.imageURL isEqual:image_url]) {
+				if (strong_self.imageLoadRequestID != request_id || ![strong_self.imageURL isEqual:imageURL]) {
 					return;
 				}
 
@@ -325,19 +363,24 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	[image_task resume];
 }
 
+- (NSURL *) expandedImageURLIfNeeded:(NSURL *)imageURL
+{
+	return [[self class] normalizedImageURL:imageURL];
+}
+
 - (void) updateWindowTitle
 {
 	self.window.title = [self titleForImageURL:self.imageURL];
 }
 
-- (NSString *) titleForImageURL:(NSURL *)image_url
+- (NSString *) titleForImageURL:(NSURL *)imageURL
 {
-	NSString* host_string = [[image_url.host ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
+	NSString* host_string = [[imageURL.host ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
 	if (host_string.length > 0) {
 		return host_string;
 	}
 
-	NSString* absolute_string = [[image_url.absoluteString ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
+	NSString* absolute_string = [[imageURL.absoluteString ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
 	if (absolute_string.length > 0) {
 		return absolute_string;
 	}
@@ -345,9 +388,9 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	return @"Photo";
 }
 
-- (void) setLoading:(BOOL) is_loading
+- (void) setLoading:(BOOL) isLoading
 {
-	if (is_loading) {
+	if (isLoading) {
 		self.progressIndicator.hidden = NO;
 		[self.progressIndicator startAnimation:nil];
 	}
@@ -377,16 +420,16 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	}];
 }
 
-- (void) resizeWindowToMatchImageAspect:(NSSize) image_size completion:(void (^)(void)) completion
+- (void) resizeWindowToMatchImageAspect:(NSSize) imageSize completion:(void (^)(void)) completion
 {
-	if (self.window == nil || image_size.width <= 0.0 || image_size.height <= 0.0) {
+	if (self.window == nil || imageSize.width <= 0.0 || imageSize.height <= 0.0) {
 		if (completion != nil) {
 			completion();
 		}
 		return;
 	}
 
-	CGFloat image_aspect_ratio = image_size.width / image_size.height;
+	CGFloat image_aspect_ratio = imageSize.width / imageSize.height;
 	if (!isfinite(image_aspect_ratio) || image_aspect_ratio <= 0.0) {
 		if (completion != nil) {
 			completion();
@@ -456,15 +499,15 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	return viewport_size;
 }
 
-- (CGFloat) defaultZoomScaleForImageSize:(NSSize) image_size
+- (CGFloat) defaultZoomScaleForImageSize:(NSSize) imageSize
 {
 	NSSize viewport_size = [self viewportSizeForPhotoLayout];
-	if (image_size.width <= 0.0 || image_size.height <= 0.0 || viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
+	if (imageSize.width <= 0.0 || imageSize.height <= 0.0 || viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
 		return 1.0;
 	}
 
-	CGFloat width_scale = viewport_size.width / image_size.width;
-	CGFloat height_scale = viewport_size.height / image_size.height;
+	CGFloat width_scale = viewport_size.width / imageSize.width;
+	CGFloat height_scale = viewport_size.height / imageSize.height;
 	CGFloat fit_scale = MIN(width_scale, height_scale);
 	if (!isfinite(fit_scale) || fit_scale <= 0.0) {
 		return 1.0;
@@ -507,7 +550,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	[self.scrollView reflectScrolledClipView:clip_view];
 }
 
-- (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relative_center_point
+- (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relativeCenterPoint
 {
 	if (self.imageView.image == nil || self.scrollView == nil) {
 		return;
@@ -520,7 +563,7 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 		return;
 	}
 
-	NSPoint target_center = NSMakePoint (image_frame.origin.x + (NSWidth (image_frame) * relative_center_point.x), image_frame.origin.y + (NSHeight (image_frame) * relative_center_point.y));
+	NSPoint target_center = NSMakePoint (image_frame.origin.x + (NSWidth (image_frame) * relativeCenterPoint.x), image_frame.origin.y + (NSHeight (image_frame) * relativeCenterPoint.y));
 	NSPoint new_origin = NSMakePoint (target_center.x - (viewport_size.width / 2.0), target_center.y - (viewport_size.height / 2.0));
 	CGFloat max_x = MAX (0.0, NSWidth (self.canvasView.bounds) - viewport_size.width);
 	CGFloat max_y = MAX (0.0, NSHeight (self.canvasView.bounds) - viewport_size.height);

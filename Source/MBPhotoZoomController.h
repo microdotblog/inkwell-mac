@@ -16,9 +16,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, readonly, nullable) NSURL* imageURL;
 @property (nonatomic, copy, nullable) void (^windowWillCloseHandler)(MBPhotoZoomController* controller);
 
-- (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) top_left_point;
++ (NSURL * _Nullable) normalizedImageURL:(NSURL *)imageURL;
+- (NSPoint) cascadeWindowFromTopLeftPoint:(NSPoint) topLeftPoint;
 - (NSPoint) nextWindowCascadeTopLeftPoint;
-- (void) showWindowForImageURL:(NSURL *)image_url;
+- (void) showWindowForImageURL:(NSURL *)imageURL;
 
 @end
 

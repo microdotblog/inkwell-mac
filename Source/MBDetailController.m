@@ -875,6 +875,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		return nil;
 	}
 
+	image_url = [MBPhotoZoomController normalizedImageURL:image_url];
 	for (MBPhotoZoomController* controller in self.photoZoomControllers) {
 		if ([controller.imageURL isEqual:image_url]) {
 			return controller;
