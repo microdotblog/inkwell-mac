@@ -114,6 +114,10 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 - (void) resizeWindowToMatchImageAspect:(NSSize) image_size completion:(void (^)(void)) completion;
 - (NSSize) viewportSizeForPhotoLayout;
 - (CGFloat) defaultZoomScaleForImageSize:(NSSize) image_size;
+- (NSPoint) currentImageRelativeCenterPoint;
+- (void) scrollToTopLeft;
+- (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relative_center_point;
+- (BOOL) needsScrollPositionPinnedToTopLeft;
 - (void) updateImageLayout;
 - (IBAction) zoomOut:(id) sender;
 - (IBAction) zoomIn:(id) sender;
@@ -466,6 +470,73 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 	return MAX(InkwellPhotoMinimumZoomScale, MIN(1.0, fit_scale));
 }
 
+- (NSPoint) currentImageRelativeCenterPoint
+{
+	if (self.imageView.image == nil || self.imageSize.width <= 0.0 || self.imageSize.height <= 0.0 || self.scrollView == nil) {
+		return NSMakePoint (0.5, 0.5);
+	}
+
+	NSClipView* clip_view = self.scrollView.contentView;
+	NSRect image_frame = self.imageView.frame;
+	if (NSWidth (image_frame) <= 0.0 || NSHeight (image_frame) <= 0.0) {
+		return NSMakePoint (0.5, 0.5);
+	}
+
+	NSRect visible_rect = clip_view.documentVisibleRect;
+	NSPoint visible_center = NSMakePoint (NSMidX (visible_rect), NSMidY (visible_rect));
+	CGFloat relative_x = (visible_center.x - image_frame.origin.x) / NSWidth (image_frame);
+	CGFloat relative_y = (visible_center.y - image_frame.origin.y) / NSHeight (image_frame);
+	relative_x = MIN (MAX (0.0, relative_x), 1.0);
+	relative_y = MIN (MAX (0.0, relative_y), 1.0);
+	return NSMakePoint (relative_x, relative_y);
+}
+
+- (void) scrollToTopLeft
+{
+	if (self.scrollView == nil || self.canvasView == nil) {
+		return;
+	}
+
+	NSClipView* clip_view = self.scrollView.contentView;
+	NSSize viewport_size = clip_view.bounds.size;
+	NSPoint new_origin = NSMakePoint (0.0, MAX (0.0, NSHeight (self.canvasView.bounds) - viewport_size.height));
+	[clip_view scrollToPoint:new_origin];
+	[self.scrollView reflectScrolledClipView:clip_view];
+}
+
+- (void) scrollToKeepImageRelativeCenterPoint:(NSPoint) relative_center_point
+{
+	if (self.imageView.image == nil || self.scrollView == nil) {
+		return;
+	}
+
+	NSClipView* clip_view = self.scrollView.contentView;
+	NSRect image_frame = self.imageView.frame;
+	NSSize viewport_size = clip_view.bounds.size;
+	if (NSWidth (image_frame) <= 0.0 || NSHeight (image_frame) <= 0.0 || viewport_size.width <= 0.0 || viewport_size.height <= 0.0) {
+		return;
+	}
+
+	NSPoint target_center = NSMakePoint (image_frame.origin.x + (NSWidth (image_frame) * relative_center_point.x), image_frame.origin.y + (NSHeight (image_frame) * relative_center_point.y));
+	NSPoint new_origin = NSMakePoint (target_center.x - (viewport_size.width / 2.0), target_center.y - (viewport_size.height / 2.0));
+	CGFloat max_x = MAX (0.0, NSWidth (self.canvasView.bounds) - viewport_size.width);
+	CGFloat max_y = MAX (0.0, NSHeight (self.canvasView.bounds) - viewport_size.height);
+	new_origin.x = MIN (MAX (0.0, new_origin.x), max_x);
+	new_origin.y = MIN (MAX (0.0, new_origin.y), max_y);
+	[clip_view scrollToPoint:new_origin];
+	[self.scrollView reflectScrolledClipView:clip_view];
+}
+
+- (BOOL) needsScrollPositionPinnedToTopLeft
+{
+	if (self.scrollView == nil || self.canvasView == nil) {
+		return NO;
+	}
+
+	NSSize viewport_size = self.scrollView.contentView.bounds.size;
+	return (NSWidth (self.canvasView.bounds) > (viewport_size.width + 0.5) || NSHeight (self.canvasView.bounds) > (viewport_size.height + 0.5));
+}
+
 - (void) updateImageLayout
 {
 	if (!self.didSetupContent || self.canvasView == nil || self.imageView == nil || self.scrollView == nil) {
@@ -506,8 +577,10 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 		return;
 	}
 
+	NSPoint relative_center_point = [self currentImageRelativeCenterPoint];
 	self.zoomScale = MAX(InkwellPhotoMinimumZoomScale, self.zoomScale / InkwellPhotoZoomStep);
 	[self updateImageLayout];
+	[self scrollToKeepImageRelativeCenterPoint:relative_center_point];
 }
 
 - (IBAction) zoomIn:(id) sender
@@ -517,14 +590,19 @@ static CGFloat const InkwellPhotoZoomStep = 1.25;
 		return;
 	}
 
+	NSPoint relative_center_point = [self currentImageRelativeCenterPoint];
 	self.zoomScale = MIN(InkwellPhotoMaximumZoomScale, self.zoomScale * InkwellPhotoZoomStep);
 	[self updateImageLayout];
+	[self scrollToKeepImageRelativeCenterPoint:relative_center_point];
 }
 
 - (void) windowDidResize:(NSNotification *)notification
 {
 	#pragma unused(notification)
 	[self updateImageLayout];
+	if ([self needsScrollPositionPinnedToTopLeft]) {
+		[self scrollToTopLeft];
+	}
 }
 
 - (void) windowWillClose:(NSNotification *)notification
