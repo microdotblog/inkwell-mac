@@ -11,6 +11,7 @@
 #import "MBConversationCellView.h"
 #import "MBEntry.h"
 #import "MBMention.h"
+#import "MBReplyController.h"
 
 static NSUserInterfaceItemIdentifier const InkwellConversationCellIdentifier = @"InkwellConversationCell";
 static CGFloat const InkwellConversationTopBarHeight = 44.0;
@@ -32,6 +33,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
+@property (nonatomic, strong) MBReplyController* replyController;
 @property (nonatomic, assign) BOOL didSetupContent;
 
 @end
@@ -166,8 +168,17 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	[title_text_field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 	[title_text_field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 
+	NSButton* reply_button = [NSButton buttonWithTitle:@"Reply" target:self action:@selector(reply:)];
+	reply_button.translatesAutoresizingMaskIntoConstraints = NO;
+	reply_button.bezelStyle = NSBezelStyleRounded;
+	reply_button.controlSize = NSControlSizeSmall;
+	reply_button.font = [NSFont systemFontOfSize:13.0];
+	[reply_button setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[reply_button setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+
 	[top_container_view addSubview:avatar_image_view];
 	[top_container_view addSubview:title_text_field];
+	[top_container_view addSubview:reply_button];
 
 	NSTableView* table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -204,8 +215,10 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		[avatar_image_view.widthAnchor constraintEqualToConstant:InkwellConversationHeaderAvatarSize],
 		[avatar_image_view.heightAnchor constraintEqualToConstant:InkwellConversationHeaderAvatarSize],
 		[title_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:8.0],
-		[title_text_field.trailingAnchor constraintEqualToAnchor:top_container_view.trailingAnchor constant:-10.0],
+		[title_text_field.trailingAnchor constraintLessThanOrEqualToAnchor:reply_button.leadingAnchor constant:-10.0],
 		[title_text_field.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
+		[reply_button.trailingAnchor constraintEqualToAnchor:top_container_view.trailingAnchor constant:-10.0],
+		[reply_button.centerYAnchor constraintEqualToAnchor:top_container_view.centerYAnchor],
 		[scroll_view.topAnchor constraintEqualToAnchor:top_container_view.bottomAnchor],
 		[scroll_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
 		[scroll_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
@@ -260,6 +273,21 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	if (self.headerAvatarImageView != nil) {
 		self.headerAvatarImageView.image = self.headerAvatarImage ?: [self defaultHeaderAvatarImage];
 	}
+}
+
+- (IBAction) reply:(id) sender
+{
+	#pragma unused(sender)
+
+	if (self.window == nil) {
+		return;
+	}
+
+	if (self.replyController == nil) {
+		self.replyController = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	}
+
+	[self.replyController showForWindow:self.window];
 }
 
 - (void) fetchFeedIconsIfNeeded

@@ -85,6 +85,11 @@
                                     <action selector="newFeed:" target="-1" id="s8I-jj-K5v"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Reply" keyEquivalent="r" id="QXQ-rP-zWf">
+                                <connections>
+                                    <action selector="reply:" target="-1" id="c8Q-4a-sS9"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="m54-Is-iLE"/>
                             <menuItem title="Mark as Read" keyEquivalent="U" id="7gX-9d-ZY6">
                                 <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>

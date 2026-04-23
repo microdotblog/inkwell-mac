@@ -98,6 +98,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canShareSelectedItem;
 - (BOOL) canPrintCurrentContent;
 - (BOOL) canHighlightSelectedItem;
+- (BOOL) canReplyToConversation;
 - (NSArray*) sharingItemsForSelectedItem;
 - (NSRect) sharingPickerRectInView:(NSView*) view;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
@@ -913,6 +914,15 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	[self.conversationController showWindow:nil];
 }
 
+- (IBAction) reply:(id) sender
+{
+	if (![self canReplyToConversation]) {
+		return;
+	}
+
+	[self.conversationController reply:sender];
+}
+
 - (IBAction) toggleSelectedItemReadState:(id) sender
 {
 	#pragma unused(sender)
@@ -988,6 +998,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 	if (menu_item.action == @selector(showHighlights:)) {
 		return YES;
+	}
+	if (menu_item.action == @selector(reply:)) {
+		return [self canReplyToConversation];
 	}
 	if (menu_item.action == @selector(sortNewestAtTop:)) {
 		menu_item.state = (self.sidebarController.sortOrder == MBSidebarSortOrderNewestFirst) ? NSControlStateValueOn : NSControlStateValueOff;
@@ -1082,6 +1095,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	return [self.detailController hasSelection];
+}
+
+- (BOOL) canReplyToConversation
+{
+	return self.conversationController.window.isVisible;
 }
 
 - (NSArray*) sharingItemsForSelectedItem
