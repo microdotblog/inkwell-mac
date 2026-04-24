@@ -982,9 +982,13 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	[task resume];
 }
 
-- (void) createReplyForPostID:(NSInteger) postID content:(NSString *)content token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion
+- (void) createReplyForPostID:(NSString *)postID content:(NSString *)content token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion
 {
+	NSString* normalized_post_id = [postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* content_string = content ?: @"";
+	if (normalized_post_id.length == 0) {
+		normalized_post_id = @"0";
+	}
 	if (content_string.length == 0) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1050 userInfo:@{ NSLocalizedDescriptionKey: @"Missing content for reply request." }];
 		[self finishWithSimpleError:error completion:completion];
@@ -1013,7 +1017,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
 	NSMutableArray* body_parts = [NSMutableArray array];
-	[body_parts addObject:[NSString stringWithFormat:@"id=%ld", (long) postID]];
+	[body_parts addObject:[NSString stringWithFormat:@"id=%@", [self urlEncodedString:normalized_post_id]]];
 	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:content_string]]];
 	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
 	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];

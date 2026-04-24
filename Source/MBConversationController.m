@@ -28,11 +28,14 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, strong) NSTableView* tableView;
 @property (nonatomic, strong) NSImageView* headerAvatarImageView;
 @property (nonatomic, strong) NSTextField* headerTitleTextField;
+@property (nonatomic, strong) NSButton* replyButton;
 @property (nonatomic, strong) MBAvatarLoader* avatarLoader;
 @property (nonatomic, copy) NSString* headerTitle;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
+@property (nonatomic, copy) NSString* replyPostID;
+@property (nonatomic, copy) NSString* replyPrefillText;
 @property (nonatomic, strong) MBReplyController* replyController;
 @property (nonatomic, assign) BOOL didSetupContent;
 
@@ -58,6 +61,8 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.headerAvatarImage = [self defaultHeaderAvatarImage];
 		self.headerFeedHost = @"";
 		self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
+		self.replyPostID = @"";
+		self.replyPrefillText = @"";
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -86,7 +91,10 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	self.mentions = [self mentionsFromConversationPayload:self.conversationPayload];
+	self.replyPostID = [self replyPostIDFromConversationPayload:self.conversationPayload];
+	self.replyPrefillText = [self replyPrefillTextFromConversationPayload:self.conversationPayload];
 	[self updateWindowTitleState];
+	[self applyReplyButtonStateIfNeeded];
 	[self.tableView reloadData];
 }
 
@@ -228,9 +236,11 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	self.tableView = table_view;
 	self.headerAvatarImageView = avatar_image_view;
 	self.headerTitleTextField = title_text_field;
+	self.replyButton = reply_button;
 	self.didSetupContent = YES;
 	[self updateWindowTitleState];
 	[self applyHeaderIfNeeded];
+	[self applyReplyButtonStateIfNeeded];
 }
 
 - (NSInteger) numberOfRowsInTableView:(NSTableView*) tableView
@@ -279,7 +289,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 {
 	#pragma unused(sender)
 
-	if (self.window == nil) {
+	if (self.window == nil || ![self canReplyToConversation]) {
 		return;
 	}
 
@@ -287,7 +297,21 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.replyController = [[MBReplyController alloc] initWithClient:self.client token:self.token];
 	}
 
-	[self.replyController showForWindow:self.window];
+	[self.replyController showForWindow:self.window postID:self.replyPostID prefillText:self.replyPrefillText];
+}
+
+- (BOOL) canReplyToConversation
+{
+	return (self.replyPostID.length > 0);
+}
+
+- (void) applyReplyButtonStateIfNeeded
+{
+	if (self.replyButton != nil) {
+		BOOL can_reply = [self canReplyToConversation];
+		self.replyButton.hidden = !can_reply;
+		self.replyButton.enabled = can_reply;
+	}
 }
 
 - (void) fetchFeedIconsIfNeeded
@@ -438,6 +462,55 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	return [mentions copy];
+}
+
+- (NSString*) replyPostIDFromConversationPayload:(NSDictionary*) conversation_payload
+{
+	id items_object = conversation_payload[@"items"];
+	if (![items_object isKindOfClass:[NSArray class]]) {
+		return @"";
+	}
+
+	NSArray* items = (NSArray*) items_object;
+	if (items.count == 0) {
+		return @"";
+	}
+
+	id first_object = items.firstObject;
+	if (![first_object isKindOfClass:[NSDictionary class]]) {
+		return @"";
+	}
+
+	NSDictionary* first_item = (NSDictionary*) first_object;
+	return [self stringValueFromObject:first_item[@"id"]];
+}
+
+- (NSString*) replyPrefillTextFromConversationPayload:(NSDictionary*) conversation_payload
+{
+	id items_object = conversation_payload[@"items"];
+	if (![items_object isKindOfClass:[NSArray class]]) {
+		return @"";
+	}
+
+	NSArray* items = (NSArray*) items_object;
+	if (items.count == 0) {
+		return @"";
+	}
+
+	id first_object = items.firstObject;
+	if (![first_object isKindOfClass:[NSDictionary class]]) {
+		return @"";
+	}
+
+	NSDictionary* first_item = (NSDictionary*) first_object;
+	NSDictionary* author = [self dictionaryValueFromObject:first_item[@"author"]];
+	NSDictionary* microblog = [self dictionaryValueFromObject:author[@"_microblog"]];
+	NSString* username = [self stringValueFromObject:microblog[@"username"]];
+	if (username.length == 0) {
+		return @"";
+	}
+
+	return [NSString stringWithFormat:@"@%@ ", username];
 }
 
 - (NSDictionary*) dictionaryValueFromObject:(id) object

@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype) initWithClient:(MBClient* _Nullable) client token:(NSString* _Nullable) token;
 - (IBAction) reply:(id) sender;
+- (BOOL) canReplyToConversation;
 - (void) updateForSelectedEntry:(MBEntry* _Nullable) entry;
 - (void) updateWithConversationPayload:(NSDictionary* _Nullable) conversation_payload;
 

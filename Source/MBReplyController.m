@@ -19,6 +19,7 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
 @property (nonatomic, strong) NSButton* cancelButton;
 @property (nonatomic, strong) NSButton* postButton;
+@property (nonatomic, copy) NSString* postID;
 @property (nonatomic, assign) BOOL isPosting;
 
 @end
@@ -36,18 +37,24 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 	if (self) {
 		self.client = client;
 		self.token = token ?: @"";
+		self.postID = @"0";
 	}
 	return self;
 }
 
-- (void) showForWindow:(NSWindow *)parentWindow
+- (void) showForWindow:(NSWindow *)parentWindow postID:(NSString *)postID prefillText:(NSString *)prefillText
 {
 	[self setupWindowIfNeeded];
 	if (parentWindow == nil) {
 		return;
 	}
 
+	NSString* normalized_post_id = [postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	self.postID = (normalized_post_id.length > 0) ? normalized_post_id : @"0";
+	NSString* normalized_prefill_text = prefillText ?: @"";
+
 	if (self.window.sheetParent == parentWindow) {
+		[self applyPrefillText:normalized_prefill_text];
 		[self.window makeFirstResponder:self.textView];
 		return;
 	}
@@ -57,6 +64,7 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 	}
 
 	[self resetWindowState];
+	[self applyPrefillText:normalized_prefill_text];
 	[parentWindow beginSheet:self.window completionHandler:nil];
 	[self.window makeFirstResponder:self.textView];
 }
@@ -97,7 +105,7 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 	[self.progressIndicator startAnimation:nil];
 
 	__weak typeof(self) weak_self = self;
-	[self.client createReplyForPostID:0 content:content_string token:self.token completion:^(NSError* _Nullable error) {
+	[self.client createReplyForPostID:self.postID content:content_string token:self.token completion:^(NSError* _Nullable error) {
 		MBReplyController* strong_self = weak_self;
 		if (strong_self == nil) {
 			return;
@@ -218,6 +226,15 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 	self.cancelButton.enabled = YES;
 	[self.progressIndicator stopAnimation:nil];
 	self.progressIndicator.hidden = YES;
+	[self updatePostButtonEnabledState];
+}
+
+- (void) applyPrefillText:(NSString*) prefill_text
+{
+	self.textView.string = prefill_text ?: @"";
+	NSRange selected_range = NSMakeRange(self.textView.string.length, 0);
+	[self.textView setSelectedRange:selected_range];
+	[self.textView scrollRangeToVisible:selected_range];
 	[self updatePostButtonEnabledState];
 }
 

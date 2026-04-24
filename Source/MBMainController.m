@@ -1099,7 +1099,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) canReplyToConversation
 {
-	return self.conversationController.window.isVisible;
+	return (self.conversationController.window.isVisible && [self.conversationController canReplyToConversation]);
 }
 
 - (NSArray*) sharingItemsForSelectedItem
