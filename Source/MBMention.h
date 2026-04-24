@@ -14,7 +14,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString* avatarURL;
 @property (nonatomic, copy) NSString* fullName;
 @property (nonatomic, copy) NSString* username;
+@property (nonatomic, copy) NSString* postID;
 @property (nonatomic, copy) NSString* text;
+@property (nonatomic, copy) NSString* url;
 @property (nonatomic, strong, nullable) NSDate* date;
 
 @end

@@ -12,6 +12,7 @@
 #import "MBEntry.h"
 #import "MBMention.h"
 #import "MBReplyController.h"
+#import "NSStrings+Extras.h"
 
 static NSUserInterfaceItemIdentifier const InkwellConversationCellIdentifier = @"InkwellConversationCell";
 static CGFloat const InkwellConversationTopBarHeight = 44.0;
@@ -19,7 +20,41 @@ static CGFloat const InkwellConversationHeaderAvatarSize = 20.0;
 static CGFloat const InkwellConversationEstimatedRowHeight = 72.0;
 static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
-@interface MBConversationController () <NSTableViewDataSource, NSTableViewDelegate>
+@interface MBConversationTableView : NSTableView
+
+@property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
+
+@end
+
+@implementation MBConversationTableView
+
+- (NSMenu*) menuForEvent:(NSEvent*) event
+{
+	if (self.contextMenuHandler == nil) {
+		return [super menuForEvent:event];
+	}
+
+	NSPoint point_in_window = event.locationInWindow;
+	NSPoint point_in_table = [self convertPoint:point_in_window fromView:nil];
+	NSInteger row = [self rowAtPoint:point_in_table];
+	if (row < 0 || row >= self.numberOfRows) {
+		return nil;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+	[self selectRowIndexes:index_set byExtendingSelection:NO];
+
+	NSMenu* menu = self.contextMenuHandler();
+	if (menu != nil) {
+		return menu;
+	}
+
+	return [super menuForEvent:event];
+}
+
+@end
+
+@interface MBConversationController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
 
 @property (nonatomic, strong) MBClient* client;
 @property (nonatomic, copy) NSString* token;
@@ -188,7 +223,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	[top_container_view addSubview:title_text_field];
 	[top_container_view addSubview:reply_button];
 
-	NSTableView* table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
+	MBConversationTableView* table_view = [[MBConversationTableView alloc] initWithFrame:NSZeroRect];
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
 	table_view.dataSource = self;
@@ -198,6 +233,15 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	table_view.usesAutomaticRowHeights = YES;
 	table_view.allowsMultipleSelection = NO;
 	table_view.allowsEmptySelection = YES;
+	__weak typeof(self) weak_self = self;
+	table_view.contextMenuHandler = ^NSMenu* {
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return nil;
+		}
+
+		return [strong_self conversationContextMenu];
+	};
 
 	NSTableColumn* column = [[NSTableColumn alloc] initWithIdentifier:@"ConversationColumn"];
 	column.resizingMask = NSTableColumnAutoresizingMask;
@@ -300,6 +344,23 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	[self.replyController showForWindow:self.window postID:self.replyPostID prefillText:self.replyPrefillText];
 }
 
+- (IBAction) replyToSelectedMention:(id) sender
+{
+	#pragma unused(sender)
+
+	MBMention* mention = [self selectedMention];
+	if (![self canReplyToMention:mention] || self.window == nil) {
+		return;
+	}
+
+	if (self.replyController == nil) {
+		self.replyController = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	}
+
+	NSString* prefill_text = [self prefillTextForUsername:mention.username];
+	[self.replyController showForWindow:self.window postID:mention.postID prefillText:prefill_text];
+}
+
 - (BOOL) canReplyToConversation
 {
 	return (self.replyPostID.length > 0);
@@ -312,6 +373,115 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.replyButton.hidden = !can_reply;
 		self.replyButton.enabled = can_reply;
 	}
+}
+
+- (NSMenu*) conversationContextMenu
+{
+	NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Conversation"];
+
+	NSMenuItem* reply_item = [[NSMenuItem alloc] initWithTitle:@"Reply" action:@selector(replyToSelectedMention:) keyEquivalent:@""];
+	reply_item.target = self;
+	[menu addItem:reply_item];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+
+	NSMenuItem* open_item = [[NSMenuItem alloc] initWithTitle:[NSString mb_openInBrowserString] action:@selector(openSelectedMentionInBrowser:) keyEquivalent:@""];
+	open_item.target = self;
+	[menu addItem:open_item];
+
+	NSMenuItem* copy_link_item = [[NSMenuItem alloc] initWithTitle:@"Copy Link" action:@selector(copySelectedMentionLink:) keyEquivalent:@""];
+	copy_link_item.target = self;
+	[menu addItem:copy_link_item];
+
+	return menu;
+}
+
+- (MBMention* _Nullable) selectedMention
+{
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.mentions.count) {
+		return nil;
+	}
+
+	id object = self.mentions[selected_row];
+	if (![object isKindOfClass:[MBMention class]]) {
+		return nil;
+	}
+
+	return (MBMention*) object;
+}
+
+- (BOOL) canReplyToMention:(MBMention*) mention
+{
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return NO;
+	}
+
+	NSString* post_id = [mention.postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* username = [mention.username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (post_id.length > 0 && username.length > 0);
+}
+
+- (BOOL) canOpenSelectedMentionInBrowser
+{
+	MBMention* mention = [self selectedMention];
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return NO;
+	}
+
+	NSString* url_string = [mention.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (url_string.length > 0);
+}
+
+- (BOOL) canCopySelectedMentionLink
+{
+	return [self canOpenSelectedMentionInBrowser];
+}
+
+- (NSString*) prefillTextForUsername:(NSString*) username
+{
+	NSString* normalized_username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_username.length == 0) {
+		return @"";
+	}
+
+	return [NSString stringWithFormat:@"@%@ ", normalized_username];
+}
+
+- (IBAction) openSelectedMentionInBrowser:(id) sender
+{
+	#pragma unused(sender)
+
+	MBMention* mention = [self selectedMention];
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return;
+	}
+
+	NSString* url_string = [mention.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return;
+	}
+
+	[NSString mb_openURLStringInBrowser:url_string];
+}
+
+- (IBAction) copySelectedMentionLink:(id) sender
+{
+	#pragma unused(sender)
+
+	MBMention* mention = [self selectedMention];
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return;
+	}
+
+	NSString* url_string = [mention.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (url_string.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:url_string forType:NSPasteboardTypeString];
 }
 
 - (void) fetchFeedIconsIfNeeded
@@ -447,6 +617,8 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		mention.avatarURL = [self stringValueFromObject:author[@"avatar"]];
 		mention.fullName = [self stringValueFromObject:author[@"name"]];
 		mention.username = [self stringValueFromObject:microblog[@"username"]];
+		mention.postID = [self stringValueFromObject:item[@"id"]];
+		mention.url = [self stringValueFromObject:item[@"url"]];
 
 		NSString* content_html = [self stringValueFromObject:item[@"content_html"]];
 		NSString* content_text = [self stringValueFromObject:item[@"content_text"]];
@@ -511,6 +683,21 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	return [NSString stringWithFormat:@"@%@ ", username];
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	if (menu_item.action == @selector(replyToSelectedMention:)) {
+		return [self canReplyToMention:[self selectedMention]];
+	}
+	if (menu_item.action == @selector(openSelectedMentionInBrowser:)) {
+		return [self canOpenSelectedMentionInBrowser];
+	}
+	if (menu_item.action == @selector(copySelectedMentionLink:)) {
+		return [self canCopySelectedMentionLink];
+	}
+
+	return YES;
 }
 
 - (NSDictionary*) dictionaryValueFromObject:(id) object
