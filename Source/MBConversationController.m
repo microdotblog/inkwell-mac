@@ -69,6 +69,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, strong) NSImage* headerAvatarImage;
 @property (nonatomic, copy) NSString* headerFeedHost;
 @property (nonatomic, copy) NSDictionary* iconURLByHost;
+@property (nonatomic, assign) BOOL hasReplyContext;
 @property (nonatomic, copy) NSString* replyPostID;
 @property (nonatomic, copy) NSString* replyPrefillText;
 @property (nonatomic, strong) MBReplyController* replyController;
@@ -96,6 +97,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.headerAvatarImage = [self defaultHeaderAvatarImage];
 		self.headerFeedHost = @"";
 		self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
+		self.hasReplyContext = NO;
 		self.replyPostID = @"";
 		self.replyPrefillText = @"";
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
@@ -118,7 +120,8 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 - (void) updateWithConversationPayload:(NSDictionary* _Nullable) conversation_payload
 {
-	if (![conversation_payload isKindOfClass:[NSDictionary class]]) {
+	self.hasReplyContext = [conversation_payload isKindOfClass:[NSDictionary class]];
+	if (!self.hasReplyContext) {
 		self.conversationPayload = @{};
 	}
 	else {
@@ -363,7 +366,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 - (BOOL) canReplyToConversation
 {
-	return (self.replyPostID.length > 0);
+	return (self.hasReplyContext && self.replyPostID.length > 0);
 }
 
 - (void) applyReplyButtonStateIfNeeded
@@ -638,46 +641,44 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 - (NSString*) replyPostIDFromConversationPayload:(NSDictionary*) conversation_payload
 {
-	id items_object = conversation_payload[@"items"];
-	if (![items_object isKindOfClass:[NSArray class]]) {
+	NSString* home_page_url = [self stringValueFromObject:conversation_payload[@"home_page_url"]];
+	NSString* trimmed_url = [home_page_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (![trimmed_url hasPrefix:@"https://micro.blog"]) {
 		return @"";
 	}
 
-	NSArray* items = (NSArray*) items_object;
-	if (items.count == 0) {
+	NSString* normalized_url = trimmed_url;
+	while ([normalized_url hasSuffix:@"/"]) {
+		normalized_url = [normalized_url substringToIndex:(normalized_url.length - 1)];
+	}
+
+	NSArray* components = [normalized_url componentsSeparatedByString:@"/"];
+	if (components.count < 5) {
 		return @"";
 	}
 
-	id first_object = items.firstObject;
-	if (![first_object isKindOfClass:[NSDictionary class]]) {
-		return @"";
-	}
-
-	NSDictionary* first_item = (NSDictionary*) first_object;
-	return [self stringValueFromObject:first_item[@"id"]];
+	return [self stringValueFromObject:components.lastObject];
 }
 
 - (NSString*) replyPrefillTextFromConversationPayload:(NSDictionary*) conversation_payload
 {
-	id items_object = conversation_payload[@"items"];
-	if (![items_object isKindOfClass:[NSArray class]]) {
+	NSString* home_page_url = [self stringValueFromObject:conversation_payload[@"home_page_url"]];
+	NSString* trimmed_url = [home_page_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (![trimmed_url hasPrefix:@"https://micro.blog"]) {
 		return @"";
 	}
 
-	NSArray* items = (NSArray*) items_object;
-	if (items.count == 0) {
+	NSString* normalized_url = trimmed_url;
+	while ([normalized_url hasSuffix:@"/"]) {
+		normalized_url = [normalized_url substringToIndex:(normalized_url.length - 1)];
+	}
+
+	NSArray* components = [normalized_url componentsSeparatedByString:@"/"];
+	if (components.count < 5) {
 		return @"";
 	}
 
-	id first_object = items.firstObject;
-	if (![first_object isKindOfClass:[NSDictionary class]]) {
-		return @"";
-	}
-
-	NSDictionary* first_item = (NSDictionary*) first_object;
-	NSDictionary* author = [self dictionaryValueFromObject:first_item[@"author"]];
-	NSDictionary* microblog = [self dictionaryValueFromObject:author[@"_microblog"]];
-	NSString* username = [self stringValueFromObject:microblog[@"username"]];
+	NSString* username = [self stringValueFromObject:components[(components.count - 2)]];
 	if (username.length == 0) {
 		return @"";
 	}
