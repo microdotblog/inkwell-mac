@@ -53,11 +53,6 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 
 @implementation MBReplyController
 
-- (instancetype) init
-{
-	return [self initWithClient:nil token:nil];
-}
-
 - (instancetype) initWithClient:(MBClient * _Nullable)client token:(NSString * _Nullable)token
 {
 	self = [super initWithWindow:nil];
