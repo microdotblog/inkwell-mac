@@ -670,7 +670,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 {
 	NSString* home_page_url = [self stringValueFromObject:conversation_payload[@"home_page_url"]];
 	NSString* trimmed_url = [home_page_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (![trimmed_url hasPrefix:@"https://micro.blog"]) {
+	if (![trimmed_url hasPrefix:@"https://micro.blog/"]) {
 		return @"";
 	}
 
@@ -691,7 +691,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 {
 	NSString* home_page_url = [self stringValueFromObject:conversation_payload[@"home_page_url"]];
 	NSString* trimmed_url = [home_page_url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (![trimmed_url hasPrefix:@"https://micro.blog"]) {
+	if (![trimmed_url hasPrefix:@"https://micro.blog/"]) {
 		return @"";
 	}
 
