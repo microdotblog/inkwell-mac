@@ -11,6 +11,33 @@
 static CGFloat const InkwellReplyWindowWidth = 500.0;
 static CGFloat const InkwellReplyWindowHeight = 200.0;
 
+@interface MBReplyBackgroundView : NSView
+
+@end
+
+@implementation MBReplyBackgroundView
+
+- (BOOL) isOpaque
+{
+	return YES;
+}
+
+- (void) drawRect:(NSRect)dirtyRect
+{
+	#pragma unused(dirtyRect)
+
+	[NSColor.windowBackgroundColor setFill];
+	NSRectFill(self.bounds);
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self setNeedsDisplay:YES];
+}
+
+@end
+
 @interface MBReplyController () <NSTextViewDelegate>
 
 @property (nonatomic, strong) MBClient* client;
@@ -49,23 +76,30 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 		return;
 	}
 
-	NSString* normalized_post_id = [postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	self.postID = (normalized_post_id.length > 0) ? normalized_post_id : @"0";
-	NSString* normalized_prefill_text = prefillText ?: @"";
-
-	if (self.window.sheetParent == parentWindow) {
-		[self applyPrefillText:normalized_prefill_text];
-		[self.window makeFirstResponder:self.textView];
+	if (self.window.sheetParent != nil) {
 		return;
 	}
 
-	if (self.window.sheetParent != nil) {
-		[self.window.sheetParent endSheet:self.window];
-	}
-
+	NSString* normalized_post_id = [postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	self.postID = (normalized_post_id.length > 0) ? normalized_post_id : @"0";
+	NSString* normalized_prefill_text = prefillText ?: @"";
+	
 	[self resetWindowState];
 	[self applyPrefillText:normalized_prefill_text];
-	[parentWindow beginSheet:self.window completionHandler:nil];
+	__weak typeof(self) weak_self = self;
+	[parentWindow beginSheet:self.window completionHandler:^(NSModalResponse returnCode) {
+		#pragma unused(returnCode)
+		MBReplyController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		dispatch_block_t did_close_handler = strong_self.didCloseHandler;
+		strong_self.didCloseHandler = nil;
+		if (did_close_handler != nil) {
+			did_close_handler();
+		}
+	}];
 	[self.window makeFirstResponder:self.textView];
 }
 
@@ -138,8 +172,9 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 	sheet_window.titleVisibility = NSWindowTitleHidden;
 	sheet_window.titlebarAppearsTransparent = YES;
 	sheet_window.movable = NO;
+	sheet_window.backgroundColor = NSColor.windowBackgroundColor;
 
-	NSView* content_view = [[NSView alloc] initWithFrame:content_rect];
+	NSView* content_view = [[MBReplyBackgroundView alloc] initWithFrame:content_rect];
 	content_view.translatesAutoresizingMaskIntoConstraints = NO;
 
 	NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
@@ -160,6 +195,7 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 	text_view.richText = NO;
 	text_view.importsGraphics = NO;
 	text_view.delegate = self;
+	text_view.backgroundColor = NSColor.windowBackgroundColor;
 	text_view.textContainerInset = NSMakeSize(16.0, 5.0);
 	text_view.textContainer.containerSize = NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
 	text_view.textContainer.widthTracksTextView = YES;

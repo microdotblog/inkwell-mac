@@ -340,10 +340,21 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		return;
 	}
 
-	if (self.replyController == nil) {
-		self.replyController = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	if (self.replyController != nil) {
+		return;
 	}
 
+	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	__weak typeof(self) weak_self = self;
+	reply_controller.didCloseHandler = ^{
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.replyController = nil;
+	};
+	self.replyController = reply_controller;
 	[self.replyController showForWindow:self.window postID:self.replyPostID prefillText:self.replyPrefillText];
 }
 
@@ -356,11 +367,22 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		return;
 	}
 
-	if (self.replyController == nil) {
-		self.replyController = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	if (self.replyController != nil) {
+		return;
 	}
 
 	NSString* prefill_text = [self prefillTextForUsername:mention.username];
+	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	__weak typeof(self) weak_self = self;
+	reply_controller.didCloseHandler = ^{
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.replyController = nil;
+	};
+	self.replyController = reply_controller;
 	[self.replyController showForWindow:self.window postID:mention.postID prefillText:prefill_text];
 }
 
