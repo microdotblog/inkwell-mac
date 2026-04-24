@@ -38,6 +38,7 @@ static NSString * const MBFeedUnreadEntriesEndpoint = MBMicroBlogBaseURL @"/feed
 static NSString * const MBFeedStarredEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/starred_entries.json";
 static NSString * const MBFeedIconsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/icons.json";
 static NSString* const MBRecentBookmarksEndpoint = MBMicroBlogBaseURL @"/posts/bookmarks";
+static NSString* const MBPostsReplyEndpoint = MBMicroBlogBaseURL @"/posts/reply";
 static NSString* const MBFeedHighlightsEndpoint = MBMicroBlogBaseURL @"/feeds/highlights";
 static NSString* const MBFeedsEndpointBase = MBMicroBlogBaseURL @"/feeds";
 static NSString* const MBFeedsRecapEndpoint = MBMicroBlogBaseURL @"/feeds/recap";
@@ -977,6 +978,65 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		}
 
 		[self finishWithConversationPayload:(NSDictionary*) payload error:nil completion:completion];
+	}];
+	[task resume];
+}
+
+- (void) createReplyForPostID:(NSString *)postID content:(NSString *)content token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion
+{
+	NSString* normalized_post_id = [postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* content_string = content ?: @"";
+	if (normalized_post_id.length == 0) {
+		normalized_post_id = @"0";
+	}
+	if (content_string.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1050 userInfo:@{ NSLocalizedDescriptionKey: @"Missing content for reply request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1051 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for reply request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:MBPostsReplyEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1052 userInfo:@{ NSLocalizedDescriptionKey: @"Reply endpoint URL was invalid." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"POST";
+	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSMutableArray* body_parts = [NSMutableArray array];
+	[body_parts addObject:[NSString stringWithFormat:@"id=%@", [self urlEncodedString:normalized_post_id]]];
+	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:content_string]]];
+	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
+	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Reply request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
 	}];
 	[task resume];
 }

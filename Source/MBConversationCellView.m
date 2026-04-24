@@ -39,7 +39,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 	[super prepareForReuse];
 	self.avatarImageView.image = nil;
 	self.nameTextField.stringValue = @"";
-	self.bodyTextField.stringValue = @"";
+	self.bodyTextField.attributedStringValue = [[NSAttributedString alloc] initWithString:@""];
 	self.dateTextField.stringValue = @"";
 }
 
@@ -62,7 +62,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 
 	self.avatarImageView.image = avatar_image;
 	self.nameTextField.stringValue = name_value;
-	self.bodyTextField.stringValue = body_value;
+	self.bodyTextField.attributedStringValue = [self attributedBodyStringForText:body_value];
 	self.dateTextField.stringValue = date_text ?: @"";
 }
 
@@ -137,6 +137,38 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 	self.nameTextField = name_text_field;
 	self.bodyTextField = body_text_field;
 	self.dateTextField = date_text_field;
+}
+
+- (NSAttributedString*) attributedBodyStringForText:(NSString*) body_text
+{
+	NSDictionary* attributes = @{
+		NSFontAttributeName: [NSFont systemFontOfSize:15.0],
+		NSForegroundColorAttributeName: NSColor.labelColor
+	};
+	NSMutableAttributedString* attributed_string = [[NSMutableAttributedString alloc] initWithString:(body_text ?: @"") attributes:attributes];
+	if (body_text.length == 0 || ![body_text hasPrefix:@"@"]) {
+		return attributed_string;
+	}
+
+	NSCharacterSet* whitespace_character_set = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+	NSInteger length = body_text.length;
+	NSInteger index = 0;
+	while (index < length && [body_text characterAtIndex:index] == '@') {
+		NSInteger mention_start = index;
+		index++;
+		while (index < length && ![whitespace_character_set characterIsMember:[body_text characterAtIndex:index]]) {
+			index++;
+		}
+
+		NSRange mention_range = NSMakeRange(mention_start, (index - mention_start));
+		[attributed_string addAttribute:NSForegroundColorAttributeName value:NSColor.secondaryLabelColor range:mention_range];
+
+		while (index < length && [whitespace_character_set characterIsMember:[body_text characterAtIndex:index]]) {
+			index++;
+		}
+	}
+
+	return attributed_string;
 }
 
 @end
