@@ -336,26 +336,22 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 {
 	#pragma unused(sender)
 
-	if (self.window == nil || ![self canReplyToConversation]) {
+	if (self.window == nil || self.replyController != nil) {
 		return;
 	}
 
-	if (self.replyController != nil) {
+	MBMention* mention = [self selectedMention];
+	if ([self canReplyToMention:mention]) {
+		NSString* prefill_text = [self prefillTextForUsername:mention.username];
+		[self presentReplyControllerWithPostID:mention.postID prefillText:prefill_text];
 		return;
 	}
 
-	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
-	__weak typeof(self) weak_self = self;
-	reply_controller.didCloseHandler = ^{
-		MBConversationController* strong_self = weak_self;
-		if (strong_self == nil) {
-			return;
-		}
+	if (![self canReplyToConversation]) {
+		return;
+	}
 
-		strong_self.replyController = nil;
-	};
-	self.replyController = reply_controller;
-	[self.replyController showForWindow:self.window postID:self.replyPostID prefillText:self.replyPrefillText];
+	[self presentReplyControllerWithPostID:self.replyPostID prefillText:self.replyPrefillText];
 }
 
 - (IBAction) replyToSelectedMention:(id) sender
@@ -372,18 +368,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	NSString* prefill_text = [self prefillTextForUsername:mention.username];
-	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
-	__weak typeof(self) weak_self = self;
-	reply_controller.didCloseHandler = ^{
-		MBConversationController* strong_self = weak_self;
-		if (strong_self == nil) {
-			return;
-		}
-
-		strong_self.replyController = nil;
-	};
-	self.replyController = reply_controller;
-	[self.replyController showForWindow:self.window postID:mention.postID prefillText:prefill_text];
+	[self presentReplyControllerWithPostID:mention.postID prefillText:prefill_text];
 }
 
 - (BOOL) canReplyToConversation
@@ -471,6 +456,26 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	return [NSString stringWithFormat:@"@%@ ", normalized_username];
+}
+
+- (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text
+{
+	if (self.window == nil || self.replyController != nil) {
+		return;
+	}
+
+	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	__weak typeof(self) weak_self = self;
+	reply_controller.didCloseHandler = ^{
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.replyController = nil;
+	};
+	self.replyController = reply_controller;
+	[self.replyController showForWindow:self.window postID:post_id prefillText:prefill_text];
 }
 
 - (IBAction) openSelectedMentionInBrowser:(id) sender
