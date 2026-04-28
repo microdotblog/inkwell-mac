@@ -74,6 +74,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 - (NSURL * _Nullable) feedSubscriptionsCacheURL;
 - (NSArray * _Nullable) loadCachedFeedSubscriptionsDeletingIfExpired;
 - (void) cacheFeedSubscriptionsData:(NSData *) data;
+- (void) logAPIRequest:(NSURLRequest *) request;
 
 @end
 
@@ -1387,6 +1388,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	[highlights_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
+	[self logAPIRequest:highlights_request];
 	NSURLSessionDataTask* task = [self.session dataTaskWithRequest:highlights_request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
 		if (error != nil) {
 			[self finishWithHighlights:nil error:error completion:completion];
@@ -2907,6 +2909,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 - (NSURLSessionDataTask *) trackedDataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error))completion_handler
 {
 	[self beginNetworkingActivity];
+	[self logAPIRequest:request];
 
 	MBClient *strong_self = self;
 	NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
@@ -2921,6 +2924,23 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	}];
 
 	return task;
+}
+
+- (void) logAPIRequest:(NSURLRequest *) request
+{
+#if DEBUG
+	NSURL* url = request.URL;
+	NSString* path = url.path ?: @"";
+	NSString* query = url.query ?: @"";
+	if (query.length > 0) {
+		path = [path stringByAppendingFormat:@"?%@", query];
+	}
+	if (path.length == 0) {
+		path = url.absoluteString ?: @"";
+	}
+
+	NSLog(@"API request: %@", path);
+#endif
 }
 
 - (void) beginNetworkingActivity
