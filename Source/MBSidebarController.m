@@ -107,6 +107,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSInteger) preferredSelectionEntryIDForReload;
 - (NSInteger) currentSelectedEntryID;
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
+- (void) restoreSelectionForEntryIDOnNextRunLoop:(NSInteger) entry_id;
 - (NSInteger) rowForEntryID:(NSInteger)entry_id;
 - (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view;
 - (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view;
@@ -1012,7 +1013,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	self.isPreservingSelectionDuringReload = NO;
 	NSInteger current_selected_row = self.tableView.selectedRow;
+	if (did_restore_selection && current_selected_row < 0) {
+		current_selected_row = [self rowForEntryID:entry_id];
+	}
 	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+	if (did_restore_selection) {
+		[self restoreSelectionForEntryIDOnNextRunLoop:entry_id];
+	}
 	if (!did_restore_selection && previous_selected_row >= 0 && current_selected_row < 0) {
 		[self notifySelectionChanged];
 	}
@@ -1742,6 +1749,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id
 {
 	NSInteger selected_entry_id = [self currentSelectedEntryID];
+	if (selected_entry_id <= 0 && preferred_entry_id > 0) {
+		selected_entry_id = preferred_entry_id;
+	}
+
 	BOOL is_searching = (self.contentMode == MBSidebarContentModeFeeds && self.searchQuery.length > 0);
 	NSArray* filtered_items = nil;
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
@@ -1822,6 +1833,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSInteger previous_selected_row = self.tableView.selectedRow;
 	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
 	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+
 	self.selectedRowForStyling = row;
 	BOOL is_restoring_saved_selection = (previous_selected_row < 0 && entry_id == [self savedSelectedEntryID]);
 	if (is_restoring_saved_selection) {
@@ -1852,6 +1864,30 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return YES;
+}
+
+- (void) restoreSelectionForEntryIDOnNextRunLoop:(NSInteger) entry_id
+{
+	if (entry_id <= 0 || self.tableView == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		NSInteger row = [self rowForEntryID:entry_id];
+		if (row < 0 || row >= self.items.count) {
+			return;
+		}
+
+		NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+		if (![self.tableView isRowSelected:row]) {
+			self.isPreservingSelectionDuringReload = YES;
+			[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+			self.isPreservingSelectionDuringReload = NO;
+		}
+
+		self.selectedRowForStyling = row;
+		[self refreshSelectionStylingForSelectedRow:row];
+	});
 }
 
 - (NSInteger) rowForEntryID:(NSInteger)entry_id
@@ -3175,9 +3211,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	BOOL should_restore_selection = [self.tableView isRowSelected:row_to_reload] || (self.selectedRowForStyling == row_to_reload);
 	NSIndexSet *row_indexes = [NSIndexSet indexSetWithIndex:(NSUInteger) row_to_reload];
 	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
 	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+	if (should_restore_selection && ![self.tableView isRowSelected:row_to_reload]) {
+		[self.tableView selectRowIndexes:row_indexes byExtendingSelection:NO];
+		self.selectedRowForStyling = row_to_reload;
+		[self refreshSelectionStylingForSelectedRow:row_to_reload];
+		[self restoreSelectionForEntryIDOnNextRunLoop:entry_id];
+	}
 }
 
 #pragma mark - Table View
