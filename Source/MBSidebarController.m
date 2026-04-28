@@ -28,6 +28,7 @@ static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static CGFloat const InkwellSidebarPodcastPaneAnimationOffset = 12.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
+static NSTimeInterval const InkwellSidebarEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
@@ -191,6 +192,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (BOOL) shouldPreserveExistingSidebarItemDuringRefresh:(MBEntry*) item oldestFetchedDate:(NSDate* _Nullable) oldest_fetched_date;
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date;
 - (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date;
@@ -2544,6 +2546,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	NSMutableArray<MBEntry *> *merged_items = [NSMutableArray array];
 	NSMutableSet* fetched_entry_ids = [NSMutableSet set];
+	NSDate* oldest_fetched_date = nil;
 	for (MBEntry* item in fetched_items ?: @[]) {
 		if (![item isKindOfClass:[MBEntry class]]) {
 			continue;
@@ -2551,6 +2554,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 		if (item.entryID > 0) {
 			[fetched_entry_ids addObject:@(item.entryID)];
+		}
+		if (item.date != nil && (oldest_fetched_date == nil || [item.date compare:oldest_fetched_date] == NSOrderedAscending)) {
+			oldest_fetched_date = item.date;
 		}
 		[merged_items addObject:item];
 	}
@@ -2564,6 +2570,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			continue;
 		}
 
+		if (![self shouldPreserveExistingSidebarItemDuringRefresh:item oldestFetchedDate:oldest_fetched_date]) {
+			continue;
+		}
+
 		if (unread_entry_ids != nil && item.entryID > 0) {
 			item.isRead = ![unread_entry_ids containsObject:@(item.entryID)];
 		}
@@ -2572,6 +2582,20 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [merged_items copy];
+}
+
+- (BOOL) shouldPreserveExistingSidebarItemDuringRefresh:(MBEntry*) item oldestFetchedDate:(NSDate* _Nullable) oldest_fetched_date
+{
+	if (![item isKindOfClass:[MBEntry class]] || item.entryID <= 0 || item.date == nil) {
+		return NO;
+	}
+
+	if (oldest_fetched_date == nil || [item.date compare:oldest_fetched_date] == NSOrderedDescending) {
+		return NO;
+	}
+
+	NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-InkwellSidebarEntriesLookbackInterval];
+	return ([item.date compare:cutoff_date] != NSOrderedAscending);
 }
 
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids

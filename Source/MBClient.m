@@ -644,11 +644,19 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	__block NSArray* current_subscriptions = initial_subscriptions ?: @[];
 	__block BOOL did_request_updated_subscriptions = NO;
 	__block BOOL is_requesting_updated_subscriptions = NO;
+	__block BOOL did_finish_with_error = NO;
 	__block NSArray* pending_entries = nil;
 	__block BOOL pending_is_finished = NO;
 
 	void (^finish_or_buffer_entries)(NSArray*, BOOL, NSError*) = ^(NSArray* entries, BOOL is_finished, NSError* error) {
+		if (did_finish_with_error) {
+			return;
+		}
+
 		if (error != nil) {
+			did_finish_with_error = YES;
+			pending_entries = nil;
+			pending_is_finished = NO;
 			completion(current_subscriptions, nil, YES, error);
 			return;
 		}
@@ -670,6 +678,10 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 					current_subscriptions = subscriptions;
 				}
 				is_requesting_updated_subscriptions = NO;
+
+				if (did_finish_with_error) {
+					return;
+				}
 
 				if (pending_entries != nil) {
 					NSArray* buffered_entries = pending_entries;
