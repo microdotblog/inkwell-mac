@@ -1387,7 +1387,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	[highlights_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:highlights_request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+	NSURLSessionDataTask* task = [self.session dataTaskWithRequest:highlights_request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
 		if (error != nil) {
 			[self finishWithHighlights:nil error:error completion:completion];
 			return;
