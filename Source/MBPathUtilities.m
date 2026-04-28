@@ -10,6 +10,13 @@
 static NSString* const InkwellLegacyHighlightsCacheFilename = @"highlights.json";
 static NSString* const InkwellLegacyUnreadEntryIDsCacheFilename = @"unread_entry_ids.json";
 static NSString* const InkwellLegacyIconsDirectoryName = @"Icons";
+static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
+static NSString* const InkwellFadingEntryIDsCacheFilename = @"FadingEntryIDs.json";
+static NSString* const InkwellSidebarSelectedEntryCacheFilename = @"SidebarSelectedEntry.json";
+static NSString* const InkwellSubscriptionsCacheFilename = @"Subscriptions.json";
+static NSString* const InkwellUnreadEntryIDsCacheFilename = @"UnreadEntryIDs.json";
+static NSString* const InkwellHighlightsCacheFilename = @"Highlights.json";
+static NSString* const InkwellPodcastsFilename = @"Podcasts.json";
 
 @implementation MBPathUtilities
 
@@ -99,6 +106,38 @@ static NSString* const InkwellLegacyIconsDirectoryName = @"Icons";
 			[file_manager removeItemAtURL:legacy_url error:nil];
 		}
 	});
+}
+
++ (void) clearUserScopedCacheFiles
+{
+	NSFileManager* file_manager = [NSFileManager defaultManager];
+	NSArray* caches_filenames = @[
+		InkwellRecentEntriesCacheFilename,
+		InkwellFadingEntryIDsCacheFilename,
+		InkwellSidebarSelectedEntryCacheFilename,
+		InkwellSubscriptionsCacheFilename,
+		InkwellUnreadEntryIDsCacheFilename
+	];
+	NSArray* application_support_filenames = @[
+		InkwellHighlightsCacheFilename,
+		InkwellPodcastsFilename
+	];
+
+	NSURL* caches_directory_url = [self appContainerDirectoryURLForSearchPathDirectory:NSCachesDirectory createIfNeeded:NO];
+	for (NSString* filename in caches_filenames) {
+		NSURL* file_url = [caches_directory_url URLByAppendingPathComponent:filename];
+		if (file_url != nil) {
+			[file_manager removeItemAtURL:file_url error:nil];
+		}
+	}
+
+	NSURL* application_support_directory_url = [self appContainerDirectoryURLForSearchPathDirectory:NSApplicationSupportDirectory createIfNeeded:NO];
+	for (NSString* filename in application_support_filenames) {
+		NSURL* file_url = [application_support_directory_url URLByAppendingPathComponent:filename];
+		if (file_url != nil) {
+			[file_manager removeItemAtURL:file_url error:nil];
+		}
+	}
 }
 
 @end
