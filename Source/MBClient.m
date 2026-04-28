@@ -43,7 +43,7 @@ static NSString* const MBFeedHighlightsEndpoint = MBMicroBlogBaseURL @"/feeds/hi
 static NSString* const MBFeedsEndpointBase = MBMicroBlogBaseURL @"/feeds";
 static NSString* const MBFeedsRecapEndpoint = MBMicroBlogBaseURL @"/feeds/recap";
 static NSString* const MBFeedsRecapEmailEndpoint = MBMicroBlogBaseURL @"/feeds/recap/email";
-static NSInteger const MBFeedEntriesPageSize = 200;
+static NSInteger const MBFeedEntriesPageSize = 75;
 static NSTimeInterval const MBFeedEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 static NSTimeInterval const MBFeedSubscriptionsCacheExpirationInterval = 14.0 * 24.0 * 60.0 * 60.0;
 static NSString* const MBFeedSubscriptionsCacheFilename = @"Subscriptions.json";
@@ -69,12 +69,14 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 - (NSSet*) unreadEntryIDsByMergingRemoteUnreadEntryIDs:(NSSet* _Nullable) unread_entry_ids requestID:(NSInteger) request_id updateCache:(BOOL) update_cache;
 - (void) recordUnreadStateMutationForEntryIDs:(NSArray*) entry_ids shouldMarkUnread:(BOOL) should_mark_unread;
 - (void) fetchFeedSubscriptionsWithAuthorizationValue:(NSString *) authorization_value completion:(void (^)(NSArray * _Nullable subscriptions, NSError * _Nullable error))completion;
-- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion;
+- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions existingEntryIDs:(NSSet *) existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion;
 - (BOOL) entries:(NSArray *) entries containFeedIDMissingFromSubscriptions:(NSArray *) subscriptions;
 - (NSURL * _Nullable) feedSubscriptionsCacheURL;
 - (NSArray * _Nullable) loadCachedFeedSubscriptionsDeletingIfExpired;
 - (void) cacheFeedSubscriptionsData:(NSData *) data;
 - (void) logAPIRequest:(NSURLRequest *) request;
+- (void) logRefreshEntriesStopReason:(NSString *) reason pageNumber:(NSInteger) page_number pageEntryCount:(NSUInteger) page_entry_count addedCount:(NSInteger) added_count newCount:(NSInteger) new_count totalCount:(NSUInteger) total_count oldestEntryDate:(NSDate * _Nullable) oldest_entry_date cutoffDate:(NSDate * _Nullable) cutoff_date;
+- (NSISO8601DateFormatter*) iso8601Formatter;
 
 @end
 
@@ -260,7 +262,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	[task resume];
 }
 
-- (void) fetchFeedEntriesWithToken:(NSString *)token completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion
+- (void) fetchFeedEntriesWithToken:(NSString *)token existingEntryIDs:(NSSet *)existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion
 {
 	if (token.length == 0) {
 		NSError *error = [NSError errorWithDomain:MBClientErrorDomain code:1005 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for entries request." }];
@@ -291,7 +293,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		[self unreadEntryIDsByMergingRemoteUnreadEntryIDs:unread_entry_ids requestID:unread_fetch_request_id updateCache:did_load_remote_unread_entry_ids];
 
 		void (^fetch_entries_with_subscriptions)(NSArray*) = ^(NSArray* subscriptions) {
-			[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value initialSubscriptions:subscriptions completion:^(NSArray<MBSubscription *> * _Nullable current_subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error) {
+			[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value initialSubscriptions:subscriptions existingEntryIDs:existing_entry_ids ?: [NSSet set] completion:^(NSArray<MBSubscription *> * _Nullable current_subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error) {
 				if (error != nil) {
 					[self finishWithSubscriptions:current_subscriptions entries:nil unreadEntryIDs:nil isFinished:YES error:error completion:completion];
 					return;
@@ -492,7 +494,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	[task resume];
 }
 
-- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number cutoffDate:(NSDate*) cutoff_date accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
+- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number cutoffDate:(NSDate*) cutoff_date accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids existingEntryIDs:(NSSet*) existing_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
 {
 	NSURLComponents* components = [NSURLComponents componentsWithString:MBFeedEntriesEndpoint];
 	if (components == nil) {
@@ -517,6 +519,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 
 	NSURLSessionDataTask* entries_task = [self trackedDataTaskWithRequest:entries_request completionHandler:^(NSData * _Nullable entries_data, NSURLResponse * _Nullable entries_response, NSError * _Nullable entries_error) {
 		if (entries_error != nil) {
+			[self logRefreshEntriesStopReason:@"network_error" pageNumber:page_number pageEntryCount:0 addedCount:0 newCount:0 totalCount:accumulated_entries.count oldestEntryDate:nil cutoffDate:cutoff_date];
 			[self finishWithPagedEntries:nil error:entries_error completion:completion];
 			return;
 		}
@@ -524,6 +527,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		NSHTTPURLResponse* entries_http_response = (NSHTTPURLResponse*) entries_response;
 		if (entries_http_response.statusCode == 404 && page_number > 1) {
 			NSArray* filtered_entries = [self filterEntries:accumulated_entries byCutoffDate:cutoff_date];
+			[self logRefreshEntriesStopReason:@"page_not_found" pageNumber:page_number pageEntryCount:0 addedCount:0 newCount:0 totalCount:accumulated_entries.count oldestEntryDate:nil cutoffDate:cutoff_date];
 			[self finishWithPagedEntries:filtered_entries error:nil completion:completion];
 			return;
 		}
@@ -531,6 +535,8 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		if (entries_http_response.statusCode < 200 || entries_http_response.statusCode >= 300) {
 			NSString* description = [self responseDescriptionForData:entries_data defaultMessage:@"Entries request failed."];
 			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:entries_http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			NSString* stop_reason = [NSString stringWithFormat:@"http_status_%ld", (long) entries_http_response.statusCode];
+			[self logRefreshEntriesStopReason:stop_reason pageNumber:page_number pageEntryCount:0 addedCount:0 newCount:0 totalCount:accumulated_entries.count oldestEntryDate:nil cutoffDate:cutoff_date];
 			[self finishWithPagedEntries:nil error:request_error completion:completion];
 			return;
 		}
@@ -538,6 +544,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		id entries_payload = [NSJSONSerialization JSONObjectWithData:entries_data options:0 error:nil];
 		if (![entries_payload isKindOfClass:[NSArray class]]) {
 			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1007 userInfo:@{ NSLocalizedDescriptionKey: @"Entries response was invalid." }];
+			[self logRefreshEntriesStopReason:@"invalid_payload" pageNumber:page_number pageEntryCount:0 addedCount:0 newCount:0 totalCount:accumulated_entries.count oldestEntryDate:nil cutoffDate:cutoff_date];
 			[self finishWithPagedEntries:nil error:parse_error completion:completion];
 			return;
 		}
@@ -545,6 +552,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		NSArray* page_payload = (NSArray*) entries_payload;
 		NSDate* oldest_entry_date = nil;
 		NSInteger added_count = 0;
+		NSInteger new_count = 0;
 		for (id object in page_payload) {
 			if (![object isKindOfClass:[NSDictionary class]]) {
 				continue;
@@ -573,6 +581,9 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 			if (should_add_entry) {
 				[accumulated_entries addObject:entry_dictionary];
 				added_count += 1;
+				if (entry_id_value <= 0 || ![existing_entry_ids containsObject:@(entry_id_value)]) {
+					new_count += 1;
+				}
 			}
 		}
 
@@ -582,14 +593,30 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		}
 
 		BOOL should_continue = YES;
-		if (page_payload.count == 0 || added_count == 0) {
+		NSString* stop_reason = nil;
+		if (page_payload.count == 0 || added_count == 0 || new_count == 0) {
 			should_continue = NO;
+			if (page_payload.count == 0) {
+				stop_reason = @"empty_page";
+			}
+			else if (added_count == 0) {
+				stop_reason = @"no_unique_entries";
+			}
+			else {
+				stop_reason = @"no_new_entries";
+			}
 		}
 		if (did_reach_cutoff) {
 			should_continue = NO;
+			if (stop_reason == nil) {
+				stop_reason = @"reached_cutoff";
+			}
 		}
 		if (page_payload.count < MBFeedEntriesPageSize) {
 			should_continue = NO;
+			if (stop_reason == nil) {
+				stop_reason = @"partial_page";
+			}
 		}
 
 		NSArray* filtered_entries = [self filterEntries:accumulated_entries byCutoffDate:cutoff_date];
@@ -599,16 +626,17 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		}
 
 		if (!should_continue) {
+			[self logRefreshEntriesStopReason:stop_reason ?: @"unknown" pageNumber:page_number pageEntryCount:page_payload.count addedCount:added_count newCount:new_count totalCount:accumulated_entries.count oldestEntryDate:oldest_entry_date cutoffDate:cutoff_date];
 			[self finishWithPagedEntries:filtered_entries error:nil completion:completion];
 			return;
 		}
 
-		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:(page_number + 1) cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:update completion:completion];
+		[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:(page_number + 1) cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids existingEntryIDs:existing_entry_ids update:update completion:completion];
 	}];
 	[entries_task resume];
 }
 
-- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion
+- (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions existingEntryIDs:(NSSet *) existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion
 {
 	NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-MBFeedEntriesLookbackInterval];
 	NSMutableArray* accumulated_entries = [NSMutableArray array];
@@ -657,7 +685,7 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 		completion(current_subscriptions, entries, is_finished, nil);
 	};
 
-	[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids update:^(NSArray* updated_entries) {
+	[self fetchPagedFeedEntriesWithAuthorizationValue:authorization_value pageNumber:1 cutoffDate:cutoff_date accumulatedEntries:accumulated_entries seenEntryIDs:seen_entry_ids existingEntryIDs:existing_entry_ids ?: [NSSet set] update:^(NSArray* updated_entries) {
 		finish_or_buffer_entries(updated_entries, NO, nil);
 	} completion:^(NSArray* _Nullable entries, NSError* _Nullable error) {
 		finish_or_buffer_entries(entries, YES, error);
@@ -2940,6 +2968,15 @@ static NSString* const MBHighlightsCacheFilename = @"Highlights.json";
 	}
 
 	NSLog(@"API request: %@", path);
+#endif
+}
+
+- (void) logRefreshEntriesStopReason:(NSString *) reason pageNumber:(NSInteger) page_number pageEntryCount:(NSUInteger) page_entry_count addedCount:(NSInteger) added_count newCount:(NSInteger) new_count totalCount:(NSUInteger) total_count oldestEntryDate:(NSDate * _Nullable) oldest_entry_date cutoffDate:(NSDate * _Nullable) cutoff_date
+{
+#if DEBUG
+	NSString* oldest_date_string = (oldest_entry_date == nil) ? @"" : ([[self iso8601Formatter] stringFromDate:oldest_entry_date] ?: @"");
+	NSString* cutoff_date_string = (cutoff_date == nil) ? @"" : ([[self iso8601Formatter] stringFromDate:cutoff_date] ?: @"");
+	NSLog(@"Refresh entries stop: reason=%@ page=%ld page_count=%lu added=%ld new=%ld total=%lu oldest=%@ cutoff=%@", reason ?: @"unknown", (long) page_number, (unsigned long) page_entry_count, (long) added_count, (long) new_count, (unsigned long) total_count, oldest_date_string, cutoff_date_string);
 #endif
 }
 

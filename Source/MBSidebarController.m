@@ -190,6 +190,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) reloadRowsForIconURLString:(NSString*) url_string;
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date;
 - (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date;
@@ -1029,7 +1030,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self updateRecapUI];
 	__block BOOL did_fetch_icons = NO;
 	BOOL preserve_cached_fading_value_during_fetch = self.hasFadingEntryIDsCache;
-	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
+	NSMutableSet* existing_entry_ids = [NSMutableSet set];
+	for (MBEntry* item in self.allItems ?: @[]) {
+		if (item.entryID > 0) {
+			[existing_entry_ids addObject:@(item.entryID)];
+		}
+	}
+	[self.client fetchFeedEntriesWithToken:self.token existingEntryIDs:existing_entry_ids completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
 		if (is_finished) {
 			self.isFetching = NO;
 			[self updateRecapUI];
@@ -1039,7 +1046,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			return;
 		}
 
-		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[] unreadEntryIDs:unread_entry_ids];
+		NSArray<MBEntry *> *fetched_sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[] unreadEntryIDs:unread_entry_ids];
+		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsByMergingFetchedItems:fetched_sidebar_items withExistingItems:self.allItems ?: @[] unreadEntryIDs:unread_entry_ids];
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
 		[self updateFadingEntryIDsFromCurrentItemsIsFinished:is_finished preserveCachedValueDuringFetch:preserve_cached_fading_value_during_fetch];
@@ -2530,6 +2538,40 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [sidebar_items copy];
+}
+
+- (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
+{
+	NSMutableArray<MBEntry *> *merged_items = [NSMutableArray array];
+	NSMutableSet* fetched_entry_ids = [NSMutableSet set];
+	for (MBEntry* item in fetched_items ?: @[]) {
+		if (![item isKindOfClass:[MBEntry class]]) {
+			continue;
+		}
+
+		if (item.entryID > 0) {
+			[fetched_entry_ids addObject:@(item.entryID)];
+		}
+		[merged_items addObject:item];
+	}
+
+	for (MBEntry* item in existing_items ?: @[]) {
+		if (![item isKindOfClass:[MBEntry class]]) {
+			continue;
+		}
+
+		if (item.entryID > 0 && [fetched_entry_ids containsObject:@(item.entryID)]) {
+			continue;
+		}
+
+		if (unread_entry_ids != nil && item.entryID > 0) {
+			item.isRead = ![unread_entry_ids containsObject:@(item.entryID)];
+		}
+
+		[merged_items addObject:item];
+	}
+
+	return [merged_items copy];
 }
 
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
