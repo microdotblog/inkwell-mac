@@ -230,6 +230,8 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
 	table_view.dataSource = self;
+	table_view.target = self;
+	table_view.doubleAction = @selector(openDoubleClickedMentionInBrowser:);
 	table_view.headerView = nil;
 	table_view.rowHeight = InkwellConversationEstimatedRowHeight;
 	table_view.intercellSpacing = NSMakeSize(0.0, 0.0);
@@ -493,6 +495,18 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	[NSString mb_openURLStringInBrowser:url_string];
+}
+
+- (IBAction) openDoubleClickedMentionInBrowser:(id) sender
+{
+	NSInteger clicked_row = self.tableView.clickedRow;
+	if (clicked_row < 0 || clicked_row >= self.mentions.count) {
+		return;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) clicked_row];
+	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+	[self openSelectedMentionInBrowser:sender];
 }
 
 - (IBAction) copySelectedMentionLink:(id) sender
