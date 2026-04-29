@@ -28,6 +28,7 @@ static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
 static CGFloat const InkwellSidebarBookmarksBoxHeight = 46.0;
 static CGFloat const InkwellSidebarPodcastPaneAnimationOffset = 12.0;
 static NSTimeInterval const InkwellSidebarRecapPollInterval = 3.0;
+static NSTimeInterval const InkwellSidebarEntriesLookbackInterval = 7.0 * 24.0 * 60.0 * 60.0;
 static NSInteger const InkwellSidebarRecapMaxAttempts = 20;
 static NSString* const InkwellPlansURLString = @"https://micro.blog/account/plans";
 static NSString* const InkwellRecentEntriesCacheFilename = @"RecentEntries.json";
@@ -106,6 +107,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSInteger) preferredSelectionEntryIDForReload;
 - (NSInteger) currentSelectedEntryID;
 - (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
+- (void) restoreSelectionForEntryIDOnNextRunLoop:(NSInteger) entry_id;
 - (NSInteger) rowForEntryID:(NSInteger)entry_id;
 - (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view;
 - (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view;
@@ -190,6 +192,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) reloadRowsForIconURLString:(NSString*) url_string;
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (BOOL) shouldPreserveExistingSidebarItemDuringRefresh:(MBEntry*) item oldestFetchedDate:(NSDate* _Nullable) oldest_fetched_date;
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date;
 - (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date;
@@ -1009,7 +1013,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	self.isPreservingSelectionDuringReload = NO;
 	NSInteger current_selected_row = self.tableView.selectedRow;
+	if (did_restore_selection && current_selected_row < 0) {
+		current_selected_row = [self rowForEntryID:entry_id];
+	}
 	[self refreshSelectionStylingForSelectedRow:current_selected_row];
+	if (did_restore_selection) {
+		[self restoreSelectionForEntryIDOnNextRunLoop:entry_id];
+	}
 	if (!did_restore_selection && previous_selected_row >= 0 && current_selected_row < 0) {
 		[self notifySelectionChanged];
 	}
@@ -1029,7 +1039,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self updateRecapUI];
 	__block BOOL did_fetch_icons = NO;
 	BOOL preserve_cached_fading_value_during_fetch = self.hasFadingEntryIDsCache;
-	[self.client fetchFeedEntriesWithToken:self.token completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
+	NSMutableSet* existing_entry_ids = [NSMutableSet set];
+	for (MBEntry* item in self.allItems ?: @[]) {
+		if (item.entryID > 0) {
+			[existing_entry_ids addObject:@(item.entryID)];
+		}
+	}
+	[self.client fetchFeedEntriesWithToken:self.token existingEntryIDs:existing_entry_ids completion:^(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error) {
 		if (is_finished) {
 			self.isFetching = NO;
 			[self updateRecapUI];
@@ -1039,7 +1055,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			return;
 		}
 
-		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[] unreadEntryIDs:unread_entry_ids];
+		NSArray<MBEntry *> *fetched_sidebar_items = [self sidebarItemsForEntries:entries ?: @[] subscriptions:subscriptions ?: @[] unreadEntryIDs:unread_entry_ids];
+		NSArray<MBEntry *> *sidebar_items = [self sidebarItemsByMergingFetchedItems:fetched_sidebar_items withExistingItems:self.allItems ?: @[] unreadEntryIDs:unread_entry_ids];
 		self.hasLoadedRemoteItems = YES;
 		self.allItems = sidebar_items;
 		[self updateFadingEntryIDsFromCurrentItemsIsFinished:is_finished preserveCachedValueDuringFetch:preserve_cached_fading_value_during_fetch];
@@ -1732,6 +1749,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id
 {
 	NSInteger selected_entry_id = [self currentSelectedEntryID];
+	if (selected_entry_id <= 0 && preferred_entry_id > 0) {
+		selected_entry_id = preferred_entry_id;
+	}
+
 	BOOL is_searching = (self.contentMode == MBSidebarContentModeFeeds && self.searchQuery.length > 0);
 	NSArray* filtered_items = nil;
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
@@ -1812,6 +1833,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSInteger previous_selected_row = self.tableView.selectedRow;
 	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
 	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+
 	self.selectedRowForStyling = row;
 	BOOL is_restoring_saved_selection = (previous_selected_row < 0 && entry_id == [self savedSelectedEntryID]);
 	if (is_restoring_saved_selection) {
@@ -1842,6 +1864,30 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return YES;
+}
+
+- (void) restoreSelectionForEntryIDOnNextRunLoop:(NSInteger) entry_id
+{
+	if (entry_id <= 0 || self.tableView == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		NSInteger row = [self rowForEntryID:entry_id];
+		if (row < 0 || row >= self.items.count) {
+			return;
+		}
+
+		NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
+		if (![self.tableView isRowSelected:row]) {
+			self.isPreservingSelectionDuringReload = YES;
+			[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+			self.isPreservingSelectionDuringReload = NO;
+		}
+
+		self.selectedRowForStyling = row;
+		[self refreshSelectionStylingForSelectedRow:row];
+	});
 }
 
 - (NSInteger) rowForEntryID:(NSInteger)entry_id
@@ -2532,6 +2578,62 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [sidebar_items copy];
 }
 
+- (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
+{
+	NSMutableArray<MBEntry *> *merged_items = [NSMutableArray array];
+	NSMutableSet* fetched_entry_ids = [NSMutableSet set];
+	NSDate* oldest_fetched_date = nil;
+	for (MBEntry* item in fetched_items ?: @[]) {
+		if (![item isKindOfClass:[MBEntry class]]) {
+			continue;
+		}
+
+		if (item.entryID > 0) {
+			[fetched_entry_ids addObject:@(item.entryID)];
+		}
+		if (item.date != nil && (oldest_fetched_date == nil || [item.date compare:oldest_fetched_date] == NSOrderedAscending)) {
+			oldest_fetched_date = item.date;
+		}
+		[merged_items addObject:item];
+	}
+
+	for (MBEntry* item in existing_items ?: @[]) {
+		if (![item isKindOfClass:[MBEntry class]]) {
+			continue;
+		}
+
+		if (item.entryID > 0 && [fetched_entry_ids containsObject:@(item.entryID)]) {
+			continue;
+		}
+
+		if (![self shouldPreserveExistingSidebarItemDuringRefresh:item oldestFetchedDate:oldest_fetched_date]) {
+			continue;
+		}
+
+		if (unread_entry_ids != nil && item.entryID > 0) {
+			item.isRead = ![unread_entry_ids containsObject:@(item.entryID)];
+		}
+
+		[merged_items addObject:item];
+	}
+
+	return [merged_items copy];
+}
+
+- (BOOL) shouldPreserveExistingSidebarItemDuringRefresh:(MBEntry*) item oldestFetchedDate:(NSDate* _Nullable) oldest_fetched_date
+{
+	if (![item isKindOfClass:[MBEntry class]] || item.entryID <= 0 || item.date == nil) {
+		return NO;
+	}
+
+	if (oldest_fetched_date == nil || [item.date compare:oldest_fetched_date] == NSOrderedDescending) {
+		return NO;
+	}
+
+	NSDate* cutoff_date = [[NSDate date] dateByAddingTimeInterval:-InkwellSidebarEntriesLookbackInterval];
+	return ([item.date compare:cutoff_date] != NSOrderedAscending);
+}
+
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
 {
 	NSString* title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
@@ -3109,9 +3211,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	BOOL should_restore_selection = [self.tableView isRowSelected:row_to_reload] || (self.selectedRowForStyling == row_to_reload);
 	NSIndexSet *row_indexes = [NSIndexSet indexSetWithIndex:(NSUInteger) row_to_reload];
 	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
 	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+	if (should_restore_selection && ![self.tableView isRowSelected:row_to_reload]) {
+		[self.tableView selectRowIndexes:row_indexes byExtendingSelection:NO];
+		self.selectedRowForStyling = row_to_reload;
+		[self refreshSelectionStylingForSelectedRow:row_to_reload];
+		[self restoreSelectionForEntryIDOnNextRunLoop:entry_id];
+	}
 }
 
 #pragma mark - Table View

@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSURL* _Nullable) appSubdirectoryURLForSearchPathDirectory:(NSSearchPathDirectory) search_path_directory relativePath:(NSString*) relative_path createIfNeeded:(BOOL) create_if_needed;
 + (NSURL* _Nullable) appFileURLForSearchPathDirectory:(NSSearchPathDirectory) search_path_directory filename:(NSString*) filename createDirectoryIfNeeded:(BOOL) create_directory_if_needed;
 + (void) cleanupLegacyFiles;
++ (void) clearUserScopedCacheFiles;
 
 @end
 

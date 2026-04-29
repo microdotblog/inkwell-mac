@@ -7,6 +7,7 @@
 
 #import "MBSessionController.h"
 #import "MBClient.h"
+#import "MBPathUtilities.h"
 
 NSString* const InkwellTokenDefaultsKey = @"Token";
 
@@ -40,6 +41,7 @@ NSString* const InkwellTokenDefaultsKey = @"Token";
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUsernameDefaultsKey];
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUserAvatarURLDefaultsKey];
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellReadingRecapDayOfWeekDefaultsKey];
+	[MBPathUtilities clearUserScopedCacheFiles];
 }
 
 @end
