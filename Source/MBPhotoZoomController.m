@@ -106,6 +106,28 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	[self updateTextAttributes];
 }
 
+- (void) mouseDown:(NSEvent *)event
+{
+	if (self.destinationURL == nil) {
+		[super mouseDown:event];
+		return;
+	}
+
+	while (YES) {
+		NSEvent* next_event = [self.window nextEventMatchingMask:(NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp)];
+		if (next_event == nil) {
+			break;
+		}
+		if (next_event.type == NSEventTypeLeftMouseUp) {
+			NSPoint location_in_view = [self convertPoint:next_event.locationInWindow fromView:nil];
+			if (NSPointInRect(location_in_view, self.bounds)) {
+				[[NSWorkspace sharedWorkspace] openURL:self.destinationURL];
+			}
+			break;
+		}
+	}
+}
+
 - (void) mouseUp:(NSEvent *)event
 {
 	#pragma unused(event)
@@ -154,6 +176,64 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	}
 
 	self.attributedStringValue = [[NSAttributedString alloc] initWithString:(self.displayString ?: @"") attributes:attributes];
+}
+
+@end
+
+@interface MBPhotoRelatedInfoBox : NSBox
+
+@property (nonatomic, strong, nullable) NSURL* destinationURL;
+
+@end
+
+@implementation MBPhotoRelatedInfoBox
+
+- (void) resetCursorRects
+{
+	[super resetCursorRects];
+
+	if (self.destinationURL != nil) {
+		[self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+	}
+}
+
+- (void) mouseDown:(NSEvent *)event
+{
+	if (self.destinationURL == nil) {
+		[super mouseDown:event];
+		return;
+	}
+
+	while (YES) {
+		NSEvent* next_event = [self.window nextEventMatchingMask:(NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp)];
+		if (next_event == nil) {
+			break;
+		}
+		if (next_event.type == NSEventTypeLeftMouseUp) {
+			NSPoint location_in_view = [self convertPoint:next_event.locationInWindow fromView:nil];
+			if (NSPointInRect(location_in_view, self.bounds)) {
+				[[NSWorkspace sharedWorkspace] openURL:self.destinationURL];
+			}
+			break;
+		}
+	}
+}
+
+- (void) mouseUp:(NSEvent *)event
+{
+	#pragma unused(event)
+	if (self.destinationURL == nil) {
+		[super mouseUp:event];
+		return;
+	}
+
+	[[NSWorkspace sharedWorkspace] openURL:self.destinationURL];
+}
+
+- (void) setDestinationURL:(NSURL *)destinationURL
+{
+	_destinationURL = destinationURL;
+	[self.window invalidateCursorRectsForView:self];
 }
 
 @end
@@ -225,7 +305,7 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 @property (nonatomic, strong) NSImageView* imageView;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
 @property (nonatomic, strong) NSView* titlebarBackgroundView;
-@property (nonatomic, strong) NSBox* relatedInfoBox;
+@property (nonatomic, strong) MBPhotoRelatedInfoBox* relatedInfoBox;
 @property (nonatomic, strong) MBPhotoOverlayLinkField* relatedURLField;
 @property (nonatomic, strong) NSMagnificationGestureRecognizer* magnificationGestureRecognizer;
 @property (nonatomic, strong, nullable) NSURLSessionDataTask* imageTask;
@@ -343,11 +423,13 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 
 	if (normalized_post_url != nil) {
 		self.relatedURLField.hidden = NO;
+		self.relatedInfoBox.destinationURL = normalized_post_url;
 		self.relatedURLField.destinationURL = normalized_post_url;
 		self.relatedURLField.displayString = [self displayStringForRelatedPostURL:normalized_post_url];
 	}
 	else {
 		self.relatedURLField.hidden = YES;
+		self.relatedInfoBox.destinationURL = nil;
 		self.relatedURLField.destinationURL = nil;
 		self.relatedURLField.displayString = @"";
 	}
@@ -440,7 +522,7 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 	[canvas_view addSubview:image_view];
 	scroll_view.documentView = canvas_view;
 
-	NSBox* related_info_box = [[NSBox alloc] initWithFrame:NSZeroRect];
+	MBPhotoRelatedInfoBox* related_info_box = [[MBPhotoRelatedInfoBox alloc] initWithFrame:NSZeroRect];
 	related_info_box.translatesAutoresizingMaskIntoConstraints = NO;
 	related_info_box.boxType = NSBoxCustom;
 	related_info_box.borderType = NSNoBorder;
