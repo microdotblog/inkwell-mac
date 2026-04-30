@@ -5,6 +5,32 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.2.1</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Improved refreshing latest posts to be much faster.</li>
+					<li>Added double-click on replies in Conversation window.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Wed, 29 Apr 2026 19:10:00 -0500</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.2.1.zip"
+				sparkle:shortVersionString="1.2.1"
+				sparkle:version="21"
+				sparkle:edSignature="WViT4Kapis3Jk9AWQ+kPbXwi7op+uka/x9N2cFjIQ35d9nCfvVgWupgkT1R+ty9CZrXbIRPJFq11ATQKUFKWBA=="
+				length="5464107"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.2</title>
  			<description><![CDATA[
 				<style>
