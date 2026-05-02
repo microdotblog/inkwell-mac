@@ -25,6 +25,7 @@ static CGFloat const InkwellHighlightsRowBackgroundVerticalInset = 2.5;
 static CGFloat const InkwellHighlightsRowCornerRadius = 10.0;
 static NSString* const InkwellHighlightColorName = @"color_highlight";
 static NSString* const InkwellHighlightsHeaderBackgroundColorName = @"color_palette_header_background";
+static NSString* const InkwellHighlightsTableBackgroundColorName = @"color_highlights_table";
 static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsAppearanceObservationContext;
 
 @interface MBHighlightsTableView : NSTableView
@@ -90,7 +91,11 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 	if (self.isSelected) {
 		return;
 	}
+	[self drawHighlightBackground];
+}
 
+- (void) drawHighlightBackground
+{
 	NSColor* background_color = [NSColor colorNamed:InkwellHighlightColorName];
 	if (background_color == nil) {
 		background_color = [NSColor colorWithCalibratedRed:1.0 green:0.95 blue:0.56 alpha:1.0];
@@ -136,6 +141,16 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 @end
 
 @implementation MBHighlightsController
+
+- (NSColor *) highlightsTableBackgroundColor
+{
+	NSColor* background_color = [NSColor colorNamed:InkwellHighlightsTableBackgroundColorName];
+	if (background_color != nil) {
+		return background_color;
+	}
+
+	return NSColor.windowBackgroundColor;
+}
 
 - (NSColor*) highlightsHeaderBackgroundColor
 {
@@ -445,7 +460,7 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 	table_view.rowHeight = 62.0;
 	table_view.intercellSpacing = NSMakeSize(0.0, InkwellHighlightsRowSpacing);
 	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
-	table_view.backgroundColor = NSColor.clearColor;
+	table_view.backgroundColor = [self highlightsTableBackgroundColor];
 	table_view.usesAutomaticRowHeights = NO;
 	table_view.allowsMultipleSelection = NO;
 	table_view.allowsEmptySelection = YES;
@@ -473,7 +488,8 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 
 	NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
 	scroll_view.translatesAutoresizingMaskIntoConstraints = NO;
-	scroll_view.drawsBackground = NO;
+	scroll_view.drawsBackground = YES;
+	scroll_view.backgroundColor = [self highlightsTableBackgroundColor];
 	scroll_view.hasVerticalScroller = YES;
 	scroll_view.borderType = NSNoBorder;
 	scroll_view.documentView = table_view;

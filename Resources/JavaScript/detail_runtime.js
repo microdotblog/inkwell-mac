@@ -70,12 +70,14 @@
 			var quote = stringValue(payload.quote_color);
 			var quoteBorder = stringValue(payload.quote_border_color);
 			var readerHighlightBg = stringValue(payload.reader_highlight_background);
+			var readerHighlightText = stringValue(payload.reader_highlight_text);
 			var contentSize = Number(payload.content_font_size) || 0;
 			var titleSize = Number(payload.title_font_size) || contentSize;
 			var body = document.body;
 			if (!body) { return; }
 
 			document.documentElement.style.setProperty('--reader-highlight-background', readerHighlightBg);
+			document.documentElement.style.setProperty('--reader-highlight-text', readerHighlightText);
 			document.documentElement.style.backgroundColor = bg;
 			document.documentElement.style.color = text;
 			body.style.backgroundColor = bg;
