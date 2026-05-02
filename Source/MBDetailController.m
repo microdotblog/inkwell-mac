@@ -32,7 +32,9 @@ static NSString* const InkwellDefaultTextBackgroundHex = @"#ffffff";
 static NSString* const InkwellDefaultTextFontName = @"San Francisco";
 static NSString* const InkwellDefaultTextSizeName = @"Medium";
 static NSString* const InkwellReaderHighlightLightBackgroundHex = @"#FFF9D6";
-static NSString* const InkwellReaderHighlightDarkBackgroundHex = @"#D98C3A";
+static NSString* const InkwellReaderHighlightLightTextHex = @"#1d1d1f";
+static NSString* const InkwellReaderHighlightDarkBackgroundHex = @"#262613";
+static NSString* const InkwellReaderHighlightDarkTextHex = @"#FFF2A6";
 static NSString* const InkwellPreferencesDarkBlueBackgroundHex = @"#1c2435";
 static NSString* const InkwellPreferencesBlackBackgroundHex = @"#000000";
 static CGFloat const InkwellDetailLinkBubbleHorizontalInset = 14.0;
@@ -1025,6 +1027,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	NSString* quote_color = is_dark_background ? @"#b8c0cc" : @"#4d4d4f";
 	NSString* quote_border_color = is_dark_background ? @"#4f5b73" : @"#d2d2d7";
 	NSString* reader_highlight_background = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkBackgroundHex : InkwellReaderHighlightLightBackgroundHex;
+	NSString* reader_highlight_text = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkTextHex : InkwellReaderHighlightLightTextHex;
 
 	NSDictionary* payload = @{
 		@"background_hex": background_hex ?: @"",
@@ -1034,6 +1037,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		@"quote_color": quote_color ?: @"",
 		@"quote_border_color": quote_border_color ?: @"",
 		@"reader_highlight_background": reader_highlight_background ?: @"",
+		@"reader_highlight_text": reader_highlight_text ?: @"",
 		@"content_font_size": @(content_font_size),
 		@"title_font_size": @(title_font_size)
 	};
@@ -1230,9 +1234,10 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 	NSString* quote_color = is_dark_background ? @"#b8c0cc" : @"#4d4d4f";
 	NSString* quote_border_color = is_dark_background ? @"#4f5b73" : @"#d2d2d7";
 	NSString* reader_highlight_background = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkBackgroundHex : InkwellReaderHighlightLightBackgroundHex;
+	NSString* reader_highlight_text = should_use_dark_reader_highlight ? InkwellReaderHighlightDarkTextHex : InkwellReaderHighlightLightTextHex;
 
 	return [NSString stringWithFormat:
-		@"\n\t\t:root {\n\t\t\t--reader-highlight-background: %@;\n\t\t}\n"
+		@"\n\t\t:root {\n\t\t\t--reader-highlight-background: %@;\n\t\t\t--reader-highlight-text: %@;\n\t\t}\n"
 		"\t\thtml, body {\n\t\t\tbackground-color: %@;\n\t\t\tcolor: %@;\n\t\t}\n"
 		"\t\tbody, .content {\n\t\t\tfont-family: %@;\n\t\t\tfont-size: %.2fpx;\n\t\t}\n"
 		"\t\t.post-title {\n\t\t\tfont-family: %@;\n\t\t\tfont-size: %.2fpx;\n\t\t\tcolor: %@;\n\t\t}\n"
@@ -1240,6 +1245,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		"\t\tblockquote {\n\t\t\tcolor: %@;\n\t\t\tborder-left-color: %@;\n\t\t}\n"
 		"\t\ta {\n\t\t\tcolor: %@;\n\t\t}\n",
 		reader_highlight_background,
+		reader_highlight_text,
 		background_hex,
 		text_color,
 		font_css,
