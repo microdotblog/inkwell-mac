@@ -104,6 +104,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSArray*) sharingItemsForSelectedItem;
 - (NSRect) sharingPickerRectInView:(NSView*) view;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
+- (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload includeLinkWithoutSelection:(BOOL) include_link_without_selection;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text;
 - (void) fetchMicropubDestinationsAndOpenNewPostForMarkdownText:(NSString *)markdownText;
@@ -552,7 +553,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (IBAction) newPost:(id)sender
 {
-	#pragma unused(sender)
+	BOOL include_link_without_selection = NO;
+	if ([sender isKindOfClass:[NSMenuItem class]]) {
+		NSMenuItem* menu_item = (NSMenuItem*) sender;
+		include_link_without_selection = [menu_item.title isEqualToString:@"New Post..."];
+	}
 
 	MBEntry* selected_item = [self.sidebarController selectedItem];
 	if (selected_item == nil) {
@@ -567,7 +572,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 			return;
 		}
 
-		NSString* markdown_text = [strong_self markdownTextForNewPostWithItem:selected_item selectionPayload:payload];
+		NSString* markdown_text = [strong_self markdownTextForNewPostWithItem:selected_item selectionPayload:payload includeLinkWithoutSelection:include_link_without_selection];
 		[strong_self openNewPostForMarkdownText:markdown_text];
 	}];
 }
@@ -1291,6 +1296,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload
 {
+	return [self markdownTextForNewPostWithItem:item selectionPayload:payload includeLinkWithoutSelection:YES];
+}
+
+- (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload includeLinkWithoutSelection:(BOOL) include_link_without_selection
+{
 	if (![item isKindOfClass:[MBEntry class]]) {
 		return @"";
 	}
@@ -1308,7 +1318,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSString* selection_text = [self stringValueFromObjectOrNumber:payload[@"selection_text"]];
 	NSString* trimmed_selection_text = [selection_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (trimmed_selection_text.length == 0) {
-		return [NSString stringWithFormat:@"[%@](%@):\n\n", title_string, url_string];
+		if (include_link_without_selection) {
+			return [NSString stringWithFormat:@"[%@](%@):\n\n", title_string, url_string];
+		}
+
+		return @"";
 	}
 
 	NSString* blockquote_text = [self blockquoteMarkdownFromText:trimmed_selection_text];
