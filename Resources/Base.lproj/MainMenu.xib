@@ -420,6 +420,12 @@
                                     <action selector="refreshView:" target="-1" id="Yl6-JE-S9h"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Preview" keyEquivalent="P" id="VOw-Fh-ndD">
+                                <modifierMask key="keyEquivalentModifierMask" shift="YES" command="YES"/>
+                                <connections>
+                                    <action selector="preview:" target="Voe-Tx-rLC" id="mRr-Bw-bxw"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="hB3-LF-h0Y"/>
                             <menuItem title="Enter Full Screen" keyEquivalent="f" id="4J7-dP-txa">
                                 <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>

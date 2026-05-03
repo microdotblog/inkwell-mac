@@ -9,6 +9,7 @@
 #import "MBAuthController.h"
 #import "MBClient.h"
 #import "MBMainController.h"
+#import "MBNewPostController.h"
 #import "MBPodcastController.h"
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
@@ -150,6 +151,26 @@ static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-
 	}
 
 	[[NSWorkspace sharedWorkspace] openURL:help_url];
+}
+
+- (IBAction) preview:(id) sender
+{
+	NSWindowController* window_controller = NSApp.keyWindow.windowController;
+	if (![window_controller isKindOfClass:[MBNewPostController class]]) {
+		return;
+	}
+
+	[(MBNewPostController*) window_controller preview:sender];
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	if (menu_item.action == @selector(preview:)) {
+		NSWindowController* window_controller = NSApp.keyWindow.windowController;
+		return [window_controller isKindOfClass:[MBNewPostController class]];
+	}
+
+	return YES;
 }
 
 - (IBAction) signOut:(id) sender

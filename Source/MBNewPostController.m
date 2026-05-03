@@ -8,6 +8,7 @@
 #import "MBNewPostController.h"
 
 #import "MBClient.h"
+#import "MBPreviewButton.h"
 
 #import <WebKit/WebKit.h>
 
@@ -662,10 +663,14 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		item.paletteLabel = @"Preview";
 		item.toolTip = @"Preview";
 
-		NSButton* preview_button = [NSButton buttonWithTitle:@"Preview" target:self action:@selector(preview:)];
+		MBPreviewButton* preview_button = [[MBPreviewButton alloc] initWithFrame:NSZeroRect];
+		preview_button.title = @"Preview";
+		preview_button.target = self;
+		preview_button.action = @selector(preview:);
 		preview_button.bezelStyle = NSBezelStyleRounded;
 		[preview_button setButtonType:NSButtonTypeToggle];
 		[preview_button sizeToFit];
+		[preview_button.widthAnchor constraintGreaterThanOrEqualToConstant:65.0].active = YES;
 
 		item.view = preview_button;
 		self.previewButton = preview_button;
@@ -702,7 +707,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		post_button.keyEquivalent = @"\r";
 		post_button.keyEquivalentModifierMask = NSEventModifierFlagCommand;
 		[post_button sizeToFit];
-		[post_button.widthAnchor constraintGreaterThanOrEqualToConstant:60.0].active = YES;
+		[post_button.widthAnchor constraintGreaterThanOrEqualToConstant:65.0].active = YES;
 
 		item.view = post_button;
 		self.postButton = post_button;
