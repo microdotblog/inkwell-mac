@@ -14,6 +14,7 @@
 #import "MBHighlightsController.h"
 #import "MBNewFeedChoice.h"
 #import "MBNewFeedChoiceCellView.h"
+#import "MBNewPostController.h"
 #import "MBPreferencesController.h"
 #import "MBSidebarController.h"
 
@@ -40,6 +41,7 @@ static CGFloat const InkwellNewFeedSheetExpandedHeight = 350.0;
 static CGFloat const InkwellNewFeedChoicesHeight = 186.0;
 static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
+static NSString* const InkwellNewPostToMicroAppDefaultsKey = @"NewPostToMicroApp";
 
 @interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation, NSTableViewDataSource, NSTableViewDelegate>
 
@@ -53,6 +55,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 @property (strong) MBSidebarController *sidebarController;
 @property (strong) MBDetailController *detailController;
 @property (strong) MBHighlightsController *highlightsController;
+@property (strong) MBNewPostController* postController;
 @property (strong) MBConversationController* conversationController;
 @property (strong) MBPreferencesController* preferencesController;
 @property (copy) NSString *token;
@@ -104,6 +107,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text;
+- (void) openNewPostURLForMarkdownText:(NSString*) markdown_text;
 
 @end
 
@@ -1330,6 +1334,20 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 }
 
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text
+{
+	if ([[NSUserDefaults standardUserDefaults] boolForKey:InkwellNewPostToMicroAppDefaultsKey]) {
+		[self openNewPostURLForMarkdownText:markdown_text];
+		return;
+	}
+
+	if (self.postController == nil) {
+		self.postController = [[MBNewPostController alloc] init];
+	}
+
+	[self.postController showWithMarkdownText:markdown_text];
+}
+
+- (void) openNewPostURLForMarkdownText:(NSString*) markdown_text
 {
 	NSString* normalized_text = markdown_text ?: @"";
 	if (normalized_text.length == 0) {
