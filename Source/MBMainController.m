@@ -1350,16 +1350,10 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text
 {
 	NSString* normalized_text = markdown_text ?: @"";
-	if (normalized_text.length == 0) {
-		return;
-	}
 
 	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
 	[allowed_character_set removeCharactersInString:@":#[]@!$&'()*+,;=/?"];
 	NSString* encoded_text = [normalized_text stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set] ?: @"";
-	if (encoded_text.length == 0) {
-		return;
-	}
 
 	BOOL has_microblog_app = ([[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:@"blog.micro.mac"] != nil);
 	NSString* open_url_string = nil;
