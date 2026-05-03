@@ -18,6 +18,48 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 static NSString* const InkwellNewPostMicropubEndpoint = @"https://micro.blog/micropub";
 static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
+@interface MBNewPostHostnameHoverView : NSView
+
+@property (nonatomic, copy) void (^hoverChangedHandler)(BOOL isHovering);
+@property (nonatomic, strong) NSTrackingArea* trackingArea;
+
+@end
+
+@implementation MBNewPostHostnameHoverView
+
+- (void) updateTrackingAreas
+{
+	[super updateTrackingAreas];
+
+	if (self.trackingArea != nil) {
+		[self removeTrackingArea:self.trackingArea];
+	}
+
+	NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+	self.trackingArea = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+	[self addTrackingArea:self.trackingArea];
+}
+
+- (void) mouseEntered:(NSEvent*) event
+{
+	#pragma unused(event)
+
+	if (self.hoverChangedHandler != nil) {
+		self.hoverChangedHandler(YES);
+	}
+}
+
+- (void) mouseExited:(NSEvent*) event
+{
+	#pragma unused(event)
+
+	if (self.hoverChangedHandler != nil) {
+		self.hoverChangedHandler(NO);
+	}
+}
+
+@end
+
 @interface MBNewPostController () <NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate>
 
 @property (nonatomic, strong, readwrite) NSTextField* blogHostnameField;
@@ -148,15 +190,34 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	NSView* bottom_view = [[NSView alloc] initWithFrame:NSZeroRect];
 	bottom_view.translatesAutoresizingMaskIntoConstraints = NO;
 
+	MBNewPostHostnameHoverView* hostname_hover_view = [[MBNewPostHostnameHoverView alloc] initWithFrame:NSZeroRect];
+	hostname_hover_view.translatesAutoresizingMaskIntoConstraints = NO;
+
 	NSTextField* blog_hostname_field = [NSTextField labelWithString:@""];
 	blog_hostname_field.translatesAutoresizingMaskIntoConstraints = NO;
 	blog_hostname_field.textColor = NSColor.secondaryLabelColor;
 	blog_hostname_field.font = [NSFont systemFontOfSize:NSFont.systemFontSize];
 	blog_hostname_field.alignment = NSTextAlignmentCenter;
 
+	NSImageView* blog_hostname_chevron_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
+	blog_hostname_chevron_view.translatesAutoresizingMaskIntoConstraints = NO;
+	NSImage* chevron_image = [NSImage imageWithSystemSymbolName:@"chevron.down" accessibilityDescription:@"Show blogs"];
+	NSImageSymbolConfiguration* chevron_configuration = [NSImageSymbolConfiguration configurationWithPointSize:10.0 weight:NSFontWeightSemibold];
+	blog_hostname_chevron_view.image = [chevron_image imageWithSymbolConfiguration:chevron_configuration] ?: chevron_image;
+	blog_hostname_chevron_view.contentTintColor = NSColor.secondaryLabelColor;
+	blog_hostname_chevron_view.imageScaling = NSImageScaleProportionallyDown;
+	blog_hostname_chevron_view.hidden = YES;
+
+	__weak NSImageView* weak_chevron_view = blog_hostname_chevron_view;
+	hostname_hover_view.hoverChangedHandler = ^(BOOL isHovering) {
+		weak_chevron_view.hidden = !isHovering;
+	};
+
 	[content_view addSubview:web_view];
 	[content_view addSubview:bottom_view];
-	[bottom_view addSubview:blog_hostname_field];
+	[bottom_view addSubview:hostname_hover_view];
+	[hostname_hover_view addSubview:blog_hostname_field];
+	[hostname_hover_view addSubview:blog_hostname_chevron_view];
 
 	[NSLayoutConstraint activateConstraints:@[
 		[web_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
@@ -167,10 +228,18 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		[bottom_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
 		[bottom_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
 		[bottom_view.heightAnchor constraintEqualToConstant:InkwellNewPostStatusHeight],
-		[blog_hostname_field.leadingAnchor constraintGreaterThanOrEqualToAnchor:bottom_view.leadingAnchor constant:20.0],
-		[blog_hostname_field.trailingAnchor constraintLessThanOrEqualToAnchor:bottom_view.trailingAnchor constant:-20.0],
-		[blog_hostname_field.centerXAnchor constraintEqualToAnchor:bottom_view.centerXAnchor],
-		[blog_hostname_field.centerYAnchor constraintEqualToAnchor:bottom_view.centerYAnchor]
+		[hostname_hover_view.leadingAnchor constraintGreaterThanOrEqualToAnchor:bottom_view.leadingAnchor constant:20.0],
+		[hostname_hover_view.trailingAnchor constraintLessThanOrEqualToAnchor:bottom_view.trailingAnchor constant:-20.0],
+		[hostname_hover_view.centerXAnchor constraintEqualToAnchor:bottom_view.centerXAnchor],
+		[hostname_hover_view.centerYAnchor constraintEqualToAnchor:bottom_view.centerYAnchor],
+		[blog_hostname_field.topAnchor constraintEqualToAnchor:hostname_hover_view.topAnchor],
+		[blog_hostname_field.leadingAnchor constraintEqualToAnchor:hostname_hover_view.leadingAnchor],
+		[blog_hostname_field.bottomAnchor constraintEqualToAnchor:hostname_hover_view.bottomAnchor],
+		[blog_hostname_chevron_view.leadingAnchor constraintEqualToAnchor:blog_hostname_field.trailingAnchor constant:2.0],
+		[blog_hostname_chevron_view.trailingAnchor constraintEqualToAnchor:hostname_hover_view.trailingAnchor],
+		[blog_hostname_chevron_view.centerYAnchor constraintEqualToAnchor:blog_hostname_field.centerYAnchor constant:1.0],
+		[blog_hostname_chevron_view.widthAnchor constraintEqualToConstant:10.0],
+		[blog_hostname_chevron_view.heightAnchor constraintEqualToConstant:10.0]
 	]];
 
 	post_window.contentView = content_view;
