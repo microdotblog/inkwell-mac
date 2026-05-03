@@ -13,6 +13,8 @@ static CGFloat const InkwellConversationCellBottomInset = 10.0;
 static CGFloat const InkwellConversationCellLeadingInset = 6.0;
 static CGFloat const InkwellConversationCellTrailingInset = 6.0;
 static CGFloat const InkwellConversationAvatarSize = 34.0;
+static CGFloat const InkwellConversationNameToBodySpacing = 6.0;
+static CGFloat const InkwellConversationBodyToDateSpacing = 8.0;
 
 @interface MBConversationCellView ()
 
@@ -38,7 +40,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 {
 	[super prepareForReuse];
 	self.avatarImageView.image = nil;
-	self.nameTextField.stringValue = @"";
+	self.nameTextField.attributedStringValue = [[NSAttributedString alloc] initWithString:@""];
 	self.bodyTextField.attributedStringValue = [[NSAttributedString alloc] initWithString:@""];
 	self.dateTextField.stringValue = @"";
 }
@@ -49,7 +51,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 	NSString* username = [mention.username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* name_value = full_name;
 	if (name_value.length == 0) {
-		name_value = username;
+		name_value = (username.length > 0) ? [NSString stringWithFormat:@"@%@", username] : @"";
 	}
 	if (name_value.length == 0) {
 		name_value = @"Unknown";
@@ -61,7 +63,7 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 	}
 
 	self.avatarImageView.image = avatar_image;
-	self.nameTextField.stringValue = name_value;
+	self.nameTextField.attributedStringValue = [self attributedNameStringForName:name_value username:username];
 	self.bodyTextField.attributedStringValue = [self attributedBodyStringForText:body_value];
 	self.dateTextField.stringValue = date_text ?: @"";
 }
@@ -125,11 +127,11 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 
 		[body_text_field.leadingAnchor constraintEqualToAnchor:name_text_field.leadingAnchor],
 		[body_text_field.trailingAnchor constraintEqualToAnchor:name_text_field.trailingAnchor],
-		[body_text_field.topAnchor constraintEqualToAnchor:name_text_field.bottomAnchor constant:3.0],
+		[body_text_field.topAnchor constraintEqualToAnchor:name_text_field.bottomAnchor constant:InkwellConversationNameToBodySpacing],
 
 		[date_text_field.leadingAnchor constraintEqualToAnchor:name_text_field.leadingAnchor],
 		[date_text_field.trailingAnchor constraintEqualToAnchor:name_text_field.trailingAnchor],
-		[date_text_field.topAnchor constraintEqualToAnchor:body_text_field.bottomAnchor constant:6.0],
+		[date_text_field.topAnchor constraintEqualToAnchor:body_text_field.bottomAnchor constant:InkwellConversationBodyToDateSpacing],
 		[date_text_field.bottomAnchor constraintEqualToAnchor:self.bottomAnchor constant:-InkwellConversationCellBottomInset]
 	]];
 
@@ -139,13 +141,42 @@ static CGFloat const InkwellConversationAvatarSize = 34.0;
 	self.dateTextField = date_text_field;
 }
 
-- (NSAttributedString*) attributedBodyStringForText:(NSString*) body_text
+- (NSAttributedString *) attributedNameStringForName:(NSString *)nameValue username:(NSString *)username
 {
+	NSDictionary* name_attributes = @{
+		NSFontAttributeName: [NSFont systemFontOfSize:15.0 weight:NSFontWeightSemibold],
+		NSForegroundColorAttributeName: NSColor.labelColor
+	};
+	NSString* name_value = nameValue ?: @"";
+	NSMutableAttributedString* attributed_string = [[NSMutableAttributedString alloc] initWithString:name_value attributes:name_attributes];
+
+	NSString* normalized_username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_username.length == 0) {
+		return attributed_string;
+	}
+	if ([name_value isEqualToString:[NSString stringWithFormat:@"@%@", normalized_username]]) {
+		return attributed_string;
+	}
+
+	NSString* username_string = [NSString stringWithFormat:@" @%@", normalized_username];
+	NSDictionary* username_attributes = @{
+		NSFontAttributeName: [NSFont systemFontOfSize:15.0],
+		NSForegroundColorAttributeName: NSColor.secondaryLabelColor
+	};
+	NSAttributedString* username_attributed_string = [[NSAttributedString alloc] initWithString:username_string attributes:username_attributes];
+	[attributed_string appendAttributedString:username_attributed_string];
+
+	return attributed_string;
+}
+
+- (NSAttributedString *) attributedBodyStringForText:(NSString *)bodyText
+{
+	NSString* body_text = bodyText ?: @"";
 	NSDictionary* attributes = @{
 		NSFontAttributeName: [NSFont systemFontOfSize:15.0],
 		NSForegroundColorAttributeName: NSColor.labelColor
 	};
-	NSMutableAttributedString* attributed_string = [[NSMutableAttributedString alloc] initWithString:(body_text ?: @"") attributes:attributes];
+	NSMutableAttributedString* attributed_string = [[NSMutableAttributedString alloc] initWithString:body_text attributes:attributes];
 	if (body_text.length == 0 || ![body_text hasPrefix:@"@"]) {
 		return attributed_string;
 	}
