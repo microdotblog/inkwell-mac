@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void) showWithMarkdownText:(NSString *)markdownText;
 - (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID token:(NSString *)token;
+- (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token;
 
 @end
 

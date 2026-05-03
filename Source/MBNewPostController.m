@@ -7,6 +7,8 @@
 
 #import "MBNewPostController.h"
 
+#import "MBClient.h"
+
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellNewPostWindowWidth = 600.0;
@@ -21,6 +23,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 @interface MBNewPostHostnameHoverView : NSView
 
 @property (nonatomic, copy) void (^hoverChangedHandler)(BOOL isHovering);
+@property (nonatomic, copy) void (^clickHandler)(NSView* view, NSEvent* event);
 @property (nonatomic, strong) NSTrackingArea* trackingArea;
 
 @end
@@ -58,6 +61,22 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	}
 }
 
+- (NSView *) hitTest:(NSPoint)point
+{
+	NSView* hit_view = [super hitTest:point];
+	return (hit_view == nil) ? nil : self;
+}
+
+- (void) mouseDown:(NSEvent *)event
+{
+	if (self.clickHandler != nil) {
+		self.clickHandler(self, event);
+		return;
+	}
+
+	[super mouseDown:event];
+}
+
 @end
 
 @interface MBNewPostController () <NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate>
@@ -71,6 +90,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 @property (nonatomic, copy) NSString* markdownText;
 @property (nonatomic, copy) NSString* destinationName;
 @property (nonatomic, copy) NSString* destinationUID;
+@property (nonatomic, copy) NSArray* destinations;
 @property (nonatomic, copy) NSString* token;
 @property (nonatomic, assign) BOOL didLoadEditorHTML;
 @property (nonatomic, assign) BOOL isPosting;
@@ -81,6 +101,9 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
+- (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event;
+- (void) selectDestinationFromMenuItem:(NSMenuItem *)menu_item;
+- (NSString *) stringValueFromObject:(id)object;
 - (NSString *) urlEncodedString:(NSString *)string;
 - (NSString *) responseDescriptionForData:(NSData *)data defaultMessage:(NSString *)default_message;
 
@@ -95,6 +118,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		self.markdownText = @"";
 		self.destinationName = @"";
 		self.destinationUID = @"";
+		self.destinations = @[];
 		self.token = @"";
 	}
 	return self;
@@ -107,12 +131,21 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
 - (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID token:(NSString *)token
 {
+	[self showWithMarkdownText:markdownText destinationName:destinationName destinationUID:destinationUID destinations:@[] token:token];
+}
+
+- (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token
+{
 	[self setupWindowIfNeeded];
 	self.markdownText = markdownText ?: @"";
 	self.destinationName = destinationName ?: @"";
 	self.destinationUID = destinationUID ?: @"";
+	self.destinations = destinations ?: @[];
 	self.token = token ?: @"";
 	self.blogHostnameField.stringValue = self.destinationName;
+	if (self.destinationUID.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:self.destinationUID forKey:InkwellCurrentDestinationDefaultsKey];
+	}
 	[self resetPostingState];
 	[self loadEditorHTMLIfNeeded];
 	[self showWindow:nil];
@@ -211,6 +244,10 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	__weak NSImageView* weak_chevron_view = blog_hostname_chevron_view;
 	hostname_hover_view.hoverChangedHandler = ^(BOOL isHovering) {
 		weak_chevron_view.hidden = !isHovering;
+	};
+	__weak typeof(self) weak_self = self;
+	hostname_hover_view.clickHandler = ^(NSView* view, NSEvent* event) {
+		[weak_self showDestinationsMenuFromView:view event:event];
 	};
 
 	[content_view addSubview:web_view];
@@ -371,6 +408,72 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		});
 	}];
 	[task resume];
+}
+
+- (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
+{
+	if (self.destinations.count == 0) {
+		return;
+	}
+
+	NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Blogs"];
+	for (id object in self.destinations) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		NSString* name = [self stringValueFromObject:destination[@"name"]];
+		if (name.length == 0) {
+			continue;
+		}
+
+		NSMenuItem* menu_item = [[NSMenuItem alloc] initWithTitle:name action:@selector(selectDestinationFromMenuItem:) keyEquivalent:@""];
+		menu_item.target = self;
+		menu_item.representedObject = destination;
+
+		NSString* uid = [self stringValueFromObject:destination[@"uid"]];
+		if (uid.length > 0 && [uid isEqualToString:self.destinationUID]) {
+			menu_item.state = NSControlStateValueOn;
+		}
+
+		[menu addItem:menu_item];
+	}
+
+	if (menu.numberOfItems == 0) {
+		return;
+	}
+
+	[NSMenu popUpContextMenu:menu withEvent:event forView:view];
+}
+
+- (void) selectDestinationFromMenuItem:(NSMenuItem *)menu_item
+{
+	id represented_object = menu_item.representedObject;
+	if (![represented_object isKindOfClass:[NSDictionary class]]) {
+		return;
+	}
+
+	NSDictionary* destination = (NSDictionary*) represented_object;
+	self.destinationName = [self stringValueFromObject:destination[@"name"]];
+	self.destinationUID = [self stringValueFromObject:destination[@"uid"]];
+	self.blogHostnameField.stringValue = self.destinationName;
+	if (self.destinationUID.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:self.destinationUID forKey:InkwellCurrentDestinationDefaultsKey];
+	}
+}
+
+- (NSString *) stringValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSString class]]) {
+		return (NSString*) object;
+	}
+
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object stringValue];
+	}
+
+	return @"";
 }
 
 - (NSString *) urlEncodedString:(NSString *)string

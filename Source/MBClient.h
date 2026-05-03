@@ -24,6 +24,7 @@ extern NSString* const InkwellTextFontNameDefaultsKey;
 extern NSString* const InkwellTextSizeNameDefaultsKey;
 extern NSString* const InkwellReadingRecapDayOfWeekDefaultsKey;
 extern NSString* const InkwellNewPostToMicroAppDefaultsKey;
+extern NSString* const InkwellCurrentDestinationDefaultsKey;
 extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 
 @interface MBClient : NSObject

@@ -1373,17 +1373,22 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSDictionary* default_destination = [self defaultMicropubDestinationFromDestinations:destinations];
 	NSString* destination_name = [self stringValueFromObjectOrNumber:default_destination[@"name"]];
 	NSString* destination_uid = [self stringValueFromObjectOrNumber:default_destination[@"uid"]];
+	if (destination_uid.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
+	}
 
 	if (self.postController == nil) {
 		self.postController = [[MBNewPostController alloc] init];
 	}
 
-	[self.postController showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid token:self.token];
+	[self.postController showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid destinations:destinations token:self.token];
 }
 
 - (NSDictionary *) defaultMicropubDestinationFromDestinations:(NSArray *)destinations
 {
+	NSString* current_destination_uid = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
 	NSDictionary* first_destination = nil;
+	NSDictionary* microblog_default_destination = nil;
 	for (id object in destinations ?: @[]) {
 		if (![object isKindOfClass:[NSDictionary class]]) {
 			continue;
@@ -1394,12 +1399,17 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 			first_destination = destination;
 		}
 
-		if ([destination[@"microblog-default"] boolValue]) {
+		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		if (current_destination_uid.length > 0 && [destination_uid isEqualToString:current_destination_uid]) {
 			return destination;
+		}
+
+		if (microblog_default_destination == nil && [destination[@"microblog-default"] boolValue]) {
+			microblog_default_destination = destination;
 		}
 	}
 
-	return first_destination;
+	return microblog_default_destination ?: first_destination;
 }
 
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text

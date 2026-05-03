@@ -23,6 +23,7 @@ NSString* const InkwellTextFontNameDefaultsKey = @"TextFontName";
 NSString* const InkwellTextSizeNameDefaultsKey = @"TextSizeName";
 NSString* const InkwellReadingRecapDayOfWeekDefaultsKey = @"ReadingRecapDayOfWeek";
 NSString* const InkwellNewPostToMicroAppDefaultsKey = @"NewPostToMicroApp";
+NSString* const InkwellCurrentDestinationDefaultsKey = @"CurrentDestination";
 NSString* const InkwellSidebarSelectedEntryIDDefaultsKey = @"SidebarSelectedEntryID";
 
 static NSString * const MBClientIdentifierURL = @"https://micro.ink";
