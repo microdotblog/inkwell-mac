@@ -36,6 +36,9 @@
 			html: function() {
 				return editor.getHTML();
 			},
+			togglePreview: function(html) {
+				editor.togglePreview(html || "");
+			},
 			focus: function() {
 				document.getElementById("editor").focus();
 			}

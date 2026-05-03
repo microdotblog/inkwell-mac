@@ -18,6 +18,7 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPreviewIdentifier = @"
 static NSToolbarItemIdentifier const InkwellNewPostToolbarProgressIdentifier = @"InkwellNewPostToolbarProgress";
 static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"InkwellNewPostToolbarPost";
 static NSString* const InkwellNewPostMicropubEndpoint = @"https://micro.blog/micropub";
+static NSString* const InkwellNewPostPreviewEndpoint = @"https://micro.blog/pages/preview";
 static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
 @interface MBNewPostHostnameHoverView : NSView
@@ -94,13 +95,17 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 @property (nonatomic, copy) NSString* token;
 @property (nonatomic, assign) BOOL didLoadEditorHTML;
 @property (nonatomic, assign) BOOL isPosting;
+@property (nonatomic, assign) BOOL isPreviewing;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
 - (void) resetPostingState;
+- (void) resetPreviewState;
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
+- (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion;
+- (void) showPreviewHTML:(NSString *)html;
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event;
 - (void) selectDestinationFromMenuItem:(NSMenuItem *)menu_item;
 - (NSString *) stringValueFromObject:(id)object;
@@ -147,6 +152,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		[[NSUserDefaults standardUserDefaults] setObject:self.destinationUID forKey:InkwellCurrentDestinationDefaultsKey];
 	}
 	[self resetPostingState];
+	[self resetPreviewState];
 	[self loadEditorHTMLIfNeeded];
 	[self showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
@@ -188,6 +194,43 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 - (IBAction) preview:(id) sender
 {
 	#pragma unused(sender)
+
+	if (self.isPreviewing) {
+		self.isPreviewing = NO;
+		self.previewButton.state = NSControlStateValueOff;
+		[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.togglePreview('');" completionHandler:nil];
+		return;
+	}
+
+	self.previewButton.enabled = NO;
+	__weak typeof(self) weak_self = self;
+	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:^(id _Nullable result, NSError* _Nullable error) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (error != nil) {
+			strong_self.previewButton.enabled = YES;
+			NSBeep();
+			return;
+		}
+
+		NSString* content = [result isKindOfClass:[NSString class]] ? (NSString*) result : @"";
+		[strong_self postPreviewContent:content completion:^(NSString* _Nullable html, NSError* _Nullable preview_error) {
+			strong_self.previewButton.enabled = YES;
+			if (preview_error != nil) {
+				strong_self.isPreviewing = NO;
+				strong_self.previewButton.state = NSControlStateValueOff;
+				NSBeep();
+				return;
+			}
+
+			strong_self.isPreviewing = YES;
+			strong_self.previewButton.state = NSControlStateValueOn;
+			[strong_self showPreviewHTML:(html ?: @"")];
+		}];
+	}];
 }
 
 - (void) setupWindowIfNeeded
@@ -340,6 +383,12 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	self.progressToolbarItem.hidden = YES;
 }
 
+- (void) resetPreviewState
+{
+	self.isPreviewing = NO;
+	self.previewButton.state = NSControlStateValueOff;
+}
+
 - (void) setPosting:(BOOL) is_posting
 {
 	self.isPosting = is_posting;
@@ -408,6 +457,60 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		});
 	}];
 	[task resume];
+}
+
+- (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion
+{
+	if (self.token.length == 0) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1003 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for preview." }];
+		completion(nil, error);
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:InkwellNewPostPreviewEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1004 userInfo:@{ NSLocalizedDescriptionKey: @"Preview endpoint URL was invalid." }];
+		completion(nil, error);
+		return;
+	}
+
+	NSString* body_string = [NSString stringWithFormat:@"content=%@", [self urlEncodedString:(content ?: @"")]];
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"POST";
+	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"text/html" forHTTPHeaderField:@"Accept"];
+	[request setValue:[NSString stringWithFormat:@"Bearer %@", self.token] forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		NSError* result_error = error;
+		if (result_error == nil) {
+			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Preview failed."];
+				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			}
+		}
+
+		NSString* html = nil;
+		if (result_error == nil) {
+			html = [[NSString alloc] initWithData:(data ?: [NSData data]) encoding:NSUTF8StringEncoding] ?: @"";
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			completion(html, result_error);
+		});
+	}];
+	[task resume];
+}
+
+- (void) showPreviewHTML:(NSString *)html
+{
+	NSDictionary* payload = @{ @"html": html ?: @"" };
+	NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
+	NSString* json_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding] ?: @"{\"html\":\"\"}";
+	NSString* script = [NSString stringWithFormat:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.togglePreview(%@.html);", json_string];
+	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
@@ -558,10 +661,10 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		item.label = @"Preview";
 		item.paletteLabel = @"Preview";
 		item.toolTip = @"Preview";
-		item.hidden = YES;
 
 		NSButton* preview_button = [NSButton buttonWithTitle:@"Preview" target:self action:@selector(preview:)];
 		preview_button.bezelStyle = NSBezelStyleRounded;
+		[preview_button setButtonType:NSButtonTypeToggle];
 		[preview_button sizeToFit];
 
 		item.view = preview_button;

@@ -67,7 +67,8 @@ var MicroEditor = (function () {
 			cancelListeners: cancelListeners,
 			setText: setText,
 			getMarkdown: getMarkdown,
-			getHTML: getHTML
+			getHTML: getHTML,
+			togglePreview: togglePreview
 		}
 	}
 
@@ -224,7 +225,15 @@ var MicroEditor = (function () {
 	}
 
 	function setText(text, cursor_to_end = true) {
-		document.getElementById(textBoxID).innerText = text;
+		const editor = document.getElementById(textBoxID);
+		const preview = document.getElementById(textPreviewID);
+		const button = document.getElementById(`${textBoxID}_preview_button`);
+		editor.innerText = text;
+		editor.style.display = 'block';
+		preview.style.display = 'none';
+		if (button) {
+			button.classList.remove('selected');
+		}
 		applyStyles();
 		if (cursor_to_end) {
 			moveCursorToEnd();
@@ -747,8 +756,8 @@ var MicroEditor = (function () {
 		}, 200);
 	}
 
-	function togglePreview(e) {
-		e.preventDefault();
+	function togglePreview(html) {
+		html = html || "";
 
 		let editor = document.getElementById(textBoxID);
 		let preview = document.getElementById(textPreviewID);
@@ -756,27 +765,10 @@ var MicroEditor = (function () {
 		button.classList.toggle('selected');
 
 		if (editor.style.display != 'none') {
-			// ask the server to render the Markdown
-			const form = new FormData();
-			form.append('content', getMarkdown());
-
-			preview.innerHTML = '';
-
-			fetch('/pages/preview', { method: 'POST', body: form })
-				.then(response => response.text())
-				.then(html => {
-					preview.innerHTML = html;
-					editor.style.display = 'none';
-					preview.style.display = 'block';
-					setCharsRemainingVisibility(false);
-				})
-				.catch(error => {
-					console.error('Preview error', error);
-					preview.innerText = 'Error generating preview.';
-					editor.style.display = 'none';
-					preview.style.display = 'block';
-					setCharsRemainingVisibility(false);
-				});
+			preview.innerHTML = html;
+			editor.style.display = 'none';
+			preview.style.display = 'block';
+			setCharsRemainingVisibility(false);
 		}
 		else {
 			editor.style.display = 'block';
