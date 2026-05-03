@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, readonly) NSTextField* blogHostnameField;
 
 - (void) showWithMarkdownText:(NSString *)markdownText;
+- (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID token:(NSString *)token;
 
 @end
 

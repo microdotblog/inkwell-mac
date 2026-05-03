@@ -106,6 +106,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text;
+- (void) fetchMicropubDestinationsAndOpenNewPostForMarkdownText:(NSString *)markdownText;
+- (void) openNewPostWindowForMarkdownText:(NSString *)markdownText destinations:(NSArray *)destinations;
+- (NSDictionary * _Nullable) defaultMicropubDestinationFromDestinations:(NSArray *)destinations;
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text;
 
 @end
@@ -1340,11 +1343,63 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
+	[self fetchMicropubDestinationsAndOpenNewPostForMarkdownText:markdown_text];
+}
+
+- (void) fetchMicropubDestinationsAndOpenNewPostForMarkdownText:(NSString *)markdownText
+{
+	__weak typeof(self) weak_self = self;
+	[self.client fetchMicropubDestinationsWithToken:self.token completion:^(NSArray* _Nullable destinations, NSError* _Nullable error) {
+		MBMainController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		NSArray* resolved_destinations = destinations;
+		if (resolved_destinations.count == 0) {
+			resolved_destinations = [strong_self.client cachedMicropubDestinations];
+		}
+
+		if (error != nil && resolved_destinations.count == 0) {
+			NSLog(@"New Post destinations error: %@", error.localizedDescription ?: @"Unknown error");
+		}
+
+		[strong_self openNewPostWindowForMarkdownText:markdownText destinations:(resolved_destinations ?: @[])];
+	}];
+}
+
+- (void) openNewPostWindowForMarkdownText:(NSString *)markdownText destinations:(NSArray *)destinations
+{
+	NSDictionary* default_destination = [self defaultMicropubDestinationFromDestinations:destinations];
+	NSString* destination_name = [self stringValueFromObjectOrNumber:default_destination[@"name"]];
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:default_destination[@"uid"]];
+
 	if (self.postController == nil) {
 		self.postController = [[MBNewPostController alloc] init];
 	}
 
-	[self.postController showWithMarkdownText:markdown_text];
+	[self.postController showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid token:self.token];
+}
+
+- (NSDictionary *) defaultMicropubDestinationFromDestinations:(NSArray *)destinations
+{
+	NSDictionary* first_destination = nil;
+	for (id object in destinations ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		if (first_destination == nil) {
+			first_destination = destination;
+		}
+
+		if ([destination[@"microblog-default"] boolValue]) {
+			return destination;
+		}
+	}
+
+	return first_destination;
 }
 
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text

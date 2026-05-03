@@ -13,7 +13,10 @@ static CGFloat const InkwellNewPostWindowWidth = 600.0;
 static CGFloat const InkwellNewPostWindowHeight = 400.0;
 static CGFloat const InkwellNewPostStatusHeight = 44.0;
 static NSToolbarItemIdentifier const InkwellNewPostToolbarPreviewIdentifier = @"InkwellNewPostToolbarPreview";
+static NSToolbarItemIdentifier const InkwellNewPostToolbarProgressIdentifier = @"InkwellNewPostToolbarProgress";
 static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"InkwellNewPostToolbarPost";
+static NSString* const InkwellNewPostMicropubEndpoint = @"https://micro.blog/micropub";
+static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
 @interface MBNewPostController () <NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate>
 
@@ -21,11 +24,23 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 @property (nonatomic, strong) WKWebView* webView;
 @property (nonatomic, strong) NSButton* previewButton;
 @property (nonatomic, strong) NSButton* postButton;
+@property (nonatomic, strong) NSProgressIndicator* progressIndicator;
+@property (nonatomic, strong) NSToolbarItem* progressToolbarItem;
 @property (nonatomic, copy) NSString* markdownText;
+@property (nonatomic, copy) NSString* destinationName;
+@property (nonatomic, copy) NSString* destinationUID;
+@property (nonatomic, copy) NSString* token;
 @property (nonatomic, assign) BOOL didLoadEditorHTML;
+@property (nonatomic, assign) BOOL isPosting;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
+- (void) resetPostingState;
+- (void) setPosting:(BOOL) is_posting;
+- (void) finishPostingWithError:(NSError * _Nullable)error;
+- (void) postContent:(NSString *)content;
+- (NSString *) urlEncodedString:(NSString *)string;
+- (NSString *) responseDescriptionForData:(NSData *)data defaultMessage:(NSString *)default_message;
 
 @end
 
@@ -36,14 +51,27 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 	self = [super initWithWindow:nil];
 	if (self) {
 		self.markdownText = @"";
+		self.destinationName = @"";
+		self.destinationUID = @"";
+		self.token = @"";
 	}
 	return self;
 }
 
 - (void) showWithMarkdownText:(NSString *)markdownText
 {
+	[self showWithMarkdownText:markdownText destinationName:@"" destinationUID:@"" token:@""];
+}
+
+- (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID token:(NSString *)token
+{
 	[self setupWindowIfNeeded];
 	self.markdownText = markdownText ?: @"";
+	self.destinationName = destinationName ?: @"";
+	self.destinationUID = destinationUID ?: @"";
+	self.token = token ?: @"";
+	self.blogHostnameField.stringValue = self.destinationName;
+	[self resetPostingState];
 	[self loadEditorHTMLIfNeeded];
 	[self showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
@@ -55,7 +83,31 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 {
 	#pragma unused(sender)
 
-	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:nil];
+	if (self.isPosting) {
+		return;
+	}
+
+	__weak typeof(self) weak_self = self;
+	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:^(id _Nullable result, NSError* _Nullable error) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (error != nil) {
+			[strong_self finishPostingWithError:error];
+			return;
+		}
+
+		NSString* content = [result isKindOfClass:[NSString class]] ? (NSString*) result : @"";
+		NSString* trimmed_content = [content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (trimmed_content.length == 0) {
+			return;
+		}
+
+		[strong_self setPosting:YES];
+		[strong_self postContent:content];
+	}];
 }
 
 - (IBAction) preview:(id) sender
@@ -173,6 +225,117 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
+- (void) resetPostingState
+{
+	self.isPosting = NO;
+	self.postButton.enabled = YES;
+	[self.progressIndicator stopAnimation:nil];
+	self.progressIndicator.hidden = YES;
+	self.progressToolbarItem.hidden = YES;
+}
+
+- (void) setPosting:(BOOL) is_posting
+{
+	self.isPosting = is_posting;
+	self.postButton.enabled = !is_posting;
+	self.progressIndicator.hidden = !is_posting;
+	self.progressToolbarItem.hidden = !is_posting;
+	if (is_posting) {
+		[self.progressIndicator startAnimation:nil];
+	}
+	else {
+		[self.progressIndicator stopAnimation:nil];
+	}
+}
+
+- (void) finishPostingWithError:(NSError *)error
+{
+	if (error == nil) {
+		[self setPosting:NO];
+		[self close];
+		return;
+	}
+
+	[self setPosting:NO];
+	NSBeep();
+}
+
+- (void) postContent:(NSString *)content
+{
+	if (self.token.length == 0) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1001 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for posting." }];
+		[self finishPostingWithError:error];
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:InkwellNewPostMicropubEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1002 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub endpoint URL was invalid." }];
+		[self finishPostingWithError:error];
+		return;
+	}
+
+	NSMutableArray* body_parts = [NSMutableArray array];
+	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:(content ?: @"")]]];
+	[body_parts addObject:[NSString stringWithFormat:@"mp-destination=%@", [self urlEncodedString:(self.destinationUID ?: @"")]]];
+	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"POST";
+	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:[NSString stringWithFormat:@"Bearer %@", self.token] forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		NSError* result_error = error;
+		if (result_error == nil) {
+			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Posting failed."];
+				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			}
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self finishPostingWithError:result_error];
+		});
+	}];
+	[task resume];
+}
+
+- (NSString *) urlEncodedString:(NSString *)string
+{
+	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+	[allowed_character_set removeCharactersInString:@"=&+?"];
+	NSString* encoded_string = [string stringByAddingPercentEncodingWithAllowedCharacters:allowed_character_set];
+	return encoded_string ?: @"";
+}
+
+- (NSString *) responseDescriptionForData:(NSData *)data defaultMessage:(NSString *)default_message
+{
+	if (data.length == 0) {
+		return default_message;
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if ([payload isKindOfClass:[NSDictionary class]]) {
+		NSDictionary* dictionary = (NSDictionary*) payload;
+		NSString* error_description = dictionary[@"error_description"];
+		if (error_description.length > 0) {
+			return error_description;
+		}
+
+		NSString* error_value = dictionary[@"error"];
+		if (error_value.length > 0) {
+			return error_value;
+		}
+	}
+
+	NSString* string_value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+	return (string_value.length > 0) ? string_value : default_message;
+}
+
 - (void) webView:(WKWebView *)web_view didFinishNavigation:(WKNavigation *)navigation
 {
 	#pragma unused(web_view)
@@ -196,6 +359,7 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 	return @[
 		NSToolbarFlexibleSpaceItemIdentifier,
 		InkwellNewPostToolbarPreviewIdentifier,
+		InkwellNewPostToolbarProgressIdentifier,
 		InkwellNewPostToolbarPostIdentifier
 	];
 }
@@ -207,6 +371,7 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 	return @[
 		NSToolbarFlexibleSpaceItemIdentifier,
 		InkwellNewPostToolbarPreviewIdentifier,
+		InkwellNewPostToolbarProgressIdentifier,
 		InkwellNewPostToolbarPostIdentifier
 	];
 }
@@ -229,6 +394,25 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 
 		item.view = preview_button;
 		self.previewButton = preview_button;
+		return item;
+	}
+
+	if ([item_identifier isEqualToString:InkwellNewPostToolbarProgressIdentifier]) {
+		NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
+		item.label = @"Progress";
+		item.paletteLabel = @"Progress";
+		item.hidden = YES;
+
+		NSProgressIndicator* progress_indicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(0.0, 0.0, 16.0, 16.0)];
+		progress_indicator.style = NSProgressIndicatorStyleSpinning;
+		progress_indicator.indeterminate = YES;
+		progress_indicator.controlSize = NSControlSizeSmall;
+		progress_indicator.displayedWhenStopped = NO;
+		progress_indicator.hidden = YES;
+
+		item.view = progress_indicator;
+		self.progressIndicator = progress_indicator;
+		self.progressToolbarItem = item;
 		return item;
 	}
 
