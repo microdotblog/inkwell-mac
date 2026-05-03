@@ -41,7 +41,6 @@ static CGFloat const InkwellNewFeedSheetExpandedHeight = 350.0;
 static CGFloat const InkwellNewFeedChoicesHeight = 186.0;
 static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
-static NSString* const InkwellNewPostToMicroAppDefaultsKey = @"NewPostToMicroApp";
 
 @interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation, NSTableViewDataSource, NSTableViewDelegate>
 
