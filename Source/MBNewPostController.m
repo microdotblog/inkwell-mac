@@ -243,7 +243,7 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 		post_button.keyEquivalent = @"\r";
 		post_button.keyEquivalentModifierMask = NSEventModifierFlagCommand;
 		[post_button sizeToFit];
-		[post_button.widthAnchor constraintGreaterThanOrEqualToConstant:70.0].active = YES;
+		[post_button.widthAnchor constraintGreaterThanOrEqualToConstant:60.0].active = YES;
 
 		item.view = post_button;
 		self.postButton = post_button;

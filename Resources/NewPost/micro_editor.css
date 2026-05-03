@@ -533,7 +533,7 @@ body {
 .inkwell_editor_page {
 	box-sizing: border-box;
 	height: 100%;
-	padding: 24px 22px 8px 22px;
+	padding: 16px 18px 8px 18px;
 }
 
 .inkwell_editor_page .editor_shell,
