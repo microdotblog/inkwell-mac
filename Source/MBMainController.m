@@ -554,6 +554,7 @@ static NSString* const InkwellNewPostToMicroAppDefaultsKey = @"NewPostToMicroApp
 
 	MBEntry* selected_item = [self.sidebarController selectedItem];
 	if (selected_item == nil) {
+		[self openNewPostForMarkdownText:@""];
 		return;
 	}
 
@@ -1057,7 +1058,7 @@ static NSString* const InkwellNewPostToMicroAppDefaultsKey = @"NewPostToMicroApp
 
 - (BOOL) canCreateNewPost
 {
-	return ([self.sidebarController selectedItem] != nil);
+	return YES;
 }
 
 - (BOOL) canShareSelectedItem
