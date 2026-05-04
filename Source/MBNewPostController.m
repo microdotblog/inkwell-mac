@@ -83,6 +83,35 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 @end
 
+@interface MBNewPostEditorBackgroundView : NSView
+
+@end
+
+@implementation MBNewPostEditorBackgroundView
+
+- (BOOL) isOpaque
+{
+	return YES;
+}
+
+- (void) drawRect:(NSRect)dirty_rect
+{
+	#pragma unused(dirty_rect)
+
+	NSString* appearance_name = [self.effectiveAppearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+	NSColor* background_color = [appearance_name isEqualToString:NSAppearanceNameDarkAqua] ? [NSColor colorWithCalibratedWhite:0.1176 alpha:1.0] : NSColor.whiteColor;
+	[background_color setFill];
+	NSRectFill(self.bounds);
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	self.needsDisplay = YES;
+}
+
+@end
+
 @interface MBNewPostWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
@@ -307,7 +336,7 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
 	web_view.navigationDelegate = self;
 
-	NSView* bottom_view = [[NSView alloc] initWithFrame:NSZeroRect];
+	MBNewPostEditorBackgroundView* bottom_view = [[MBNewPostEditorBackgroundView alloc] initWithFrame:NSZeroRect];
 	bottom_view.translatesAutoresizingMaskIntoConstraints = NO;
 
 	MBNewPostHostnameHoverView* hostname_hover_view = [[MBNewPostHostnameHoverView alloc] initWithFrame:NSZeroRect];
