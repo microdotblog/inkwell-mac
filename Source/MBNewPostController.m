@@ -22,6 +22,7 @@ static NSString* const InkwellNewPostMicropubEndpoint = @"https://micro.blog/mic
 static NSString* const InkwellNewPostPreviewEndpoint = @"https://micro.blog/pages/preview";
 static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPostContentChanged";
+static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_chars_remaining";
 
 @interface MBNewPostHostnameHoverView : NSView
 
@@ -321,7 +322,7 @@ static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPost
 	NSTextField* character_count_field = [NSTextField labelWithString:@"0/300"];
 	character_count_field.translatesAutoresizingMaskIntoConstraints = NO;
 	character_count_field.textColor = NSColor.secondaryLabelColor;
-	character_count_field.font = [NSFont systemFontOfSize:NSFont.systemFontSize];
+	character_count_field.font = [NSFont systemFontOfSize:NSFont.systemFontSize weight:NSFontWeightThin];
 	character_count_field.alignment = NSTextAlignmentRight;
 	[character_count_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 	[character_count_field setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
@@ -364,9 +365,9 @@ static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPost
 		[hostname_hover_view.trailingAnchor constraintLessThanOrEqualToAnchor:character_count_field.leadingAnchor constant:-16.0],
 		[hostname_hover_view.centerXAnchor constraintEqualToAnchor:bottom_view.centerXAnchor],
 		[hostname_hover_view.centerYAnchor constraintEqualToAnchor:bottom_view.centerYAnchor],
-		[character_count_field.trailingAnchor constraintEqualToAnchor:bottom_view.trailingAnchor constant:-20.0],
+		[character_count_field.trailingAnchor constraintEqualToAnchor:bottom_view.trailingAnchor constant:-19.0],
 		[character_count_field.centerYAnchor constraintEqualToAnchor:bottom_view.centerYAnchor],
-		[character_count_field.widthAnchor constraintGreaterThanOrEqualToConstant:62.0],
+		[character_count_field.widthAnchor constraintEqualToConstant:76.0],
 		[blog_hostname_field.topAnchor constraintEqualToAnchor:hostname_hover_view.topAnchor],
 		[blog_hostname_field.leadingAnchor constraintEqualToAnchor:hostname_hover_view.leadingAnchor],
 		[blog_hostname_field.bottomAnchor constraintEqualToAnchor:hostname_hover_view.bottomAnchor],
@@ -586,8 +587,26 @@ static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPost
 	BOOL is_blockquote = [dictionary[@"is_blockquote"] respondsToSelector:@selector(boolValue)] ? [dictionary[@"is_blockquote"] boolValue] : NO;
 	NSInteger max_count = is_blockquote ? 600 : 300;
 
-	self.characterCountField.stringValue = [NSString stringWithFormat:@"%ld/%ld", (long) count, (long) max_count];
-	self.characterCountField.textColor = (count > max_count) ? NSColor.systemRedColor : NSColor.secondaryLabelColor;
+	NSString* count_string = [NSString stringWithFormat:@"%ld", (long) count];
+	NSString* limit_string = [NSString stringWithFormat:@"/%ld", (long) max_count];
+	NSString* display_string = [count_string stringByAppendingString:limit_string];
+
+	if (count > max_count) {
+		NSColor* over_limit_color = [NSColor colorNamed:InkwellNewPostCharacterCountOverLimitColorName] ?: NSColor.systemRedColor;
+		NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
+		paragraph_style.alignment = NSTextAlignmentRight;
+		NSMutableAttributedString* attributed_string = [[NSMutableAttributedString alloc] initWithString:display_string attributes:@{
+			NSFontAttributeName: self.characterCountField.font ?: [NSFont systemFontOfSize:NSFont.systemFontSize],
+			NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+			NSParagraphStyleAttributeName: paragraph_style
+		}];
+		[attributed_string addAttribute:NSForegroundColorAttributeName value:over_limit_color range:NSMakeRange(0, count_string.length)];
+		self.characterCountField.attributedStringValue = attributed_string;
+	}
+	else {
+		self.characterCountField.stringValue = display_string;
+		self.characterCountField.textColor = NSColor.secondaryLabelColor;
+	}
 }
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
