@@ -10,11 +10,13 @@
 #import "MBClient.h"
 #import "MBPreviewButton.h"
 
+#import <QuartzCore/QuartzCore.h>
 #import <WebKit/WebKit.h>
 
 static CGFloat const InkwellNewPostWindowWidth = 600.0;
 static CGFloat const InkwellNewPostWindowHeight = 400.0;
 static CGFloat const InkwellNewPostStatusHeight = 44.0;
+static CGFloat const InkwellNewPostTitleHeight = 44.0;
 static NSToolbarItemIdentifier const InkwellNewPostToolbarPreviewIdentifier = @"InkwellNewPostToolbarPreview";
 static NSToolbarItemIdentifier const InkwellNewPostToolbarProgressIdentifier = @"InkwellNewPostToolbarProgress";
 static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"InkwellNewPostToolbarPost";
@@ -112,6 +114,33 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 @end
 
+@interface MBNewPostSeparatorView : NSView
+
+@end
+
+@implementation MBNewPostSeparatorView
+
+- (BOOL) isOpaque
+{
+	return NO;
+}
+
+- (void) drawRect:(NSRect)dirty_rect
+{
+	#pragma unused(dirty_rect)
+
+	[NSColor.separatorColor setFill];
+	NSRectFill(self.bounds);
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	self.needsDisplay = YES;
+}
+
+@end
+
 @interface MBNewPostWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
 
 @property (nonatomic, weak) id<WKScriptMessageHandler> target;
@@ -142,7 +171,10 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 @property (nonatomic, strong, readwrite) NSTextField* blogHostnameField;
 @property (nonatomic, strong) NSTextField* characterCountField;
+@property (nonatomic, strong) NSTextField* titleField;
+@property (nonatomic, strong) NSView* titleSeparatorView;
 @property (nonatomic, strong) WKWebView* webView;
+@property (nonatomic, strong) NSLayoutConstraint* webViewTopConstraint;
 @property (nonatomic, strong) NSButton* previewButton;
 @property (nonatomic, strong) NSButton* postButton;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
@@ -156,12 +188,14 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 @property (nonatomic, assign) BOOL didLoadEditorHTML;
 @property (nonatomic, assign) BOOL isPosting;
 @property (nonatomic, assign) BOOL isPreviewing;
+@property (nonatomic, assign) BOOL isTitleFieldVisible;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
 - (void) resetPostingState;
 - (void) resetPreviewState;
 - (void) resetCharacterCount;
+- (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated;
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
@@ -326,7 +360,7 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	toolbar.displayMode = NSToolbarDisplayModeIconOnly;
 	post_window.toolbar = toolbar;
 
-	NSView* content_view = [[NSView alloc] initWithFrame:content_rect];
+	MBNewPostEditorBackgroundView* content_view = [[MBNewPostEditorBackgroundView alloc] initWithFrame:content_rect];
 	content_view.translatesAutoresizingMaskIntoConstraints = NO;
 
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
@@ -340,6 +374,23 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 	MBNewPostEditorBackgroundView* bottom_view = [[MBNewPostEditorBackgroundView alloc] initWithFrame:NSZeroRect];
 	bottom_view.translatesAutoresizingMaskIntoConstraints = NO;
+
+	NSTextField* title_field = [[NSTextField alloc] initWithFrame:NSZeroRect];
+	title_field.translatesAutoresizingMaskIntoConstraints = NO;
+	title_field.placeholderString = @"Title";
+	title_field.font = [NSFont boldSystemFontOfSize:18.0];
+	title_field.textColor = NSColor.labelColor;
+	title_field.bordered = NO;
+	title_field.bezeled = NO;
+	title_field.drawsBackground = NO;
+	title_field.focusRingType = NSFocusRingTypeNone;
+	title_field.hidden = YES;
+	title_field.alphaValue = 0.0;
+
+	MBNewPostSeparatorView* title_separator_view = [[MBNewPostSeparatorView alloc] initWithFrame:NSZeroRect];
+	title_separator_view.translatesAutoresizingMaskIntoConstraints = NO;
+	title_separator_view.hidden = YES;
+	title_separator_view.alphaValue = 0.0;
 
 	MBNewPostHostnameHoverView* hostname_hover_view = [[MBNewPostHostnameHoverView alloc] initWithFrame:NSZeroRect];
 	hostname_hover_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -376,6 +427,10 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 		[weak_self showDestinationsMenuFromView:view event:event];
 	};
 
+	NSLayoutConstraint* web_view_top_constraint = [web_view.topAnchor constraintEqualToAnchor:content_view.topAnchor];
+
+	[content_view addSubview:title_field];
+	[content_view addSubview:title_separator_view];
 	[content_view addSubview:web_view];
 	[content_view addSubview:bottom_view];
 	[bottom_view addSubview:hostname_hover_view];
@@ -384,7 +439,15 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	[hostname_hover_view addSubview:blog_hostname_chevron_view];
 
 	[NSLayoutConstraint activateConstraints:@[
-		[web_view.topAnchor constraintEqualToAnchor:content_view.topAnchor],
+		web_view_top_constraint,
+		[title_field.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:11.0],
+		[title_field.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
+		[title_field.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-18.0],
+		[title_field.heightAnchor constraintEqualToConstant:24.0],
+		[title_separator_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
+		[title_separator_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
+		[title_separator_view.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:(InkwellNewPostTitleHeight - 1.0)],
+		[title_separator_view.heightAnchor constraintEqualToConstant:1.0],
 		[web_view.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor],
 		[web_view.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor],
 		[web_view.bottomAnchor constraintEqualToAnchor:bottom_view.topAnchor],
@@ -417,6 +480,9 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 	self.window = post_window;
 	self.webView = web_view;
+	self.webViewTopConstraint = web_view_top_constraint;
+	self.titleField = title_field;
+	self.titleSeparatorView = title_separator_view;
 	self.blogHostnameField = blog_hostname_field;
 	self.characterCountField = character_count_field;
 }
@@ -481,6 +547,51 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 {
 	self.characterCountField.stringValue = @"0/300";
 	self.characterCountField.textColor = NSColor.secondaryLabelColor;
+	self.titleField.stringValue = @"";
+	[self setTitleFieldVisible:NO animated:NO];
+}
+
+- (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated
+{
+	if (self.titleField == nil || self.webViewTopConstraint == nil) {
+		return;
+	}
+
+	if (self.isTitleFieldVisible == is_visible) {
+		return;
+	}
+
+	self.isTitleFieldVisible = is_visible;
+	CGFloat top_constant = is_visible ? InkwellNewPostTitleHeight : 0.0;
+
+	NSView* content_view = self.window.contentView;
+	if (is_visible) {
+		self.titleField.hidden = NO;
+		self.titleSeparatorView.hidden = NO;
+	}
+
+	if (!animated || content_view == nil) {
+		self.titleField.alphaValue = is_visible ? 1.0 : 0.0;
+		self.titleSeparatorView.alphaValue = is_visible ? 1.0 : 0.0;
+		self.titleField.hidden = !is_visible;
+		self.titleSeparatorView.hidden = !is_visible;
+		self.webViewTopConstraint.constant = top_constant;
+		[content_view layoutSubtreeIfNeeded];
+		return;
+	}
+
+	[content_view layoutSubtreeIfNeeded];
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.18;
+		context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+		self.titleField.animator.alphaValue = is_visible ? 1.0 : 0.0;
+		self.titleSeparatorView.animator.alphaValue = is_visible ? 1.0 : 0.0;
+		self.webViewTopConstraint.animator.constant = top_constant;
+		[content_view.animator layoutSubtreeIfNeeded];
+	} completionHandler:^{
+		self.titleField.hidden = !is_visible;
+		self.titleSeparatorView.hidden = !is_visible;
+	}];
 }
 
 - (void) setPosting:(BOOL) is_posting
@@ -617,12 +728,13 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	NSInteger count = [self integerValueFromObject:dictionary[@"count"]];
 	BOOL is_blockquote = [dictionary[@"is_blockquote"] respondsToSelector:@selector(boolValue)] ? [dictionary[@"is_blockquote"] boolValue] : NO;
 	NSInteger max_count = is_blockquote ? 600 : 300;
+	BOOL is_over_limit = (count > max_count);
 
 	NSString* count_string = [NSString stringWithFormat:@"%ld", (long) count];
 	NSString* limit_string = [NSString stringWithFormat:@"/%ld", (long) max_count];
 	NSString* display_string = [count_string stringByAppendingString:limit_string];
 
-	if (count > max_count) {
+	if (is_over_limit) {
 		NSColor* over_limit_color = [NSColor colorNamed:InkwellNewPostCharacterCountOverLimitColorName] ?: NSColor.systemRedColor;
 		NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
 		paragraph_style.alignment = NSTextAlignmentRight;
@@ -638,6 +750,8 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 		self.characterCountField.stringValue = display_string;
 		self.characterCountField.textColor = NSColor.secondaryLabelColor;
 	}
+
+	[self setTitleFieldVisible:is_over_limit animated:YES];
 }
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
