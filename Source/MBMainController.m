@@ -1126,7 +1126,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canHighlightSelectedItem
 {
 	MBEntry* selected_item = [self.sidebarController selectedItem];
-	if (selected_item == nil || selected_item.entryID <= 0) {
+	if (selected_item == nil || selected_item.entryID <= 0 || selected_item.isBookmarkEntry) {
 		return NO;
 	}
 
@@ -1243,7 +1243,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	#pragma unused(sender)
 
 	MBEntry* selected_item = [self.sidebarController selectedItem];
-	if (selected_item == nil || selected_item.entryID <= 0) {
+	if (selected_item == nil || selected_item.entryID <= 0 || selected_item.isBookmarkEntry) {
 		return;
 	}
 

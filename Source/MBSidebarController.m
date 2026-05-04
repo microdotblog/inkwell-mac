@@ -768,12 +768,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (BOOL) canToggleSelectedItemReadState
 {
-	if (self.contentMode == MBSidebarContentModeMentions) {
+	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
 		return NO;
 	}
 
 	MBEntry* selected_item = [self selectedItem];
-	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+	return (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry && self.client != nil && self.token.length > 0);
 }
 
 - (BOOL) canMarkAllItemsAsRead
@@ -1283,7 +1283,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) ensureSpecialModeSelectionIfNeeded
 {
-	if (![self isShowingSpecialMode] || self.tableView == nil) {
+	if (self.contentMode != MBSidebarContentModeAllPosts || self.tableView == nil) {
 		return;
 	}
 
@@ -1938,13 +1938,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSInteger) preferredSelectionEntryIDForReload
 {
+	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
+		return 0;
+	}
+
 	MBEntry* selected_item = [self selectedItem];
 	if (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry) {
 		return selected_item.entryID;
-	}
-
-	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
-		return 0;
 	}
 
 	return [self savedSelectedEntryID];
@@ -2976,6 +2976,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			text_value = [self normalizedTextString:content_text];
 		}
 		mention.text = text_value;
+		mention.contentHTML = content_html;
 		mention.date = [self dateValueFromEntry:item];
 
 		[mentions addObject:mention];
@@ -3003,7 +3004,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		sidebar_entry.url = mention.url ?: @"";
 		sidebar_entry.subscriptionTitle = @"";
 		sidebar_entry.summary = mention.text ?: @"";
-		sidebar_entry.text = mention.text ?: @"";
+		sidebar_entry.text = (mention.contentHTML.length > 0) ? mention.contentHTML : @"";
 		sidebar_entry.source = @"";
 		sidebar_entry.author = mention.username ?: @"";
 		sidebar_entry.avatarURL = mention.avatarURL ?: @"";
@@ -3293,7 +3294,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];
 		menu_item.title = [self readToggleMenuTitleForSelectedItem:selected_item];
-		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+		return [self canToggleSelectedItemReadState];
 	}
 	if (menu_item.action == @selector(toggleSelectedItemBookmarkedStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];

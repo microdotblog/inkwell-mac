@@ -246,7 +246,7 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 			return NO;
 		}
 
-		return (strong_self.hasTextSelection && strong_self.currentEntryID > 0);
+		return (strong_self.hasTextSelection && strong_self.currentEntryID > 0 && !strong_self.currentSidebarItem.isBookmarkEntry);
 	};
 	web_view.shouldShowDeleteHighlightMenuItemHandler = ^BOOL {
 		MBDetailController* strong_self = weak_self;
