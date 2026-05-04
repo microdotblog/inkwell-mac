@@ -530,6 +530,10 @@ body {
 	font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
+body.inkwell_previewing {
+	background: #f7f7f7;
+}
+
 .inkwell_editor_page {
 	box-sizing: border-box;
 	height: 100%;
@@ -593,6 +597,10 @@ body {
 	body {
 		color: #f5f5f7;
 		background: #1e1e1e;
+	}
+
+	body.inkwell_previewing {
+		background: #242424;
 	}
 }
 

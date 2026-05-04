@@ -88,6 +88,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 @interface MBNewPostEditorBackgroundView : NSView
 
+@property (nonatomic, assign) BOOL usesPreviewBackground;
+
 @end
 
 @implementation MBNewPostEditorBackgroundView
@@ -102,9 +104,26 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	#pragma unused(dirty_rect)
 
 	NSString* appearance_name = [self.effectiveAppearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-	NSColor* background_color = [appearance_name isEqualToString:NSAppearanceNameDarkAqua] ? [NSColor colorWithCalibratedWhite:0.1176 alpha:1.0] : NSColor.whiteColor;
+	BOOL is_dark = [appearance_name isEqualToString:NSAppearanceNameDarkAqua];
+	NSColor* background_color = nil;
+	if (self.usesPreviewBackground) {
+		background_color = is_dark ? [NSColor colorWithCalibratedWhite:0.1412 alpha:1.0] : [NSColor colorWithCalibratedWhite:0.9686 alpha:1.0];
+	}
+	else {
+		background_color = is_dark ? [NSColor colorWithCalibratedWhite:0.1176 alpha:1.0] : NSColor.whiteColor;
+	}
 	[background_color setFill];
 	NSRectFill(self.bounds);
+}
+
+- (void) setUsesPreviewBackground:(BOOL)uses_preview_background
+{
+	if (_usesPreviewBackground == uses_preview_background) {
+		return;
+	}
+
+	_usesPreviewBackground = uses_preview_background;
+	self.needsDisplay = YES;
 }
 
 - (void) viewDidChangeEffectiveAppearance
@@ -174,6 +193,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (nonatomic, strong) NSTextField* characterCountField;
 @property (nonatomic, strong) NSTextField* titleField;
 @property (nonatomic, strong) NSView* titleSeparatorView;
+@property (nonatomic, strong) MBNewPostEditorBackgroundView* editorBackgroundView;
+@property (nonatomic, strong) MBNewPostEditorBackgroundView* bottomBackgroundView;
 @property (nonatomic, strong) WKWebView* webView;
 @property (nonatomic, strong) NSLayoutConstraint* webViewTopConstraint;
 @property (nonatomic, strong) NSButton* previewButton;
@@ -198,6 +219,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) resetPreviewState;
 - (void) resetCharacterCount;
 - (void) updateTitleAndCharacterCountVisibilityAnimated:(BOOL)animated;
+- (void) setPreviewBackgroundEnabled:(BOOL)is_enabled;
 - (BOOL) shouldShowTitleField;
 - (BOOL) hasExplicitTitleFieldVisibilityPreference;
 - (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated;
@@ -306,6 +328,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	if (self.isPreviewing) {
 		self.isPreviewing = NO;
 		self.previewButton.state = NSControlStateValueOff;
+		[self setPreviewBackgroundEnabled:NO];
 		[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.togglePreview('');" completionHandler:nil];
 		return;
 	}
@@ -324,6 +347,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 			strong_self.isPreviewing = NO;
 			strong_self.previewButton.state = NSControlStateValueOff;
 			strong_self.previewButton.enabled = YES;
+			[strong_self setPreviewBackgroundEnabled:NO];
+			[strong_self.webView evaluateJavaScript:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.setPreviewBackground(false);" completionHandler:nil];
 			NSBeep();
 			return;
 		}
@@ -334,6 +359,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 			if (preview_error != nil) {
 				strong_self.isPreviewing = NO;
 				strong_self.previewButton.state = NSControlStateValueOff;
+				[strong_self setPreviewBackgroundEnabled:NO];
+				[strong_self.webView evaluateJavaScript:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.setPreviewBackground(false);" completionHandler:nil];
 				NSBeep();
 				return;
 			}
@@ -507,6 +534,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	[post_window center];
 
 	self.window = post_window;
+	self.editorBackgroundView = content_view;
+	self.bottomBackgroundView = bottom_view;
 	self.webView = web_view;
 	self.webViewTopConstraint = web_view_top_constraint;
 	self.titleField = title_field;
@@ -569,6 +598,14 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	self.isPreviewing = NO;
 	self.previewButton.state = NSControlStateValueOff;
+	[self setPreviewBackgroundEnabled:NO];
+	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.setPreviewBackground(false);" completionHandler:nil];
+}
+
+- (void) setPreviewBackgroundEnabled:(BOOL)is_enabled
+{
+	self.editorBackgroundView.usesPreviewBackground = is_enabled;
+	self.bottomBackgroundView.usesPreviewBackground = is_enabled;
 }
 
 - (void) resetCharacterCount
@@ -772,6 +809,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
 	NSString* json_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding] ?: @"{\"html\":\"\"}";
 	NSString* script = [NSString stringWithFormat:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.togglePreview(%@.html);", json_string];
+	[self setPreviewBackgroundEnabled:YES];
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 

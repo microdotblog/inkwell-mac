@@ -72,6 +72,7 @@ var MicroEditor = (function () {
 			setText: setText,
 			getMarkdown: getMarkdown,
 			getHTML: getHTML,
+			setPreviewBackground: setPreviewBackground,
 			togglePreview: togglePreview
 		}
 	}
@@ -822,15 +823,21 @@ var MicroEditor = (function () {
 			preview.innerHTML = html;
 			editor.style.display = 'none';
 			preview.style.display = 'block';
+			setPreviewBackground(true);
 			setCharsRemainingVisibility(false);
 		}
 		else {
 			editor.style.display = 'block';
 			preview.style.display = 'none';
+			setPreviewBackground(false);
 			updateRemaining();
 			scheduleContentChanged();
 			editor.focus();
 		}
+	}
+
+	function setPreviewBackground(is_previewing) {
+		document.body.classList.toggle('inkwell_previewing', !!is_previewing);
 	}
 
 	function applyMicroMarkup(text) {
