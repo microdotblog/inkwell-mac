@@ -944,6 +944,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (IBAction) reply:(id) sender
 {
+	if ([self.sidebarController canReplyToSelectedMention]) {
+		[self.sidebarController replyToSelectedMention];
+		return;
+	}
+
 	if (![self canReplyToConversation]) {
 		return;
 	}
@@ -1028,7 +1033,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return YES;
 	}
 	if (menu_item.action == @selector(reply:)) {
-		return [self canReplyToConversation];
+		return ([self.sidebarController canReplyToSelectedMention] || [self canReplyToConversation]);
 	}
 	if (menu_item.action == @selector(sortNewestAtTop:)) {
 		menu_item.state = (self.sidebarController.sortOrder == MBSidebarSortOrderNewestFirst) ? NSControlStateValueOn : NSControlStateValueOff;

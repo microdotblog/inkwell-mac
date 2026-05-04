@@ -15,6 +15,7 @@
 #import "MBMention.h"
 #import "MBPathUtilities.h"
 #import "MBPodcastController.h"
+#import "MBReplyController.h"
 #import "MBRoundedImageView.h"
 #import "MBSidebarRecapBoxView.h"
 #import "MBSidebarCell.h"
@@ -73,6 +74,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) MBAvatarLoader* avatarLoader;
 @property (strong) NSImage *defaultAvatarImage;
 @property (strong) NSMenu* contextMenu;
+@property (strong) MBReplyController* replyController;
 @property (strong) NSBox* recapBoxView;
 @property (strong) NSButton* recapButton;
 @property (strong) NSTextField* recapCountLabel;
@@ -178,6 +180,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) shouldShowSpecialModeBanner;
 - (BOOL) isShowingAllPostsMode;
+- (MBMention* _Nullable) selectedMention;
+- (BOOL) canReplyToMention:(MBMention*) mention;
+- (NSString*) prefillTextForUsername:(NSString*) username;
+- (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text;
 - (NSString*) specialModeBannerTitle;
 - (NSString*) siteNameForEntry:(MBEntry*) entry;
 - (NSString*) feedHostForEntry:(MBEntry*) entry;
@@ -795,6 +801,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
 }
 
+- (BOOL) canReplyToSelectedMention
+{
+	return [self canReplyToMention:[self selectedMention]];
+}
+
 - (NSString*) readToggleMenuTitle
 {
 	return [self readToggleMenuTitleForSelectedItem:[self selectedItem]];
@@ -874,6 +885,21 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	[self applyFiltersAndReload];
+}
+
+- (void) replyToSelectedMention
+{
+	MBMention* mention = [self selectedMention];
+	if (![self canReplyToMention:mention]) {
+		return;
+	}
+
+	if (self.replyController != nil) {
+		return;
+	}
+
+	NSString* prefill_text = [self prefillTextForUsername:mention.username];
+	[self presentReplyControllerWithPostID:mention.postID prefillText:prefill_text];
 }
 
 - (MBEntry* _Nullable) selectedItem
@@ -2321,6 +2347,66 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) isShowingAllPostsMode
 {
 	return (self.contentMode == MBSidebarContentModeAllPosts);
+}
+
+- (MBMention* _Nullable) selectedMention
+{
+	if (self.contentMode != MBSidebarContentModeMentions) {
+		return nil;
+	}
+
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.mentions.count) {
+		return nil;
+	}
+
+	id object = self.mentions[(NSUInteger) selected_row];
+	if (![object isKindOfClass:[MBMention class]]) {
+		return nil;
+	}
+
+	return (MBMention*) object;
+}
+
+- (BOOL) canReplyToMention:(MBMention*) mention
+{
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return NO;
+	}
+
+	NSString* post_id = [mention.postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* username = [mention.username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (self.client != nil && self.token.length > 0 && post_id.length > 0 && username.length > 0);
+}
+
+- (NSString*) prefillTextForUsername:(NSString*) username
+{
+	NSString* normalized_username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_username.length == 0) {
+		return @"";
+	}
+
+	return [NSString stringWithFormat:@"@%@ ", normalized_username];
+}
+
+- (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text
+{
+	if (self.view.window == nil || self.replyController != nil) {
+		return;
+	}
+
+	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	__weak typeof(self) weak_self = self;
+	reply_controller.didCloseHandler = ^{
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.replyController = nil;
+	};
+	self.replyController = reply_controller;
+	[self.replyController showForWindow:self.view.window postID:post_id prefillText:prefill_text];
 }
 
 - (NSString*) specialModeBannerTitle

@@ -53,6 +53,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (BOOL) canMarkAllItemsAsRead;
 - (BOOL) canToggleSelectedItemBookmarkedState;
 - (BOOL) canShowReadingRecap;
+- (BOOL) canReplyToSelectedMention;
 - (NSString*) readToggleMenuTitle;
 - (NSString*) bookmarkToggleMenuTitle;
 - (NSString*) readPostsVisibilityMenuTitle;
@@ -60,6 +61,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) markAllItemsAsRead;
 - (void) toggleSelectedItemBookmarkedState;
 - (void) toggleReadPostsVisibility;
+- (void) replyToSelectedMention;
 - (IBAction) showReadingRecap:(id)sender;
 - (MBEntry* _Nullable) selectedItem;
 
