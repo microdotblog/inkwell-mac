@@ -271,6 +271,8 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 		return;
 	}
 
+	self.isPreviewing = YES;
+	self.previewButton.state = NSControlStateValueOn;
 	self.previewButton.enabled = NO;
 	__weak typeof(self) weak_self = self;
 	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:^(id _Nullable result, NSError* _Nullable error) {
@@ -280,6 +282,8 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 		}
 
 		if (error != nil) {
+			strong_self.isPreviewing = NO;
+			strong_self.previewButton.state = NSControlStateValueOff;
 			strong_self.previewButton.enabled = YES;
 			NSBeep();
 			return;
@@ -295,8 +299,6 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 				return;
 			}
 
-			strong_self.isPreviewing = YES;
-			strong_self.previewButton.state = NSControlStateValueOn;
 			[strong_self showPreviewHTML:(html ?: @"")];
 		}];
 	}];
