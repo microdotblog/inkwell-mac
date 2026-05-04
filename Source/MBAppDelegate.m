@@ -178,7 +178,9 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	if (menu_item.action == @selector(preview:)) {
 		NSWindowController* window_controller = NSApp.keyWindow.windowController;
-		return [window_controller isKindOfClass:[MBNewPostController class]];
+		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		menu_item.state = (is_new_post_window_frontmost && [(MBNewPostController*) window_controller isPreviewEnabled]) ? NSControlStateValueOn : NSControlStateValueOff;
+		return is_new_post_window_frontmost;
 	}
 
 	if (menu_item.action == @selector(toggleTitleField:)) {

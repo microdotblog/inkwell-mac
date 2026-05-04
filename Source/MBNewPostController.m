@@ -343,6 +343,11 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}];
 }
 
+- (BOOL) isPreviewEnabled
+{
+	return self.isPreviewing;
+}
+
 - (IBAction) toggleTitleField:(id) sender
 {
 	#pragma unused(sender)
