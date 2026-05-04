@@ -13,6 +13,7 @@ static CGFloat const InkwellConversationCellBottomInset = 10.0;
 static CGFloat const InkwellConversationCellLeadingInset = 6.0;
 static CGFloat const InkwellConversationCellTrailingInset = 6.0;
 static CGFloat const InkwellConversationAvatarSize = 34.0;
+static CGFloat const InkwellConversationAvatarToTextSpacing = 12.0;
 static CGFloat const InkwellConversationNameToBodySpacing = 6.0;
 static CGFloat const InkwellConversationBodyToDateSpacing = 8.0;
 
@@ -68,6 +69,33 @@ static CGFloat const InkwellConversationBodyToDateSpacing = 8.0;
 	self.dateTextField.stringValue = date_text ?: @"";
 }
 
+- (void) prepareForLayoutWithWidth:(CGFloat) width
+{
+	CGFloat text_width = [self textColumnWidthForCellWidth:width];
+	self.bodyTextField.preferredMaxLayoutWidth = text_width;
+	self.frame = NSMakeRect(self.frame.origin.x, self.frame.origin.y, width, self.frame.size.height);
+	[self.bodyTextField invalidateIntrinsicContentSize];
+	[self setNeedsLayout:YES];
+	[self layoutSubtreeIfNeeded];
+}
+
+- (void) layout
+{
+	CGFloat text_width = [self textColumnWidthForCellWidth:self.bounds.size.width];
+	if (fabs(self.bodyTextField.preferredMaxLayoutWidth - text_width) > 0.5) {
+		self.bodyTextField.preferredMaxLayoutWidth = text_width;
+		[self.bodyTextField invalidateIntrinsicContentSize];
+	}
+
+	[super layout];
+}
+
+- (CGFloat) textColumnWidthForCellWidth:(CGFloat) width
+{
+	CGFloat text_width = width - InkwellConversationCellLeadingInset - InkwellConversationAvatarSize - InkwellConversationAvatarToTextSpacing - InkwellConversationCellTrailingInset;
+	return MAX(1.0, floor(text_width));
+}
+
 - (void) setupViews
 {
 	NSImageView* avatar_image_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
@@ -121,7 +149,7 @@ static CGFloat const InkwellConversationBodyToDateSpacing = 8.0;
 		[avatar_image_view.heightAnchor constraintEqualToConstant:InkwellConversationAvatarSize],
 		[avatar_image_view.bottomAnchor constraintLessThanOrEqualToAnchor:self.bottomAnchor constant:-InkwellConversationCellBottomInset],
 
-		[name_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:12.0],
+		[name_text_field.leadingAnchor constraintEqualToAnchor:avatar_image_view.trailingAnchor constant:InkwellConversationAvatarToTextSpacing],
 		[name_text_field.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-InkwellConversationCellTrailingInset],
 		[name_text_field.topAnchor constraintEqualToAnchor:self.topAnchor constant:InkwellConversationCellTopInset],
 

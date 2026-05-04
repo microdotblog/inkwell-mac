@@ -3554,7 +3554,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-	#pragma unused(tableColumn)
+	CGFloat cell_width = MAX(120.0, tableColumn.width);
 	if (self.contentMode == MBSidebarContentModeMentions) {
 		MBConversationCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarMentionCellIdentifier owner:self];
 		if (cell_view == nil) {
@@ -3568,6 +3568,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			NSString* date_text = [self mentionsDisplayDateString:mention.date];
 			[cell_view configureWithMention:mention dateText:date_text avatarImage:avatar_image];
 		}
+		[cell_view prepareForLayoutWithWidth:cell_width];
 
 		return cell_view;
 	}
@@ -3581,6 +3582,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	MBEntry* item = self.items[(NSUInteger) row];
 	[self configureSidebarCellContent:cell_view entry:item];
+	[cell_view prepareForLayoutWithWidth:cell_width];
 
 	MBRoundedImageView* avatar_view = cell_view.avatarView;
 	NSTextField* title_field = cell_view.titleTextField;
@@ -3646,7 +3648,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		}
 
 		MBMention* mention = self.mentions[(NSUInteger) row];
-		CGFloat table_width = MAX(120.0, tableView.bounds.size.width);
+		NSTableColumn* table_column = tableView.tableColumns.firstObject;
+		CGFloat table_width = MAX(120.0, table_column.width > 0 ? table_column.width : tableView.bounds.size.width);
 		return [self fittingHeightForMention:mention width:table_width];
 	}
 
@@ -3655,7 +3658,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	MBEntry* item = self.items[(NSUInteger) row];
-	CGFloat table_width = MAX(120.0, tableView.bounds.size.width);
+	NSTableColumn* table_column = tableView.tableColumns.firstObject;
+	CGFloat table_width = MAX(120.0, table_column.width > 0 ? table_column.width : tableView.bounds.size.width);
 	return [self fittingHeightForSidebarCellWithEntry:item width:table_width];
 }
 
@@ -3728,7 +3732,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
 	width_constraint.active = YES;
-	[cell_view layoutSubtreeIfNeeded];
+	[cell_view prepareForLayoutWithWidth:width];
 	CGFloat row_height = ceil(cell_view.fittingSize.height);
 	width_constraint.active = NO;
 
@@ -3751,7 +3755,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
 	width_constraint.active = YES;
-	[cell_view layoutSubtreeIfNeeded];
+	[cell_view prepareForLayoutWithWidth:width];
 	CGFloat row_height = ceil(cell_view.fittingSize.height);
 	width_constraint.active = NO;
 
