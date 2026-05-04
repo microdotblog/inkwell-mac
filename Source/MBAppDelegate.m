@@ -16,6 +16,7 @@
 
 static NSString* const InkwellUnavailableMessage = @"Inkwell requires a Micro.blog subscription.";
 static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-inkwell/4302";
+static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 @interface MBAppDelegate ()
 
@@ -163,11 +164,28 @@ static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-
 	[(MBNewPostController*) window_controller preview:sender];
 }
 
+- (IBAction) toggleTitleField:(id) sender
+{
+	NSWindowController* window_controller = NSApp.keyWindow.windowController;
+	if (![window_controller isKindOfClass:[MBNewPostController class]]) {
+		return;
+	}
+
+	[(MBNewPostController*) window_controller toggleTitleField:sender];
+}
+
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
 	if (menu_item.action == @selector(preview:)) {
 		NSWindowController* window_controller = NSApp.keyWindow.windowController;
 		return [window_controller isKindOfClass:[MBNewPostController class]];
+	}
+
+	if (menu_item.action == @selector(toggleTitleField:)) {
+		NSWindowController* window_controller = NSApp.keyWindow.windowController;
+		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		menu_item.state = [[NSUserDefaults standardUserDefaults] boolForKey:InkwellShowTitleFieldDefaultsKey] ? NSControlStateValueOn : NSControlStateValueOff;
+		return is_new_post_window_frontmost;
 	}
 
 	return YES;

@@ -426,6 +426,12 @@
                                     <action selector="preview:" target="Voe-Tx-rLC" id="mRr-Bw-bxw"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Title" id="T6t-2s-HrP">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleTitleField:" target="Voe-Tx-rLC" id="mQA-wr-qJU"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="hB3-LF-h0Y"/>
                             <menuItem title="Enter Full Screen" keyEquivalent="f" id="4J7-dP-txa">
                                 <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>

@@ -25,6 +25,7 @@ static NSString* const InkwellNewPostPreviewEndpoint = @"https://micro.blog/page
 static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPostContentChanged";
 static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_chars_remaining";
+static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 @interface MBNewPostHostnameHoverView : NSView
 
@@ -167,7 +168,7 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 @end
 
-@interface MBNewPostController () <NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate, WKScriptMessageHandler>
+@interface MBNewPostController () <NSTextFieldDelegate, NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate, WKScriptMessageHandler>
 
 @property (nonatomic, strong, readwrite) NSTextField* blogHostnameField;
 @property (nonatomic, strong) NSTextField* characterCountField;
@@ -189,12 +190,16 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 @property (nonatomic, assign) BOOL isPosting;
 @property (nonatomic, assign) BOOL isPreviewing;
 @property (nonatomic, assign) BOOL isTitleFieldVisible;
+@property (nonatomic, assign) BOOL isContentOverCharacterLimit;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
 - (void) resetPostingState;
 - (void) resetPreviewState;
 - (void) resetCharacterCount;
+- (void) updateTitleAndCharacterCountVisibilityAnimated:(BOOL)animated;
+- (BOOL) shouldShowTitleField;
+- (BOOL) hasExplicitTitleFieldVisibilityPreference;
 - (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated;
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
@@ -338,6 +343,23 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	}];
 }
 
+- (IBAction) toggleTitleField:(id) sender
+{
+	#pragma unused(sender)
+
+	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+	BOOL should_show_title = ![defaults boolForKey:InkwellShowTitleFieldDefaultsKey];
+	[defaults setBool:should_show_title forKey:InkwellShowTitleFieldDefaultsKey];
+	[self updateTitleAndCharacterCountVisibilityAnimated:YES];
+
+	if (should_show_title) {
+		[self.window makeFirstResponder:self.titleField];
+	}
+	else if (self.window.firstResponder == self.titleField.currentEditor) {
+		[self.window makeFirstResponder:self.webView];
+	}
+}
+
 - (void) setupWindowIfNeeded
 {
 	if (self.window != nil) {
@@ -384,6 +406,7 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	title_field.bezeled = NO;
 	title_field.drawsBackground = NO;
 	title_field.focusRingType = NSFocusRingTypeNone;
+	title_field.delegate = self;
 	title_field.hidden = YES;
 	title_field.alphaValue = 0.0;
 
@@ -545,10 +568,35 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 
 - (void) resetCharacterCount
 {
+	self.isContentOverCharacterLimit = NO;
 	self.characterCountField.stringValue = @"0/300";
 	self.characterCountField.textColor = NSColor.secondaryLabelColor;
+	self.characterCountField.hidden = NO;
 	self.titleField.stringValue = @"";
-	[self setTitleFieldVisible:NO animated:NO];
+	[self updateTitleAndCharacterCountVisibilityAnimated:NO];
+}
+
+- (void) updateTitleAndCharacterCountVisibilityAnimated:(BOOL)animated
+{
+	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	BOOL has_title = (title.length > 0);
+	self.characterCountField.hidden = has_title;
+	[self setTitleFieldVisible:[self shouldShowTitleField] animated:animated];
+}
+
+- (BOOL) shouldShowTitleField
+{
+	if ([self hasExplicitTitleFieldVisibilityPreference]) {
+		return [[NSUserDefaults standardUserDefaults] boolForKey:InkwellShowTitleFieldDefaultsKey];
+	}
+
+	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (self.isContentOverCharacterLimit || title.length > 0);
+}
+
+- (BOOL) hasExplicitTitleFieldVisibilityPreference
+{
+	return ([[NSUserDefaults standardUserDefaults] objectForKey:InkwellShowTitleFieldDefaultsKey] != nil);
 }
 
 - (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated
@@ -638,6 +686,10 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	NSMutableArray* body_parts = [NSMutableArray array];
 	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:(content ?: @"")]]];
 	[body_parts addObject:[NSString stringWithFormat:@"mp-destination=%@", [self urlEncodedString:(self.destinationUID ?: @"")]]];
+	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title.length > 0) {
+		[body_parts addObject:[NSString stringWithFormat:@"name=%@", [self urlEncodedString:title]]];
+	}
 	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
 
 	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
@@ -718,6 +770,13 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
+- (void) controlTextDidChange:(NSNotification *)notification
+{
+	if (notification.object == self.titleField) {
+		[self updateTitleAndCharacterCountVisibilityAnimated:YES];
+	}
+}
+
 - (void) updateCharacterCountWithPayload:(id)payload
 {
 	if (![payload isKindOfClass:[NSDictionary class]]) {
@@ -729,6 +788,7 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 	BOOL is_blockquote = [dictionary[@"is_blockquote"] respondsToSelector:@selector(boolValue)] ? [dictionary[@"is_blockquote"] boolValue] : NO;
 	NSInteger max_count = is_blockquote ? 600 : 300;
 	BOOL is_over_limit = (count > max_count);
+	self.isContentOverCharacterLimit = is_over_limit;
 
 	NSString* count_string = [NSString stringWithFormat:@"%ld", (long) count];
 	NSString* limit_string = [NSString stringWithFormat:@"/%ld", (long) max_count];
@@ -751,7 +811,7 @@ static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_
 		self.characterCountField.textColor = NSColor.secondaryLabelColor;
 	}
 
-	[self setTitleFieldVisible:is_over_limit animated:YES];
+	[self updateTitleAndCharacterCountVisibilityAnimated:YES];
 }
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
