@@ -5,6 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>New Post</title>
 	<link rel="stylesheet" href="micro_editor.css">
+	<script src="showdown.min.js"></script>
 	<script src="micro_editor.js"></script>
 </head>
 <body>
@@ -23,7 +24,12 @@
 			textbox_id: "editor",
 			preview_id: "editor_preview",
 			toolbar_id: "editor_toolbar",
-			show_chars: false
+			show_chars: false,
+			content_change_handler: function(payload) {
+				if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.newPostContentChanged) {
+					window.webkit.messageHandlers.newPostContentChanged.postMessage(payload);
+				}
+			}
 		});
 
 		window.InkwellNewPostEditor = {

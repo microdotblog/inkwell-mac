@@ -21,6 +21,7 @@ static NSToolbarItemIdentifier const InkwellNewPostToolbarPostIdentifier = @"Ink
 static NSString* const InkwellNewPostMicropubEndpoint = @"https://micro.blog/micropub";
 static NSString* const InkwellNewPostPreviewEndpoint = @"https://micro.blog/pages/preview";
 static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
+static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPostContentChanged";
 
 @interface MBNewPostHostnameHoverView : NSView
 
@@ -81,14 +82,42 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
 @end
 
-@interface MBNewPostController () <NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate>
+@interface MBNewPostWeakScriptMessageHandler : NSObject <WKScriptMessageHandler>
+
+@property (nonatomic, weak) id<WKScriptMessageHandler> target;
+
+- (instancetype) initWithTarget:(id<WKScriptMessageHandler>)target;
+
+@end
+
+@implementation MBNewPostWeakScriptMessageHandler
+
+- (instancetype) initWithTarget:(id<WKScriptMessageHandler>)target
+{
+	self = [super init];
+	if (self) {
+		self.target = target;
+	}
+	return self;
+}
+
+- (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
+{
+	[self.target userContentController:user_content_controller didReceiveScriptMessage:script_message];
+}
+
+@end
+
+@interface MBNewPostController () <NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate, WKScriptMessageHandler>
 
 @property (nonatomic, strong, readwrite) NSTextField* blogHostnameField;
+@property (nonatomic, strong) NSTextField* characterCountField;
 @property (nonatomic, strong) WKWebView* webView;
 @property (nonatomic, strong) NSButton* previewButton;
 @property (nonatomic, strong) NSButton* postButton;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
 @property (nonatomic, strong) NSToolbarItem* progressToolbarItem;
+@property (nonatomic, strong) MBNewPostWeakScriptMessageHandler* contentChangedScriptMessageHandler;
 @property (nonatomic, copy) NSString* markdownText;
 @property (nonatomic, copy) NSString* destinationName;
 @property (nonatomic, copy) NSString* destinationUID;
@@ -102,14 +131,17 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 - (void) applyMarkdownTextToEditor;
 - (void) resetPostingState;
 - (void) resetPreviewState;
+- (void) resetCharacterCount;
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion;
 - (void) showPreviewHTML:(NSString *)html;
+- (void) updateCharacterCountWithPayload:(id)payload;
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event;
 - (void) selectDestinationFromMenuItem:(NSMenuItem *)menu_item;
 - (NSString *) stringValueFromObject:(id)object;
+- (NSInteger) integerValueFromObject:(id)object;
 - (NSString *) urlEncodedString:(NSString *)string;
 - (NSString *) responseDescriptionForData:(NSData *)data defaultMessage:(NSString *)default_message;
 
@@ -128,6 +160,11 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		self.token = @"";
 	}
 	return self;
+}
+
+- (void) dealloc
+{
+	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellNewPostContentChangedScriptMessageName];
 }
 
 - (void) showWithMarkdownText:(NSString *)markdownText
@@ -149,6 +186,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	self.destinations = destinations ?: @[];
 	self.token = token ?: @"";
 	self.blogHostnameField.stringValue = self.destinationName;
+	[self resetCharacterCount];
 	if (self.destinationUID.length > 0) {
 		[[NSUserDefaults standardUserDefaults] setObject:self.destinationUID forKey:InkwellCurrentDestinationDefaultsKey];
 	}
@@ -260,6 +298,10 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	content_view.translatesAutoresizingMaskIntoConstraints = NO;
 
 	WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
+	WKUserContentController* user_content_controller = [[WKUserContentController alloc] init];
+	self.contentChangedScriptMessageHandler = [[MBNewPostWeakScriptMessageHandler alloc] initWithTarget:self];
+	[user_content_controller addScriptMessageHandler:self.contentChangedScriptMessageHandler name:InkwellNewPostContentChangedScriptMessageName];
+	configuration.userContentController = user_content_controller;
 	WKWebView* web_view = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
 	web_view.navigationDelegate = self;
@@ -275,6 +317,14 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	blog_hostname_field.textColor = NSColor.secondaryLabelColor;
 	blog_hostname_field.font = [NSFont systemFontOfSize:NSFont.systemFontSize];
 	blog_hostname_field.alignment = NSTextAlignmentCenter;
+
+	NSTextField* character_count_field = [NSTextField labelWithString:@"0/300"];
+	character_count_field.translatesAutoresizingMaskIntoConstraints = NO;
+	character_count_field.textColor = NSColor.secondaryLabelColor;
+	character_count_field.font = [NSFont systemFontOfSize:NSFont.systemFontSize];
+	character_count_field.alignment = NSTextAlignmentRight;
+	[character_count_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[character_count_field setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
 
 	NSImageView* blog_hostname_chevron_view = [[NSImageView alloc] initWithFrame:NSZeroRect];
 	blog_hostname_chevron_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -297,6 +347,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	[content_view addSubview:web_view];
 	[content_view addSubview:bottom_view];
 	[bottom_view addSubview:hostname_hover_view];
+	[bottom_view addSubview:character_count_field];
 	[hostname_hover_view addSubview:blog_hostname_field];
 	[hostname_hover_view addSubview:blog_hostname_chevron_view];
 
@@ -310,9 +361,12 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		[bottom_view.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor],
 		[bottom_view.heightAnchor constraintEqualToConstant:InkwellNewPostStatusHeight],
 		[hostname_hover_view.leadingAnchor constraintGreaterThanOrEqualToAnchor:bottom_view.leadingAnchor constant:20.0],
-		[hostname_hover_view.trailingAnchor constraintLessThanOrEqualToAnchor:bottom_view.trailingAnchor constant:-20.0],
+		[hostname_hover_view.trailingAnchor constraintLessThanOrEqualToAnchor:character_count_field.leadingAnchor constant:-16.0],
 		[hostname_hover_view.centerXAnchor constraintEqualToAnchor:bottom_view.centerXAnchor],
 		[hostname_hover_view.centerYAnchor constraintEqualToAnchor:bottom_view.centerYAnchor],
+		[character_count_field.trailingAnchor constraintEqualToAnchor:bottom_view.trailingAnchor constant:-20.0],
+		[character_count_field.centerYAnchor constraintEqualToAnchor:bottom_view.centerYAnchor],
+		[character_count_field.widthAnchor constraintGreaterThanOrEqualToConstant:62.0],
 		[blog_hostname_field.topAnchor constraintEqualToAnchor:hostname_hover_view.topAnchor],
 		[blog_hostname_field.leadingAnchor constraintEqualToAnchor:hostname_hover_view.leadingAnchor],
 		[blog_hostname_field.bottomAnchor constraintEqualToAnchor:hostname_hover_view.bottomAnchor],
@@ -332,6 +386,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	self.window = post_window;
 	self.webView = web_view;
 	self.blogHostnameField = blog_hostname_field;
+	self.characterCountField = character_count_field;
 }
 
 - (void) loadEditorHTMLIfNeeded
@@ -388,6 +443,12 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 {
 	self.isPreviewing = NO;
 	self.previewButton.state = NSControlStateValueOff;
+}
+
+- (void) resetCharacterCount
+{
+	self.characterCountField.stringValue = @"0/300";
+	self.characterCountField.textColor = NSColor.secondaryLabelColor;
 }
 
 - (void) setPosting:(BOOL) is_posting
@@ -514,6 +575,21 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	[self.webView evaluateJavaScript:script completionHandler:nil];
 }
 
+- (void) updateCharacterCountWithPayload:(id)payload
+{
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return;
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) payload;
+	NSInteger count = [self integerValueFromObject:dictionary[@"count"]];
+	BOOL is_blockquote = [dictionary[@"is_blockquote"] respondsToSelector:@selector(boolValue)] ? [dictionary[@"is_blockquote"] boolValue] : NO;
+	NSInteger max_count = is_blockquote ? 600 : 300;
+
+	self.characterCountField.stringValue = [NSString stringWithFormat:@"%ld/%ld", (long) count, (long) max_count];
+	self.characterCountField.textColor = (count > max_count) ? NSColor.systemRedColor : NSColor.secondaryLabelColor;
+}
+
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
 {
 	if (self.destinationsProvider != nil) {
@@ -585,6 +661,19 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 	return @"";
 }
 
+- (NSInteger) integerValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object integerValue];
+	}
+
+	if ([object isKindOfClass:[NSString class]]) {
+		return [(NSString*) object integerValue];
+	}
+
+	return 0;
+}
+
 - (NSString *) urlEncodedString:(NSString *)string
 {
 	NSMutableCharacterSet* allowed_character_set = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
@@ -624,6 +713,15 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
 	self.didLoadEditorHTML = YES;
 	[self applyMarkdownTextToEditor];
+}
+
+- (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
+{
+	#pragma unused(user_content_controller)
+
+	if ([script_message.name isEqualToString:InkwellNewPostContentChangedScriptMessageName]) {
+		[self updateCharacterCountWithPayload:script_message.body];
+	}
 }
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item

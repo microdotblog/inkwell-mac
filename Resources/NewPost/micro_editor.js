@@ -17,6 +17,7 @@ var MicroEditor = (function () {
 	let sendPostHandler = null;
 	let sendPostTitle = "";
 	let saveHandler = null;
+	let contentChangeHandler = null;
 	let successTimer = null;
 	let successFadeTimer = null;
 	let isSuccessVisible = false;
@@ -30,6 +31,8 @@ var MicroEditor = (function () {
 	const autocompleteDelay = 500;
 	let cleanupTimer = null;
 	const cleanupDelay = 3000;
+	let contentChangeTimer = null;
+	const contentChangeDelay = 200;
 	let autocompleteHandler = null;
 	let dropHandler = null;
 	const maxCharsLength = 300;
@@ -48,6 +51,7 @@ var MicroEditor = (function () {
 		sendPostHandler = config.post_handler;
 		sendPostTitle = config.post_button ?? "Post";
 		saveHandler = config.save_handler;
+		contentChangeHandler = config.content_change_handler;
 		autocompleteHandler = config.autocomplete_handler;
 		dropHandler = config.drop_handler;
 		isShowingChars = config.show_chars ?? true;
@@ -238,6 +242,7 @@ var MicroEditor = (function () {
 		if (cursor_to_end) {
 			moveCursorToEnd();
 		}
+		scheduleContentChanged();
 	}
 
 	function getMarkdownByID(div_id) {
@@ -257,11 +262,57 @@ var MicroEditor = (function () {
 	}
 
 	function getHTML() {
-		let s = getMarkdown();
-		s = applyMicroMarkup(s);
+		return markdownToHTML(getMarkdown());
+	}
+
+	function contentMetrics() {
+		let markdown = getMarkdown();
+		let html = markdownToHTML(markdown);
+		html = html.replace("</p>\n<p>", "</p>\n\n<p>"); // better account for what Markdown looked like
+		let text_only = html.replace(/<\/?[^>]+(>|$)/g, "");
+		const is_blockquote = html.includes("<blockquote");
+		const is_photo = html.includes("<img");
+
+		let len;
+		if ((typeof Intl !== 'undefined') && ('Segmenter' in Intl)) {
+			len = Array.from(new Intl.Segmenter().segment(text_only)).length;
+		}
+		else {
+			len = Array.from(text_only).length;
+		}
+
+		const max_length = is_blockquote ? maxBlockquoteLength : maxCharsLength;
+		return {
+			markdown: markdown,
+			count: len,
+			max: max_length,
+			remaining: max_length - len,
+			is_blockquote: is_blockquote,
+			is_photo: is_photo
+		};
+	}
+
+	function markdownToHTML(markdown) {
+		let s = applyMicroMarkup(markdown);
 		const converter = new showdown.Converter();
-		const html = converter.makeHtml(s);
-		return html;
+		return converter.makeHtml(s);
+	}
+
+	function scheduleContentChanged() {
+		if (!contentChangeHandler) {
+			return;
+		}
+
+		clearTimeout(contentChangeTimer);
+		contentChangeTimer = setTimeout(() => {
+			contentChangeTimer = null;
+			try {
+				contentChangeHandler(contentMetrics());
+			}
+			catch (error) {
+				console.error("Content metrics error", error);
+			}
+		}, contentChangeDelay);
 	}
 
 	function cancelListeners() {
@@ -269,6 +320,7 @@ var MicroEditor = (function () {
 		clearTimeout(undoTimer);
 		clearTimeout(autocompleteTimer);
 		clearTimeout(cleanupTimer);
+		clearTimeout(contentChangeTimer);
 
 		// replace with clone which clears listeners
 		const editor = document.getElementById(textBoxID);
@@ -319,6 +371,7 @@ var MicroEditor = (function () {
 			scrollIfNeeded();
 			checkButtons();
 			updateRemaining();
+			scheduleContentChanged();
 			hideSuccess();
 		});
 
@@ -751,6 +804,7 @@ var MicroEditor = (function () {
 
 		editor.innerText = s;
 		applyStyles();
+		scheduleContentChanged();
 		setTimeout(() => {
 			moveCursorToEnd();
 		}, 200);
@@ -774,6 +828,7 @@ var MicroEditor = (function () {
 			editor.style.display = 'block';
 			preview.style.display = 'none';
 			updateRemaining();
+			scheduleContentChanged();
 			editor.focus();
 		}
 	}
@@ -852,6 +907,7 @@ var MicroEditor = (function () {
 		selection.addRange(new_range);
 
 		applyStyles();
+		scheduleContentChanged();
 	}
 
 	function undo() {
@@ -879,6 +935,7 @@ var MicroEditor = (function () {
 			}
 			editor.innerText = prev_state.text;
 			applyStyles();
+			scheduleContentChanged();
 			if (prev_state.selection) {
 				restoreSelection(editor, prev_state.selection);
 			}
@@ -900,6 +957,7 @@ var MicroEditor = (function () {
 			const next_state = redoStack.pop();
 			editor.innerText = next_state.text;
 			applyStyles();
+			scheduleContentChanged();
 			if (next_state.selection) {
 				restoreSelection(editor, next_state.selection);
 			}
@@ -1319,23 +1377,10 @@ var MicroEditor = (function () {
 		}
 		chars_span.style.display = "";
 
-		let s = document.getElementById(textBoxID).innerText;
-		s = replaceAllZeroWidth(s);
-
-		let converter = new showdown.Converter();
-		let html = converter.makeHtml(s);
-		html = html.replace("</p>\n<p>", "</p>\n\n<p>"); // better account for what Markdown looked like
-		let text_only = html.replace(/<\/?[^>]+(>|$)/g, "");
-		const is_blockquote = html.includes("<blockquote");
-		const is_photo = html.includes("<img");
-
-		let len;
-		if ((typeof Intl !== 'undefined') && ('Segmenter' in Intl)) {
-			len = Array.from(new Intl.Segmenter().segment(text_only)).length;
-		}
-		else {
-			len = Array.from(text_only).length;
-		}
+		const metrics = contentMetrics();
+		const len = metrics.count;
+		const is_blockquote = metrics.is_blockquote;
+		const is_photo = metrics.is_photo;
 
 		if (len == 0) {
 			chars_span.innerText = "";
