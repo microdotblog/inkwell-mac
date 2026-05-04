@@ -383,13 +383,7 @@
                                     <action selector="showReadingRecap:" target="-1" id="n8M-jA-X7F"/>
                                 </connections>
                             </menuItem>
-                            <menuItem isSeparatorItem="YES" id="kx3-Vm-M6t"/>
-                            <menuItem title="Mentions" keyEquivalent="5" id="KT8-ix-vcc">
-                                <connections>
-                                    <action selector="showMentions:" target="-1" id="drp-S5-6Cr"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem title="Bookmarks" keyEquivalent="6" id="G4M-1Q-pK3">
+                            <menuItem title="Bookmarks" keyEquivalent="5" id="G4M-1Q-pK3">
                                 <connections>
                                     <action selector="showBookmarks:" target="-1" id="M03-lq-1qj"/>
                                 </connections>
