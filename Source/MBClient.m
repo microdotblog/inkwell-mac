@@ -40,6 +40,7 @@ static NSString * const MBFeedUnreadEntriesEndpoint = MBMicroBlogBaseURL @"/feed
 static NSString * const MBFeedStarredEntriesEndpoint = MBMicroBlogBaseURL @"/feeds/v2/starred_entries.json";
 static NSString * const MBFeedIconsEndpoint = MBMicroBlogBaseURL @"/feeds/v2/icons.json";
 static NSString* const MBRecentBookmarksEndpoint = MBMicroBlogBaseURL @"/posts/bookmarks";
+static NSString* const MBRecentMentionsEndpoint = MBMicroBlogBaseURL @"/posts/mentions";
 static NSString* const MBMicropubEndpoint = MBMicroBlogBaseURL @"/micropub";
 static NSString* const MBPostsReplyEndpoint = MBMicroBlogBaseURL @"/posts/reply";
 static NSString* const MBFeedHighlightsEndpoint = MBMicroBlogBaseURL @"/feeds/highlights";
@@ -83,6 +84,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (NSArray *) normalizedMicropubDestinationsFromDestinations:(NSArray *)destinations;
 - (void) cacheMicropubDestinations:(NSArray *)destinations;
 - (void) finishWithMicropubDestinations:(NSArray * _Nullable)destinations error:(NSError * _Nullable)error completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
+- (void) finishWithMentions:(NSArray* _Nullable) items error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion;
 - (void) logAPIRequest:(NSURLRequest *) request;
 - (void) logRefreshEntriesStopReason:(NSString *) reason pageNumber:(NSInteger) page_number pageEntryCount:(NSUInteger) page_entry_count addedCount:(NSInteger) added_count newCount:(NSInteger) new_count totalCount:(NSUInteger) total_count oldestEntryDate:(NSDate * _Nullable) oldest_entry_date cutoffDate:(NSDate * _Nullable) cutoff_date;
 - (NSISO8601DateFormatter*) iso8601Formatter;
@@ -1019,6 +1021,54 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		}
 
 		[self finishWithBookmarks:[items_object copy] error:nil completion:completion];
+	}];
+	[task resume];
+}
+
+- (void) fetchRecentMentionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion
+{
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1059 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for mentions request." }];
+		[self finishWithMentions:nil error:error completion:completion];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBRecentMentionsEndpoint]];
+	request.HTTPMethod = @"GET";
+	[request setValue:@"application/feed+json" forHTTPHeaderField:@"Accept"];
+
+	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+		if (error != nil) {
+			[self finishWithMentions:nil error:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Mentions request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithMentions:nil error:request_error completion:completion];
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		if (![payload isKindOfClass:[NSDictionary class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1060 userInfo:@{ NSLocalizedDescriptionKey: @"Mentions response was invalid." }];
+			[self finishWithMentions:nil error:parse_error completion:completion];
+			return;
+		}
+
+		id items_object = payload[@"items"];
+		if (![items_object isKindOfClass:[NSArray class]]) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1061 userInfo:@{ NSLocalizedDescriptionKey: @"Mentions response was invalid." }];
+			[self finishWithMentions:nil error:parse_error completion:completion];
+			return;
+		}
+
+		[self finishWithMentions:[items_object copy] error:nil completion:completion];
 	}];
 	[task resume];
 }
@@ -3328,6 +3378,17 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	dispatch_async(dispatch_get_main_queue(), ^{
 		completion(destinations, error);
+	});
+}
+
+- (void) finishWithMentions:(NSArray* _Nullable) items error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion
+{
+	if (completion == nil) {
+		return;
+	}
+
+	dispatch_async(dispatch_get_main_queue(), ^{
+		completion(items, error);
 	});
 }
 

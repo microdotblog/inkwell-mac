@@ -44,6 +44,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (void) primeFeedIconsCacheWithMap:(NSDictionary<NSString*, NSString*>*) icons_by_host;
 - (void) invalidateFeedIconsCache;
 - (void) fetchRecentBookmarksWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion;
+- (void) fetchRecentMentionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion;
 - (void) fetchMicropubDestinationsWithToken:(NSString *)token completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
 - (void) fetchMicropubDestinationsInBackgroundWithToken:(NSString *)token completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
 - (NSArray * _Nullable) cachedMicropubDestinations;

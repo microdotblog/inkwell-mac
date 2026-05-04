@@ -40,6 +40,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) reloadData;
 - (void) loadCachedRecentEntries;
 - (void) refreshData;
+- (void) showMentions;
 - (void) showBookmarks;
 - (void) showAllPostsForSelectedSite;
 - (void) clearSpecialMode;
