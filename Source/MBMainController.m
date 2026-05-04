@@ -60,6 +60,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 @property (copy) NSString *token;
 @property (assign) BOOL isNetworkingInProgress;
 @property (assign) BOOL isSyncingHighlights;
+@property (assign) BOOL isRefreshingMicropubDestinations;
 @property (assign) NSInteger conversationReplyCount;
 @property (copy) NSDictionary* lastConversationPayload;
 @property (copy) NSString* pendingConversationLookupURLString;
@@ -107,10 +108,12 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload includeLinkWithoutSelection:(BOOL) include_link_without_selection;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text;
-- (void) fetchMicropubDestinationsAndOpenNewPostForMarkdownText:(NSString *)markdownText;
 - (void) openNewPostWindowForMarkdownText:(NSString *)markdownText destinations:(NSArray *)destinations;
 - (NSDictionary * _Nullable) defaultMicropubDestinationFromDestinations:(NSArray *)destinations;
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text;
+- (void) refreshMicropubDestinationsInBackgroundIfNeeded;
+- (void) refreshMicropubDestinationsInBackground;
+- (void) scheduleMicropubDestinationsRefreshAfterOpeningNewPost;
 
 @end
 
@@ -278,6 +281,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		}
 
 		[strong_self syncHighlightsFromServer];
+		[strong_self refreshMicropubDestinationsInBackgroundIfNeeded];
 	};
 	self.sidebarController.specialModeChangedHandler = ^(BOOL is_showing_special_mode) {
 		#pragma unused(is_showing_special_mode)
@@ -1294,6 +1298,39 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}];
 }
 
+- (void) refreshMicropubDestinationsInBackgroundIfNeeded
+{
+	NSArray* cached_destinations = [self.client cachedMicropubDestinations];
+	if (cached_destinations.count > 0) {
+		return;
+	}
+
+	[self refreshMicropubDestinationsInBackground];
+}
+
+- (void) refreshMicropubDestinationsInBackground
+{
+	if (self.isRefreshingMicropubDestinations || self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	self.isRefreshingMicropubDestinations = YES;
+	__weak typeof(self) weak_self = self;
+	[self.client fetchMicropubDestinationsInBackgroundWithToken:self.token completion:^(NSArray * _Nullable destinations, NSError * _Nullable error) {
+		#pragma unused(destinations)
+		#pragma unused(error)
+		weak_self.isRefreshingMicropubDestinations = NO;
+	}];
+}
+
+- (void) scheduleMicropubDestinationsRefreshAfterOpeningNewPost
+{
+	__weak typeof(self) weak_self = self;
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		[weak_self refreshMicropubDestinationsInBackground];
+	});
+}
+
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload
 {
 	return [self markdownTextForNewPostWithItem:item selectionPayload:payload includeLinkWithoutSelection:YES];
@@ -1357,29 +1394,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return;
 	}
 
-	[self fetchMicropubDestinationsAndOpenNewPostForMarkdownText:markdown_text];
-}
-
-- (void) fetchMicropubDestinationsAndOpenNewPostForMarkdownText:(NSString *)markdownText
-{
-	__weak typeof(self) weak_self = self;
-	[self.client fetchMicropubDestinationsWithToken:self.token completion:^(NSArray* _Nullable destinations, NSError* _Nullable error) {
-		MBMainController* strong_self = weak_self;
-		if (strong_self == nil) {
-			return;
-		}
-
-		NSArray* resolved_destinations = destinations;
-		if (resolved_destinations.count == 0) {
-			resolved_destinations = [strong_self.client cachedMicropubDestinations];
-		}
-
-		if (error != nil && resolved_destinations.count == 0) {
-			NSLog(@"New Post destinations error: %@", error.localizedDescription ?: @"Unknown error");
-		}
-
-		[strong_self openNewPostWindowForMarkdownText:markdownText destinations:(resolved_destinations ?: @[])];
-	}];
+	NSArray* cached_destinations = [self.client cachedMicropubDestinations];
+	[self openNewPostWindowForMarkdownText:markdown_text destinations:(cached_destinations ?: @[])];
+	[self scheduleMicropubDestinationsRefreshAfterOpeningNewPost];
 }
 
 - (void) openNewPostWindowForMarkdownText:(NSString *)markdownText destinations:(NSArray *)destinations
@@ -1394,6 +1411,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (self.postController == nil) {
 		self.postController = [[MBNewPostController alloc] init];
 	}
+
+	__weak typeof(self) weak_self = self;
+	self.postController.destinationsProvider = ^NSArray* _Nullable {
+		return [weak_self.client cachedMicropubDestinations];
+	};
 
 	[self.postController showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid destinations:destinations token:self.token];
 }

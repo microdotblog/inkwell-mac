@@ -516,6 +516,11 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
 {
+	if (self.destinationsProvider != nil) {
+		NSArray* cached_destinations = self.destinationsProvider();
+		self.destinations = cached_destinations ?: @[];
+	}
+
 	if (self.destinations.count == 0) {
 		return;
 	}
@@ -670,7 +675,7 @@ static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 		preview_button.bezelStyle = NSBezelStyleRounded;
 		[preview_button setButtonType:NSButtonTypeToggle];
 		[preview_button sizeToFit];
-		[preview_button.widthAnchor constraintGreaterThanOrEqualToConstant:65.0].active = YES;
+		[preview_button.widthAnchor constraintGreaterThanOrEqualToConstant:70.0].active = YES;
 
 		item.view = preview_button;
 		self.previewButton = preview_button;

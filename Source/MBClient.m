@@ -79,6 +79,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (NSURL * _Nullable) micropubDestinationsCacheURL;
 - (NSArray * _Nullable) loadCachedFeedSubscriptionsDeletingIfExpired;
 - (void) cacheFeedSubscriptionsData:(NSData *) data;
+- (void) fetchMicropubDestinationsWithToken:(NSString *)token tracksNetworking:(BOOL)tracks_networking completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
 - (NSArray *) normalizedMicropubDestinationsFromDestinations:(NSArray *)destinations;
 - (void) cacheMicropubDestinations:(NSArray *)destinations;
 - (void) finishWithMicropubDestinations:(NSArray * _Nullable)destinations error:(NSError * _Nullable)error completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
@@ -1024,6 +1025,16 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 - (void) fetchMicropubDestinationsWithToken:(NSString *)token completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion
 {
+	[self fetchMicropubDestinationsWithToken:token tracksNetworking:YES completion:completion];
+}
+
+- (void) fetchMicropubDestinationsInBackgroundWithToken:(NSString *)token completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion
+{
+	[self fetchMicropubDestinationsWithToken:token tracksNetworking:NO completion:completion];
+}
+
+- (void) fetchMicropubDestinationsWithToken:(NSString *)token tracksNetworking:(BOOL)tracks_networking completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion
+{
 	if (token.length == 0) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1055 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for Micropub config request." }];
 		[self finishWithMicropubDestinations:nil error:error completion:completion];
@@ -1048,7 +1059,11 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
 	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+	if (!tracks_networking) {
+		[self logAPIRequest:request];
+	}
+
+	void (^completion_handler)(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) = ^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
 		if (error != nil) {
 			[self finishWithMicropubDestinations:nil error:error completion:completion];
 			return;
@@ -1079,7 +1094,15 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		NSArray* destinations = [self normalizedMicropubDestinationsFromDestinations:(NSArray*) destinations_object];
 		[self cacheMicropubDestinations:destinations];
 		[self finishWithMicropubDestinations:destinations error:nil completion:completion];
-	}];
+	};
+
+	NSURLSessionDataTask* task = nil;
+	if (tracks_networking) {
+		task = [self trackedDataTaskWithRequest:request completionHandler:completion_handler];
+	}
+	else {
+		task = [self.session dataTaskWithRequest:request completionHandler:completion_handler];
+	}
 	[task resume];
 }
 

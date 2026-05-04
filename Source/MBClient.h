@@ -45,6 +45,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (void) invalidateFeedIconsCache;
 - (void) fetchRecentBookmarksWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion;
 - (void) fetchMicropubDestinationsWithToken:(NSString *)token completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
+- (void) fetchMicropubDestinationsInBackgroundWithToken:(NSString *)token completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
 - (NSArray * _Nullable) cachedMicropubDestinations;
 - (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion;
 - (void) createReplyForPostID:(NSString *)postID content:(NSString *)content token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion;
