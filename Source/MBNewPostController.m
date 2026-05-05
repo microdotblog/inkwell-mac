@@ -957,11 +957,16 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		replace[@"post-status"] = @[ @"draft" ];
 	}
 
-	NSDictionary* payload = @{
+	NSMutableDictionary* payload = [@{
 		@"action": @"update",
 		@"url": postURL ?: @"",
 		@"replace": replace
-	};
+	} mutableCopy];
+	NSString* destination_uid = [self.destinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		payload[@"mp-destination"] = destination_uid;
+	}
+
 	NSError* json_error = nil;
 	NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&json_error];
 	if (json_data == nil || json_error != nil) {
@@ -1035,11 +1040,17 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		return;
 	}
 
-	NSURLComponents* components = [NSURLComponents componentsWithString:InkwellNewPostMicropubEndpoint];
-	components.queryItems = @[
+	NSMutableArray* query_items = [NSMutableArray arrayWithArray:@[
 		[NSURLQueryItem queryItemWithName:@"q" value:@"source"],
 		[NSURLQueryItem queryItemWithName:@"url" value:post_url]
-	];
+	]];
+	NSString* destination_uid = [self.destinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		[query_items addObject:[NSURLQueryItem queryItemWithName:@"mp-destination" value:destination_uid]];
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:InkwellNewPostMicropubEndpoint];
+	components.queryItems = query_items;
 	NSURL* request_url = components.URL;
 	if (request_url == nil) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1008 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub source endpoint URL was invalid." }];
