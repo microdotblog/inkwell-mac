@@ -563,7 +563,7 @@ body.inkwell_previewing {
 	background: transparent;
 	color: inherit;
 	font-size: 18px;
-	line-height: 1.45;
+	line-height: 1.4;
 	transition: none;
 }
 
@@ -585,7 +585,7 @@ body.inkwell_previewing {
 	background: transparent;
 	color: inherit;
 	font-size: 18px;
-	line-height: 1.45;
+	line-height: 1.4;
 }
 
 .inkwell_editor_page .editor_toolbar {
