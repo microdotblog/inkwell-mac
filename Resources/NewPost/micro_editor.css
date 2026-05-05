@@ -65,6 +65,10 @@
 	border-left: 2px solid #CCC;
 }
 
+.editor_preview blockquote p:last-child {
+	margin-bottom: 4px;
+}
+
 .editor_preview img {
 	max-width: 100%;
 	height: auto;
