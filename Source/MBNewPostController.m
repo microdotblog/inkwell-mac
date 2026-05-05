@@ -25,6 +25,8 @@ static NSString* const InkwellNewPostPreviewEndpoint = @"https://micro.blog/page
 static NSString* const InkwellNewPostErrorDomain = @"InkwellNewPostErrorDomain";
 static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPostContentChanged";
 static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_chars_remaining";
+static NSString* const InkwellNewPostEditorBackgroundColorName = @"color_post_editor_background";
+static NSString* const InkwellNewPostPreviewBackgroundColorName = @"color_post_preview_background";
 static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 @interface MBNewPostHostnameHoverView : NSView
@@ -103,15 +105,9 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	#pragma unused(dirty_rect)
 
-	NSString* appearance_name = [self.effectiveAppearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-	BOOL is_dark = [appearance_name isEqualToString:NSAppearanceNameDarkAqua];
-	NSColor* background_color = nil;
-	if (self.usesPreviewBackground) {
-		background_color = is_dark ? [NSColor colorWithCalibratedWhite:0.1412 alpha:1.0] : [NSColor colorWithCalibratedWhite:0.9686 alpha:1.0];
-	}
-	else {
-		background_color = is_dark ? [NSColor colorWithSRGBRed:(30.0 / 255.0) green:(30.0 / 255.0) blue:(30.0 / 255.0) alpha:1.0] : NSColor.whiteColor;
-	}
+	NSString* color_name = self.usesPreviewBackground ? InkwellNewPostPreviewBackgroundColorName : InkwellNewPostEditorBackgroundColorName;
+	NSColor* fallback_color = self.usesPreviewBackground ? NSColor.windowBackgroundColor : NSColor.textBackgroundColor;
+	NSColor* background_color = [NSColor colorNamed:color_name] ?: fallback_color;
 	[background_color setFill];
 	NSRectFill(self.bounds);
 }
@@ -403,7 +399,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	post_window.releasedWhenClosed = NO;
 	post_window.title = @"New Post";
 	post_window.titleVisibility = NSWindowTitleHidden;
-	post_window.backgroundColor = NSColor.windowBackgroundColor;
+	post_window.backgroundColor = [NSColor colorNamed:InkwellNewPostEditorBackgroundColorName] ?: NSColor.windowBackgroundColor;
 	post_window.minSize = NSMakeSize(420.0, 280.0);
 	post_window.toolbarStyle = NSWindowToolbarStyleUnified;
 
@@ -606,6 +602,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	self.editorBackgroundView.usesPreviewBackground = is_enabled;
 	self.bottomBackgroundView.usesPreviewBackground = is_enabled;
+	NSString* color_name = is_enabled ? InkwellNewPostPreviewBackgroundColorName : InkwellNewPostEditorBackgroundColorName;
+	self.window.backgroundColor = [NSColor colorNamed:color_name] ?: NSColor.windowBackgroundColor;
 }
 
 - (void) resetCharacterCount
