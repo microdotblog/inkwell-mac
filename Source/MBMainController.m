@@ -103,6 +103,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canPrintCurrentContent;
 - (BOOL) canHighlightSelectedItem;
 - (BOOL) canReplyToConversation;
+- (BOOL) canEditSelectedPost;
 - (BOOL) canShowCurrentUserPosts;
 - (NSArray*) sharingItemsForSelectedItem;
 - (NSRect) sharingPickerRectInView:(NSView*) view;
@@ -120,6 +121,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
 - (void) openNewPostForMarkdownText:(NSString*) markdown_text;
 - (void) openNewPostWindowForMarkdownText:(NSString *)markdownText destinations:(NSArray *)destinations;
+- (void) openPostEditorForItem:(MBEntry *)item;
+- (MBNewPostController *) configuredPostWindowController;
 - (NSDictionary * _Nullable) defaultMicropubDestinationFromDestinations:(NSArray *)destinations;
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text;
 - (void) refreshMicropubDestinationsInBackgroundIfNeeded;
@@ -643,6 +646,18 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}];
 }
 
+- (IBAction) editPost:(id)sender
+{
+	#pragma unused(sender)
+
+	if (![self canEditSelectedPost]) {
+		return;
+	}
+
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	[self openPostEditorForItem:selected_item];
+}
+
 - (IBAction) newFeed:(id) sender
 {
 	#pragma unused(sender)
@@ -1104,6 +1119,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		menu_item.title = [self.sidebarController bookmarkToggleMenuTitle];
 		return [self.sidebarController canToggleSelectedItemBookmarkedState];
 	}
+	if (menu_item.action == @selector(editPost:)) {
+		BOOL can_edit = [self canEditSelectedPost];
+		menu_item.hidden = !can_edit;
+		return can_edit;
+	}
 	if (menu_item.action == @selector(toggleReadPostsVisibility:)) {
 		menu_item.title = [self.sidebarController readPostsVisibilityMenuTitle];
 		return (self.sidebarController != nil);
@@ -1195,6 +1215,26 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canReplyToConversation
 {
 	return (self.conversationController.window.isVisible && [self.conversationController canReplyToConversation]);
+}
+
+- (BOOL) canEditSelectedPost
+{
+	MBEntry* selected_item = [self.sidebarController selectedItem];
+	if (selected_item == nil || selected_item.feedID <= 0) {
+		return NO;
+	}
+
+	NSString* post_url = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (post_url.length == 0) {
+		return NO;
+	}
+
+	MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
+	if (current_user_blog_subscription == nil || current_user_blog_subscription.feedID <= 0) {
+		return NO;
+	}
+
+	return (selected_item.feedID == current_user_blog_subscription.feedID);
 }
 
 - (MBSubscription *) currentUserBlogSubscription
@@ -1674,6 +1714,32 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
 	}
 
+	MBNewPostController* post_controller = [self configuredPostWindowController];
+	[post_controller showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid destinations:destinations token:self.token];
+}
+
+- (void) openPostEditorForItem:(MBEntry *)item
+{
+	NSString* post_url = [item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (post_url.length == 0) {
+		return;
+	}
+
+	NSArray* cached_destinations = [self.client cachedMicropubDestinations] ?: @[];
+	NSDictionary* default_destination = [self defaultMicropubDestinationFromDestinations:cached_destinations];
+	NSString* destination_name = [self stringValueFromObjectOrNumber:default_destination[@"name"]];
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:default_destination[@"uid"]];
+	if (destination_uid.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
+	}
+
+	MBNewPostController* post_controller = [self configuredPostWindowController];
+	[post_controller showEditingPostURL:post_url destinationName:destination_name destinationUID:destination_uid destinations:cached_destinations token:self.token];
+	[self scheduleMicropubDestinationsRefreshAfterOpeningNewPost];
+}
+
+- (MBNewPostController *) configuredPostWindowController
+{
 	if (self.postControllers == nil) {
 		self.postControllers = [NSMutableArray array];
 	}
@@ -1688,7 +1754,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	};
 	[self.postControllers addObject:post_controller];
 
-	[post_controller showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid destinations:destinations token:self.token];
+	return post_controller;
 }
 
 - (void) postWindowControllerDidClose:(MBNewPostController*)controller

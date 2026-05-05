@@ -200,17 +200,20 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 @property (nonatomic, strong) NSButton* postButton;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
 @property (nonatomic, strong) NSToolbarItem* progressToolbarItem;
+@property (nonatomic, strong) NSToolbarItem* postToolbarItem;
 @property (nonatomic, strong) MBNewPostWeakScriptMessageHandler* contentChangedScriptMessageHandler;
 @property (nonatomic, copy) NSString* markdownText;
 @property (nonatomic, copy) NSString* initialMarkdownText;
 @property (nonatomic, copy) NSString* currentMarkdownText;
 @property (nonatomic, copy) NSString* initialTitleText;
+@property (nonatomic, copy) NSString* editingPostURLString;
 @property (nonatomic, copy) NSString* destinationName;
 @property (nonatomic, copy) NSString* destinationUID;
 @property (nonatomic, copy) NSArray* destinations;
 @property (nonatomic, copy) NSString* token;
 @property (nonatomic, assign) BOOL didLoadEditorHTML;
 @property (nonatomic, assign) BOOL isPosting;
+@property (nonatomic, assign) BOOL isLoadingEditingPostSource;
 @property (nonatomic, assign) BOOL isPreviewing;
 @property (nonatomic, assign) BOOL isTitleFieldVisible;
 @property (nonatomic, assign) BOOL isContentOverCharacterLimit;
@@ -230,11 +233,19 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (BOOL) shouldShowTitleField;
 - (BOOL) hasExplicitTitleFieldVisibilityPreference;
 - (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated;
+- (BOOL) isEditingExistingPost;
+- (NSString *) postToolbarButtonTitle;
+- (void) updatePostButtonTitle;
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
 - (void) postContent:(NSString *)content asDraft:(BOOL)is_draft;
 - (void) saveDraftAndClose;
+- (void) fetchEditingPostSource;
+- (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError * _Nullable)error;
+- (NSString *) markdownTextFromMicropubSourcePayload:(id)payload;
+- (NSString *) titleTextFromMicropubSourcePayload:(id)payload;
+- (NSString *) sourceStringValueFromObject:(id)object;
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion;
 - (void) showPreviewHTML:(NSString *)html;
 - (void) updateCharacterCountWithPayload:(id)payload;
@@ -264,6 +275,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		self.initialMarkdownText = @"";
 		self.currentMarkdownText = @"";
 		self.initialTitleText = @"";
+		self.editingPostURLString = @"";
 		self.destinationName = @"";
 		self.destinationUID = @"";
 		self.destinations = @[];
@@ -290,6 +302,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token
 {
 	[self setupWindowIfNeeded];
+	self.editingPostURLString = @"";
+	self.isLoadingEditingPostSource = NO;
+	[self updatePostButtonTitle];
 	self.markdownText = markdownText ?: @"";
 	self.initialMarkdownText = self.markdownText;
 	self.currentMarkdownText = self.markdownText;
@@ -315,6 +330,34 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		[self applyMarkdownTextToEditor];
 		[self updateDocumentEditedState];
 	}
+}
+
+- (void) showEditingPostURL:(NSString *)postURLString destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token
+{
+	[self setupWindowIfNeeded];
+	self.editingPostURLString = postURLString ?: @"";
+	self.isLoadingEditingPostSource = YES;
+	[self updatePostButtonTitle];
+	self.markdownText = @"";
+	self.initialMarkdownText = @"";
+	self.currentMarkdownText = @"";
+	self.destinationName = destinationName ?: @"";
+	self.destinationUID = destinationUID ?: @"";
+	self.destinations = destinations ?: @[];
+	self.token = token ?: @"";
+	self.blogHostnameField.stringValue = self.destinationName;
+	[self resetCharacterCount];
+	self.initialTitleText = self.titleField.stringValue ?: @"";
+	if (self.destinationUID.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:self.destinationUID forKey:InkwellCurrentDestinationDefaultsKey];
+	}
+	[self resetPostingState];
+	[self resetPreviewState];
+	[self updateDocumentEditedState];
+	[self loadEditorHTMLIfNeeded];
+	[self showWindow:nil];
+	[self.window makeKeyAndOrderFront:nil];
+	[self fetchEditingPostSource];
 }
 
 - (IBAction) post:(id) sender
@@ -770,6 +813,27 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	}];
 }
 
+- (BOOL) isEditingExistingPost
+{
+	NSString* post_url = [self.editingPostURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (post_url.length > 0);
+}
+
+- (NSString *) postToolbarButtonTitle
+{
+	return [self isEditingExistingPost] ? @"Update" : @"Post";
+}
+
+- (void) updatePostButtonTitle
+{
+	NSString* button_title = [self postToolbarButtonTitle];
+	self.postToolbarItem.label = button_title;
+	self.postToolbarItem.paletteLabel = button_title;
+	self.postToolbarItem.toolTip = button_title;
+	self.postButton.title = button_title;
+	[self.postButton sizeToFit];
+}
+
 - (void) setPosting:(BOOL) is_posting
 {
 	self.isPosting = is_posting;
@@ -824,6 +888,11 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	if (is_draft) {
 		[body_parts addObject:@"post-status=draft"];
 	}
+	NSString* editing_post_url = [self.editingPostURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (editing_post_url.length > 0) {
+		[body_parts addObject:[NSString stringWithFormat:@"url=%@", [self urlEncodedString:editing_post_url]]];
+		[body_parts addObject:@"action=update"];
+	}
 	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (title.length > 0) {
 		[body_parts addObject:[NSString stringWithFormat:@"name=%@", [self urlEncodedString:title]]];
@@ -876,6 +945,170 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		[strong_self setPosting:YES];
 		[strong_self postContent:content asDraft:YES];
 	}];
+}
+
+- (void) fetchEditingPostSource
+{
+	[self setPosting:YES];
+
+	if (self.token.length == 0) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for source request." }];
+		[self finishEditingPostSourceWithMarkdown:@"" title:@"" error:error];
+		return;
+	}
+
+	NSString* post_url = [self.editingPostURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (post_url.length == 0) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1007 userInfo:@{ NSLocalizedDescriptionKey: @"Missing post URL for source request." }];
+		[self finishEditingPostSourceWithMarkdown:@"" title:@"" error:error];
+		return;
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:InkwellNewPostMicropubEndpoint];
+	components.queryItems = @[
+		[NSURLQueryItem queryItemWithName:@"q" value:@"source"],
+		[NSURLQueryItem queryItemWithName:@"url" value:post_url]
+	];
+	NSURL* request_url = components.URL;
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1008 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub source endpoint URL was invalid." }];
+		[self finishEditingPostSourceWithMarkdown:@"" title:@"" error:error];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"GET";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:[NSString stringWithFormat:@"Bearer %@", self.token] forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		NSError* result_error = error;
+		NSString* markdown = @"";
+		NSString* title = @"";
+
+		if (result_error == nil) {
+			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Source request failed."];
+				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			}
+		}
+
+		if (result_error == nil) {
+			id payload = [NSJSONSerialization JSONObjectWithData:(data ?: [NSData data]) options:0 error:nil];
+			if (![payload isKindOfClass:[NSDictionary class]]) {
+				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1009 userInfo:@{ NSLocalizedDescriptionKey: @"Source response was invalid." }];
+			}
+			else {
+				markdown = [self markdownTextFromMicropubSourcePayload:payload] ?: @"";
+				title = [self titleTextFromMicropubSourcePayload:payload] ?: @"";
+			}
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self finishEditingPostSourceWithMarkdown:markdown title:title error:result_error];
+		});
+	}];
+	[task resume];
+}
+
+- (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError *)error
+{
+	self.isLoadingEditingPostSource = NO;
+	[self setPosting:NO];
+
+	if (error != nil) {
+		if (self.didLoadEditorHTML) {
+			self.webView.hidden = NO;
+			[self.window makeFirstResponder:self.webView];
+		}
+		NSBeep();
+		return;
+	}
+
+	self.markdownText = markdown ?: @"";
+	self.initialMarkdownText = self.markdownText;
+	self.currentMarkdownText = self.markdownText;
+	[self resetCharacterCount];
+	self.titleField.stringValue = title ?: @"";
+	self.initialTitleText = self.titleField.stringValue ?: @"";
+	[self updateTitleAndCharacterCountVisibilityAnimated:NO];
+	[self updateDocumentEditedState];
+
+	if (self.didLoadEditorHTML) {
+		__weak typeof(self) weak_self = self;
+		[self applyMarkdownTextToEditorWithCompletion:^{
+			MBNewPostController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			strong_self.webView.hidden = NO;
+			[strong_self.window makeFirstResponder:strong_self.webView];
+		}];
+	}
+}
+
+- (NSString *) markdownTextFromMicropubSourcePayload:(id)payload
+{
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return @"";
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) payload;
+	id properties_object = dictionary[@"properties"];
+	if ([properties_object isKindOfClass:[NSDictionary class]]) {
+		NSString* value = [self sourceStringValueFromObject:((NSDictionary*) properties_object)[@"content"]];
+		if (value.length > 0) {
+			return value;
+		}
+	}
+
+	return [self sourceStringValueFromObject:dictionary[@"content"]];
+}
+
+- (NSString *) titleTextFromMicropubSourcePayload:(id)payload
+{
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return @"";
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) payload;
+	id properties_object = dictionary[@"properties"];
+	if ([properties_object isKindOfClass:[NSDictionary class]]) {
+		NSString* value = [self sourceStringValueFromObject:((NSDictionary*) properties_object)[@"name"]];
+		if (value.length > 0) {
+			return value;
+		}
+	}
+
+	return [self sourceStringValueFromObject:dictionary[@"name"]];
+}
+
+- (NSString *) sourceStringValueFromObject:(id)object
+{
+	if ([object isKindOfClass:[NSArray class]]) {
+		for (id item in (NSArray*) object) {
+			NSString* value = [self sourceStringValueFromObject:item];
+			if (value.length > 0) {
+				return value;
+			}
+		}
+
+		return @"";
+	}
+
+	if ([object isKindOfClass:[NSDictionary class]]) {
+		NSDictionary* dictionary = (NSDictionary*) object;
+		id value_object = dictionary[@"value"];
+		if (value_object != nil && ![value_object isKindOfClass:[NSNull class]]) {
+			return [self sourceStringValueFromObject:value_object];
+		}
+
+		return [self sourceStringValueFromObject:dictionary[@"html"]];
+	}
+
+	return [self stringValueFromObject:object];
 }
 
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion
@@ -1141,6 +1374,10 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 				return;
 			}
 
+			if (delayed_strong_self.isLoadingEditingPostSource) {
+				return;
+			}
+
 			delayed_strong_self.webView.hidden = NO;
 			[delayed_strong_self.window makeFirstResponder:delayed_strong_self.webView];
 		});
@@ -1299,11 +1536,12 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	if ([item_identifier isEqualToString:InkwellNewPostToolbarPostIdentifier]) {
 		NSToolbarItem* item = [[NSToolbarItem alloc] initWithItemIdentifier:item_identifier];
-		item.label = @"Post";
-		item.paletteLabel = @"Post";
-		item.toolTip = @"Post";
+		NSString* button_title = [self postToolbarButtonTitle];
+		item.label = button_title;
+		item.paletteLabel = button_title;
+		item.toolTip = button_title;
 
-		NSButton* post_button = [NSButton buttonWithTitle:@"Post" target:self action:@selector(post:)];
+		NSButton* post_button = [NSButton buttonWithTitle:button_title target:self action:@selector(post:)];
 		post_button.bezelStyle = NSBezelStyleRounded;
 		post_button.keyEquivalent = @"\r";
 		post_button.keyEquivalentModifierMask = NSEventModifierFlagCommand;
@@ -1311,7 +1549,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		[post_button.widthAnchor constraintGreaterThanOrEqualToConstant:65.0].active = YES;
 
 		item.view = post_button;
+		self.postToolbarItem = item;
 		self.postButton = post_button;
+		[self updatePostButtonTitle];
 		return item;
 	}
 
