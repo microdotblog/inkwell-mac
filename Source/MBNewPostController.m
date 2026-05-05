@@ -199,6 +199,9 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (nonatomic, strong) NSToolbarItem* progressToolbarItem;
 @property (nonatomic, strong) MBNewPostWeakScriptMessageHandler* contentChangedScriptMessageHandler;
 @property (nonatomic, copy) NSString* markdownText;
+@property (nonatomic, copy) NSString* initialMarkdownText;
+@property (nonatomic, copy) NSString* currentMarkdownText;
+@property (nonatomic, copy) NSString* initialTitleText;
 @property (nonatomic, copy) NSString* destinationName;
 @property (nonatomic, copy) NSString* destinationUID;
 @property (nonatomic, copy) NSArray* destinations;
@@ -217,7 +220,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) resetPostingState;
 - (void) resetPreviewState;
 - (void) resetCharacterCount;
-- (void) markDocumentEdited;
+- (void) updateDocumentEditedState;
 - (void) updateTitleAndCharacterCountVisibilityAnimated:(BOOL)animated;
 - (void) setPreviewBackgroundEnabled:(BOOL)is_enabled;
 - (BOOL) shouldShowTitleField;
@@ -247,6 +250,9 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	self = [super initWithWindow:nil];
 	if (self) {
 		self.markdownText = @"";
+		self.initialMarkdownText = @"";
+		self.currentMarkdownText = @"";
+		self.initialTitleText = @"";
 		self.destinationName = @"";
 		self.destinationUID = @"";
 		self.destinations = @[];
@@ -274,18 +280,21 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	[self setupWindowIfNeeded];
 	self.markdownText = markdownText ?: @"";
+	self.initialMarkdownText = self.markdownText;
+	self.currentMarkdownText = self.markdownText;
 	self.destinationName = destinationName ?: @"";
 	self.destinationUID = destinationUID ?: @"";
 	self.destinations = destinations ?: @[];
 	self.token = token ?: @"";
 	self.blogHostnameField.stringValue = self.destinationName;
 	[self resetCharacterCount];
+	self.initialTitleText = self.titleField.stringValue ?: @"";
 	if (self.destinationUID.length > 0) {
 		[[NSUserDefaults standardUserDefaults] setObject:self.destinationUID forKey:InkwellCurrentDestinationDefaultsKey];
 	}
 	[self resetPostingState];
 	[self resetPreviewState];
-	self.window.documentEdited = NO;
+	[self updateDocumentEditedState];
 	[self loadEditorHTMLIfNeeded];
 	[self showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
@@ -293,7 +302,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		self.webView.hidden = NO;
 		[self.window makeFirstResponder:self.webView];
 		[self applyMarkdownTextToEditor];
-		self.window.documentEdited = NO;
+		[self updateDocumentEditedState];
 	}
 }
 
@@ -622,7 +631,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 			}
 
 			strong_self.isApplyingInitialMarkdownText = NO;
-			strong_self.window.documentEdited = NO;
+			strong_self.initialMarkdownText = strong_self.currentMarkdownText ?: @"";
+			[strong_self updateDocumentEditedState];
 		});
 		if (completionHandler != nil) {
 			completionHandler();
@@ -904,16 +914,26 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) controlTextDidChange:(NSNotification *)notification
 {
 	if (notification.object == self.titleField) {
-		[self markDocumentEdited];
 		[self updateTitleAndCharacterCountVisibilityAnimated:YES];
+		[self updateDocumentEditedState];
 	}
 }
 
-- (void) markDocumentEdited
+- (void) updateDocumentEditedState
 {
-	if (!self.isApplyingInitialMarkdownText && !self.isClosingAfterPost) {
-		self.window.documentEdited = YES;
+	if (self.isClosingAfterPost) {
+		self.window.documentEdited = NO;
+		return;
 	}
+
+	NSString* initial_markdown = self.initialMarkdownText ?: @"";
+	NSString* current_markdown = self.currentMarkdownText ?: @"";
+	if (initial_markdown.length == 0) {
+		current_markdown = [current_markdown stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+	NSString* initial_title = self.initialTitleText ?: @"";
+	NSString* current_title = self.titleField.stringValue ?: @"";
+	self.window.documentEdited = (![current_markdown isEqualToString:initial_markdown] || ![current_title isEqualToString:initial_title]);
 }
 
 - (void) updateCharacterCountWithPayload:(id)payload
@@ -923,6 +943,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 
 	NSDictionary* dictionary = (NSDictionary*) payload;
+	NSString* markdown = [self stringValueFromObject:dictionary[@"markdown"]];
+	self.currentMarkdownText = markdown;
 	NSInteger count = [self integerValueFromObject:dictionary[@"count"]];
 	BOOL is_blockquote = [dictionary[@"is_blockquote"] respondsToSelector:@selector(boolValue)] ? [dictionary[@"is_blockquote"] boolValue] : NO;
 	NSInteger max_count = is_blockquote ? 600 : 300;
@@ -953,11 +975,12 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	[self updateTitleAndCharacterCountVisibilityAnimated:YES];
 	if (self.isApplyingInitialMarkdownText) {
 		self.isApplyingInitialMarkdownText = NO;
-		self.window.documentEdited = NO;
+		self.initialMarkdownText = self.currentMarkdownText ?: @"";
+		[self updateDocumentEditedState];
 		return;
 	}
 
-	[self markDocumentEdited];
+	[self updateDocumentEditedState];
 }
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
