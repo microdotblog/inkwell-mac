@@ -226,6 +226,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
+- (void) postContent:(NSString *)content asDraft:(BOOL)is_draft;
+- (void) saveDraftAndClose;
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion;
 - (void) showPreviewHTML:(NSString *)html;
 - (void) updateCharacterCountWithPayload:(id)payload;
@@ -322,7 +324,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		}
 
 		[strong_self setPosting:YES];
-		[strong_self postContent:content];
+		[strong_self postContent:content asDraft:NO];
 	}];
 }
 
@@ -766,6 +768,11 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 - (void) postContent:(NSString *)content
 {
+	[self postContent:content asDraft:NO];
+}
+
+- (void) postContent:(NSString *)content asDraft:(BOOL)is_draft
+{
 	if (self.token.length == 0) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1001 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for posting." }];
 		[self finishPostingWithError:error];
@@ -782,6 +789,9 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	NSMutableArray* body_parts = [NSMutableArray array];
 	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:(content ?: @"")]]];
 	[body_parts addObject:[NSString stringWithFormat:@"mp-destination=%@", [self urlEncodedString:(self.destinationUID ?: @"")]]];
+	if (is_draft) {
+		[body_parts addObject:@"post-status=draft"];
+	}
 	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (title.length > 0) {
 		[body_parts addObject:[NSString stringWithFormat:@"name=%@", [self urlEncodedString:title]]];
@@ -810,6 +820,30 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		});
 	}];
 	[task resume];
+}
+
+- (void) saveDraftAndClose
+{
+	if (self.isPosting) {
+		return;
+	}
+
+	__weak typeof(self) weak_self = self;
+	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:^(id _Nullable result, NSError* _Nullable error) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (error != nil) {
+			[strong_self finishPostingWithError:error];
+			return;
+		}
+
+		NSString* content = [result isKindOfClass:[NSString class]] ? (NSString*) result : @"";
+		[strong_self setPosting:YES];
+		[strong_self postContent:content asDraft:YES];
+	}];
 }
 
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion
@@ -1084,16 +1118,24 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	if (self.isClosingAfterPost || !self.window.documentEdited) {
 		return YES;
 	}
+	if (self.isPosting) {
+		return NO;
+	}
 
 	NSAlert* alert = [[NSAlert alloc] init];
 	alert.alertStyle = NSAlertStyleWarning;
-	alert.messageText = @"Close Draft Blog Post?";
-	alert.informativeText = @"Are you sure you want to close this draft blog post and lose the changes?";
-	[alert addButtonWithTitle:@"Close Draft"];
+	alert.messageText = @"Save changes to blog post before closing?";
+	alert.informativeText = @"Saving will store the draft on Micro.blog. You can use Micro.blog to edit and publish the post.";
+	[alert addButtonWithTitle:@"Save"];
+	[alert addButtonWithTitle:@"Don't Save"];
 	[alert addButtonWithTitle:@"Cancel"];
 
 	NSModalResponse response = [alert runModal];
 	if (response == NSAlertFirstButtonReturn) {
+		[self saveDraftAndClose];
+		return NO;
+	}
+	if (response == NSAlertSecondButtonReturn) {
 		self.window.documentEdited = NO;
 		return YES;
 	}

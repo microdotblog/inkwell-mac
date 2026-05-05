@@ -1317,14 +1317,14 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSString* username = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellUsernameDefaultsKey] ?: @"";
 	username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (username.length == 0) {
-		return @"Show Posts";
+		return @"Posts";
 	}
 
 	if (![username hasPrefix:@"@"]) {
 		username = [@"@" stringByAppendingString:username];
 	}
 
-	return [NSString stringWithFormat:@"Show Posts: %@", username];
+	return [NSString stringWithFormat:@"Posts: %@", username];
 }
 
 - (NSString *) hostFromURLString:(NSString *)string
