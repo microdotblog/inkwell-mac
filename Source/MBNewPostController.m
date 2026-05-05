@@ -202,6 +202,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 @property (nonatomic, strong) NSToolbarItem* progressToolbarItem;
 @property (nonatomic, strong) NSToolbarItem* postToolbarItem;
 @property (nonatomic, strong) MBNewPostWeakScriptMessageHandler* contentChangedScriptMessageHandler;
+@property (nonatomic, strong) id commandReturnEventMonitor;
 @property (nonatomic, copy) NSString* markdownText;
 @property (nonatomic, copy) NSString* initialMarkdownText;
 @property (nonatomic, copy) NSString* currentMarkdownText;
@@ -233,6 +234,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (BOOL) shouldShowTitleField;
 - (BOOL) hasExplicitTitleFieldVisibilityPreference;
 - (void) setTitleFieldVisible:(BOOL)is_visible animated:(BOOL)animated;
+- (void) installCommandReturnEventMonitor;
+- (void) removeCommandReturnEventMonitor;
+- (NSEvent *) handleCommandReturnEvent:(NSEvent *)event;
 - (BOOL) isEditingExistingPost;
 - (NSString *) postToolbarButtonTitle;
 - (void) updatePostButtonTitle;
@@ -287,6 +291,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) dealloc
 {
+	[self removeCommandReturnEventMonitor];
 	[self.webView.configuration.userContentController removeScriptMessageHandlerForName:InkwellNewPostContentChangedScriptMessageName];
 }
 
@@ -639,6 +644,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	self.titleSeparatorView = title_separator_view;
 	self.blogHostnameField = blog_hostname_field;
 	self.characterCountField = character_count_field;
+
+	[self installCommandReturnEventMonitor];
 }
 
 - (void) loadEditorHTMLIfNeeded
@@ -823,6 +830,59 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		self.titleField.hidden = !is_visible;
 		self.titleSeparatorView.hidden = !is_visible;
 	}];
+}
+
+- (void) installCommandReturnEventMonitor
+{
+	if (self.commandReturnEventMonitor != nil) {
+		return;
+	}
+
+	__weak typeof(self) weak_self = self;
+	self.commandReturnEventMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent* _Nullable(NSEvent* event) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return event;
+		}
+
+		return [strong_self handleCommandReturnEvent:event];
+	}];
+}
+
+- (void) removeCommandReturnEventMonitor
+{
+	if (self.commandReturnEventMonitor == nil) {
+		return;
+	}
+
+	[NSEvent removeMonitor:self.commandReturnEventMonitor];
+	self.commandReturnEventMonitor = nil;
+}
+
+- (NSEvent *) handleCommandReturnEvent:(NSEvent *)event
+{
+	if (event.window != self.window) {
+		return event;
+	}
+
+	BOOL is_return_key = (event.keyCode == 36 || event.keyCode == 76);
+	if (!is_return_key) {
+		return event;
+	}
+
+	NSEventModifierFlags flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+	if ((flags & NSEventModifierFlagCommand) == 0) {
+		return event;
+	}
+	if ((flags & (NSEventModifierFlagControl | NSEventModifierFlagOption)) != 0) {
+		return event;
+	}
+
+	if (self.postButton.enabled) {
+		[self.postButton performClick:nil];
+	}
+
+	return nil;
 }
 
 - (BOOL) isEditingExistingPost
@@ -1523,6 +1583,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) windowWillClose:(NSNotification *)notification
 {
 	#pragma unused(notification)
+
+	[self removeCommandReturnEventMonitor];
 
 	void (^did_close_handler)(MBNewPostController* controller) = self.didCloseHandler;
 	self.didCloseHandler = nil;
