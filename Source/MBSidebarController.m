@@ -3124,7 +3124,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	toggle_bookmark_item.target = nil;
 	[menu addItem:toggle_bookmark_item];
 
-	NSMenuItem* edit_post_item = [[NSMenuItem alloc] initWithTitle:@"Edit Post" action:edit_post_selector keyEquivalent:@""];
+	NSMenuItem* edit_post_item = [[NSMenuItem alloc] initWithTitle:@"Edit" action:edit_post_selector keyEquivalent:@""];
 	edit_post_item.target = nil;
 	[menu addItem:edit_post_item];
 	self.editPostMenuItem = edit_post_item;
