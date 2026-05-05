@@ -233,6 +233,7 @@ var MicroEditor = (function () {
 		const editor = document.getElementById(textBoxID);
 		const preview = document.getElementById(textPreviewID);
 		const button = document.getElementById(`${textBoxID}_preview_button`);
+		isIgnoringInput = false;
 		editor.innerText = text;
 		editor.style.display = 'block';
 		preview.style.display = 'none';
@@ -520,8 +521,6 @@ var MicroEditor = (function () {
 			const clipboard_data = e.clipboardData || window.clipboardData;
 			const text = clipboard_data.getData('text');
 			if (text.length > 0) {
-				checkLength(text);
-
 				isIgnoringInput = false;
 
 				let s = replaceDuplicateReturns(text);
@@ -624,9 +623,7 @@ var MicroEditor = (function () {
 
 		// for longer text, we disable the highlighting
 		const max_length_for_highlighting = 5000;
-		if (s.length > max_length_for_highlighting) {
-			isIgnoringInput = true;
-		}
+		return (s.length > max_length_for_highlighting);
 	}
 
 	function showSuccess() {
@@ -1204,8 +1201,8 @@ var MicroEditor = (function () {
 	}
 
 	function applyStyles() {
-		checkLength();
 		if (isIgnoringInput) return;
+		if (checkLength()) return;
 
 		const editor = document.getElementById(textBoxID);
 		let saved = saveSelection(editor);
