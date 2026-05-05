@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype) initWithWindow:(nullable NSWindow *)window;
 - (instancetype) initWithWindow:(nullable NSWindow *)window client:(nullable MBClient *)client token:(nullable NSString *)token;
 - (IBAction) showPreferences:(id) sender;
+- (IBAction) openPostWindow:(id) sender;
 
 @end
 

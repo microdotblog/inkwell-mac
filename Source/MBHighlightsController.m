@@ -1017,7 +1017,7 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 {
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Highlights"];
 
-	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:@selector(newPostFromSelectedHighlight:) keyEquivalent:@""];
+	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:@selector(openPostWindowFromSelectedHighlight:) keyEquivalent:@""];
 	new_post_item.target = self;
 	[menu addItem:new_post_item];
 
@@ -1116,7 +1116,7 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 	return (title_string.length > 0 && url_string.length > 0 && [self canCopySelectedHighlight]);
 }
 
-- (IBAction) newPostFromSelectedHighlight:(id) sender
+- (IBAction) openPostWindowFromSelectedHighlight:(id) sender
 {
 	#pragma unused(sender)
 	MBHighlight* highlight = [self selectedHighlight];
@@ -1126,6 +1126,11 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 
 	NSString* markdown_text = [self markdownTextForNewPostFromHighlight:highlight];
 	if (markdown_text.length == 0) {
+		return;
+	}
+
+	if (self.postWindowHandler != nil) {
+		self.postWindowHandler(markdown_text);
 		return;
 	}
 
@@ -1340,7 +1345,7 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
-	if (menu_item.action == @selector(newPostFromSelectedHighlight:)) {
+	if (menu_item.action == @selector(openPostWindowFromSelectedHighlight:)) {
 		return [self canCreatePostFromSelectedHighlight];
 	}
 	if (menu_item.action == @selector(promptToDeleteSelectedHighlight:)) {

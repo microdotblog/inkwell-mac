@@ -183,7 +183,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 @end
 
-@interface MBNewPostController () <NSTextFieldDelegate, NSToolbarDelegate, NSToolbarItemValidation, WKNavigationDelegate, WKScriptMessageHandler>
+@interface MBNewPostController () <NSTextFieldDelegate, NSToolbarDelegate, NSToolbarItemValidation, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler>
 
 @property (nonatomic, strong, readwrite) NSTextField* blogHostnameField;
 @property (nonatomic, strong) NSTextField* characterCountField;
@@ -208,6 +208,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (nonatomic, assign) BOOL isPreviewing;
 @property (nonatomic, assign) BOOL isTitleFieldVisible;
 @property (nonatomic, assign) BOOL isContentOverCharacterLimit;
+@property (nonatomic, assign) BOOL isApplyingInitialMarkdownText;
+@property (nonatomic, assign) BOOL isClosingAfterPost;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
@@ -215,6 +217,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) resetPostingState;
 - (void) resetPreviewState;
 - (void) resetCharacterCount;
+- (void) markDocumentEdited;
 - (void) updateTitleAndCharacterCountVisibilityAnimated:(BOOL)animated;
 - (void) setPreviewBackgroundEnabled:(BOOL)is_enabled;
 - (BOOL) shouldShowTitleField;
@@ -280,6 +283,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 	[self resetPostingState];
 	[self resetPreviewState];
+	self.window.documentEdited = NO;
 	[self loadEditorHTMLIfNeeded];
 	[self showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
@@ -287,6 +291,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		self.webView.hidden = NO;
 		[self.window makeFirstResponder:self.webView];
 		[self applyMarkdownTextToEditor];
+		self.window.documentEdited = NO;
 	}
 }
 
@@ -401,6 +406,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	NSRect content_rect = NSMakeRect(0.0, 0.0, InkwellNewPostWindowWidth, InkwellNewPostWindowHeight);
 	NSWindow* post_window = [[NSWindow alloc] initWithContentRect:content_rect styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable) backing:NSBackingStoreBuffered defer:NO];
 	post_window.releasedWhenClosed = NO;
+	post_window.delegate = self;
 	post_window.title = @"New Post";
 	post_window.titleVisibility = NSWindowTitleHidden;
 	post_window.backgroundColor = [NSColor colorNamed:InkwellNewPostEditorBackgroundColorName] ?: NSColor.windowBackgroundColor;
@@ -581,10 +587,12 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 
 	NSString* text = self.markdownText ?: @"";
+	self.isApplyingInitialMarkdownText = YES;
 	NSDictionary* payload = @{ @"text": text };
 	NSError* error = nil;
 	NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&error];
 	if (json_data == nil || error != nil) {
+		self.isApplyingInitialMarkdownText = NO;
 		if (completionHandler != nil) {
 			completionHandler();
 		}
@@ -593,6 +601,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 	NSString* json_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
 	if (json_string.length == 0) {
+		self.isApplyingInitialMarkdownText = NO;
 		if (completionHandler != nil) {
 			completionHandler();
 		}
@@ -600,9 +609,19 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 
 	NSString* script = [NSString stringWithFormat:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.setText(%@.text);", json_string];
+	__weak typeof(self) weak_self = self;
 	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError* _Nullable error) {
 		#pragma unused(result)
 		#pragma unused(error)
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			MBNewPostController* strong_self = weak_self;
+			if (strong_self == nil || !strong_self.isApplyingInitialMarkdownText) {
+				return;
+			}
+
+			strong_self.isApplyingInitialMarkdownText = NO;
+			strong_self.window.documentEdited = NO;
+		});
 		if (completionHandler != nil) {
 			completionHandler();
 		}
@@ -735,6 +754,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	if (error == nil) {
 		[self setPosting:NO];
+		self.isClosingAfterPost = YES;
+		self.window.documentEdited = NO;
 		[self close];
 		return;
 	}
@@ -849,7 +870,15 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) controlTextDidChange:(NSNotification *)notification
 {
 	if (notification.object == self.titleField) {
+		[self markDocumentEdited];
 		[self updateTitleAndCharacterCountVisibilityAnimated:YES];
+	}
+}
+
+- (void) markDocumentEdited
+{
+	if (!self.isApplyingInitialMarkdownText && !self.isClosingAfterPost) {
+		self.window.documentEdited = YES;
 	}
 }
 
@@ -888,6 +917,13 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 
 	[self updateTitleAndCharacterCountVisibilityAnimated:YES];
+	if (self.isApplyingInitialMarkdownText) {
+		self.isApplyingInitialMarkdownText = NO;
+		self.window.documentEdited = NO;
+		return;
+	}
+
+	[self markDocumentEdited];
 }
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
@@ -1038,6 +1074,41 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 	if ([script_message.name isEqualToString:InkwellNewPostContentChangedScriptMessageName]) {
 		[self updateCharacterCountWithPayload:script_message.body];
+	}
+}
+
+- (BOOL) windowShouldClose:(id)sender
+{
+	#pragma unused(sender)
+
+	if (self.isClosingAfterPost || !self.window.documentEdited) {
+		return YES;
+	}
+
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Close Draft Blog Post?";
+	alert.informativeText = @"Are you sure you want to close this draft blog post and lose the changes?";
+	[alert addButtonWithTitle:@"Close Draft"];
+	[alert addButtonWithTitle:@"Cancel"];
+
+	NSModalResponse response = [alert runModal];
+	if (response == NSAlertFirstButtonReturn) {
+		self.window.documentEdited = NO;
+		return YES;
+	}
+
+	return NO;
+}
+
+- (void) windowWillClose:(NSNotification *)notification
+{
+	#pragma unused(notification)
+
+	void (^did_close_handler)(MBNewPostController* controller) = self.didCloseHandler;
+	self.didCloseHandler = nil;
+	if (did_close_handler != nil) {
+		did_close_handler(self);
 	}
 }
 

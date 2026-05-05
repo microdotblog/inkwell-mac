@@ -3102,7 +3102,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
-	SEL new_post_selector = NSSelectorFromString(@"newPost:");
+	SEL new_post_selector = NSSelectorFromString(@"openPostWindow:");
 	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
 	SEL toggle_bookmark_selector = NSSelectorFromString(@"toggleSelectedItemBookmarkedState:");
 	SEL show_conversation_selector = NSSelectorFromString(@"showConversation:");
@@ -3297,7 +3297,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
-	if (menu_item.action == NSSelectorFromString(@"newPost:")) {
+	if (menu_item.action == NSSelectorFromString(@"openPostWindow:")) {
 		return ([self selectedItem] != nil);
 	}
 	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {

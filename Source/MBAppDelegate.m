@@ -154,6 +154,12 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	[[NSWorkspace sharedWorkspace] openURL:help_url];
 }
 
+- (IBAction) openPostWindow:(id) sender
+{
+	[self showMainWindow];
+	[self.mainController openPostWindow:sender];
+}
+
 - (IBAction) preview:(id) sender
 {
 	NSWindowController* window_controller = NSApp.keyWindow.windowController;

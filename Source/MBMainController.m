@@ -55,7 +55,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 @property (strong) MBSidebarController *sidebarController;
 @property (strong) MBDetailController *detailController;
 @property (strong) MBHighlightsController *highlightsController;
-@property (strong) MBNewPostController* postController;
+@property (strong) NSMutableArray* postControllers;
 @property (strong) MBConversationController* conversationController;
 @property (strong) MBPreferencesController* preferencesController;
 @property (copy) NSString *token;
@@ -125,6 +125,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) refreshMicropubDestinationsInBackgroundIfNeeded;
 - (void) refreshMicropubDestinationsInBackground;
 - (void) scheduleMicropubDestinationsRefreshAfterOpeningNewPost;
+- (void) postWindowControllerDidClose:(MBNewPostController*)controller;
 
 @end
 
@@ -160,6 +161,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	[self.preferencesController close];
 	[self.conversationController close];
 	[self.highlightsController close];
+	for (MBNewPostController* controller in [self.postControllers copy]) {
+		[controller close];
+	}
 	[super close];
 }
 
@@ -599,13 +603,21 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 				[strong_self.detailController refreshHighlights];
 			}
 		};
+		self.highlightsController.postWindowHandler = ^(NSString* markdown_text) {
+			MBMainController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			[strong_self openNewPostForMarkdownText:markdown_text];
+		};
 	}
 
 	MBEntry* selected_item = [self.sidebarController selectedItem];
 	[self.highlightsController showHighlightsForEntry:selected_item];
 }
 
-- (IBAction) newPost:(id)sender
+- (IBAction) openPostWindow:(id)sender
 {
 	BOOL include_link_without_selection = NO;
 	if ([sender isKindOfClass:[NSMenuItem class]]) {
@@ -1055,7 +1067,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (menu_item.action == @selector(selectTodayView:) || menu_item.action == @selector(selectRecentView:) || menu_item.action == @selector(selectFadingView:)) {
 		return ![self isFilterSelectionDisabled];
 	}
-	if (menu_item.action == @selector(newPost:)) {
+	if (menu_item.action == @selector(openPostWindow:)) {
 		return [self canCreateNewPost];
 	}
 	if (menu_item.action == @selector(share:)) {
@@ -1157,7 +1169,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
 {
-	if (toolbar_item.action == @selector(newPost:)) {
+	if (toolbar_item.action == @selector(openPostWindow:)) {
 		return [self canCreateNewPost];
 	}
 	if (toolbar_item.action == @selector(highlightSelectedItem:)) {
@@ -1662,16 +1674,26 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
 	}
 
-	if (self.postController == nil) {
-		self.postController = [[MBNewPostController alloc] init];
+	if (self.postControllers == nil) {
+		self.postControllers = [NSMutableArray array];
 	}
 
 	__weak typeof(self) weak_self = self;
-	self.postController.destinationsProvider = ^NSArray* _Nullable {
+	MBNewPostController* post_controller = [[MBNewPostController alloc] init];
+	post_controller.destinationsProvider = ^NSArray* _Nullable {
 		return [weak_self.client cachedMicropubDestinations];
 	};
+	post_controller.didCloseHandler = ^(MBNewPostController* closing_controller) {
+		[weak_self postWindowControllerDidClose:closing_controller];
+	};
+	[self.postControllers addObject:post_controller];
 
-	[self.postController showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid destinations:destinations token:self.token];
+	[post_controller showWithMarkdownText:markdownText destinationName:destination_name destinationUID:destination_uid destinations:destinations token:self.token];
+}
+
+- (void) postWindowControllerDidClose:(MBNewPostController*)controller
+{
+	[self.postControllers removeObject:controller];
 }
 
 - (NSDictionary *) defaultMicropubDestinationFromDestinations:(NSArray *)destinations
@@ -2180,7 +2202,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		item.toolTip = @"New Post";
 		item.image = [NSImage imageWithSystemSymbolName:@"square.and.pencil" accessibilityDescription:@"New Post"];
 		item.target = self;
-		item.action = @selector(newPost:);
+		item.action = @selector(openPostWindow:);
 		return item;
 	}
 
