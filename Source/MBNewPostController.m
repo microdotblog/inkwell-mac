@@ -211,6 +211,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
+- (void) applyMarkdownTextToEditorWithCompletion:(void (^)(void))completionHandler;
 - (void) resetPostingState;
 - (void) resetPreviewState;
 - (void) resetCharacterCount;
@@ -282,8 +283,11 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	[self loadEditorHTMLIfNeeded];
 	[self showWindow:nil];
 	[self.window makeKeyAndOrderFront:nil];
-	[self.window makeFirstResponder:self.webView];
-	[self applyMarkdownTextToEditor];
+	if (self.didLoadEditorHTML) {
+		self.webView.hidden = NO;
+		[self.window makeFirstResponder:self.webView];
+		[self applyMarkdownTextToEditor];
+	}
 }
 
 - (IBAction) post:(id) sender
@@ -421,6 +425,9 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	WKWebView* web_view = [[WKWebView alloc] initWithFrame:NSZeroRect configuration:configuration];
 	web_view.translatesAutoresizingMaskIntoConstraints = NO;
 	web_view.navigationDelegate = self;
+	web_view.hidden = YES;
+	NSColor* web_view_background_color = [self postBackgroundColorForPreviewEnabled:NO];
+	web_view.underPageBackgroundColor = web_view_background_color;
 
 	MBNewPostEditorBackgroundView* bottom_view = [[MBNewPostEditorBackgroundView alloc] initWithFrame:NSZeroRect];
 	bottom_view.translatesAutoresizingMaskIntoConstraints = NO;
@@ -555,12 +562,21 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 
 	NSURL* directory_url = [editor_url URLByDeletingLastPathComponent];
+	self.webView.hidden = YES;
 	[self.webView loadFileURL:editor_url allowingReadAccessToURL:directory_url];
 }
 
 - (void) applyMarkdownTextToEditor
 {
+	[self applyMarkdownTextToEditorWithCompletion:nil];
+}
+
+- (void) applyMarkdownTextToEditorWithCompletion:(void (^)(void))completionHandler
+{
 	if (!self.didLoadEditorHTML) {
+		if (completionHandler != nil) {
+			completionHandler();
+		}
 		return;
 	}
 
@@ -569,16 +585,28 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	NSError* error = nil;
 	NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&error];
 	if (json_data == nil || error != nil) {
+		if (completionHandler != nil) {
+			completionHandler();
+		}
 		return;
 	}
 
 	NSString* json_string = [[NSString alloc] initWithData:json_data encoding:NSUTF8StringEncoding];
 	if (json_string.length == 0) {
+		if (completionHandler != nil) {
+			completionHandler();
+		}
 		return;
 	}
 
 	NSString* script = [NSString stringWithFormat:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.setText(%@.text);", json_string];
-	[self.webView evaluateJavaScript:script completionHandler:nil];
+	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError* _Nullable error) {
+		#pragma unused(result)
+		#pragma unused(error)
+		if (completionHandler != nil) {
+			completionHandler();
+		}
+	}];
 }
 
 - (void) resetPostingState
@@ -602,8 +630,15 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	self.editorBackgroundView.usesPreviewBackground = is_enabled;
 	self.bottomBackgroundView.usesPreviewBackground = is_enabled;
-	NSString* color_name = is_enabled ? InkwellNewPostPreviewBackgroundColorName : InkwellNewPostEditorBackgroundColorName;
-	self.window.backgroundColor = [NSColor colorNamed:color_name] ?: NSColor.windowBackgroundColor;
+	NSColor* background_color = [self postBackgroundColorForPreviewEnabled:is_enabled];
+	self.window.backgroundColor = background_color;
+	self.webView.underPageBackgroundColor = background_color;
+}
+
+- (NSColor*) postBackgroundColorForPreviewEnabled:(BOOL)previewEnabled
+{
+	NSString* color_name = previewEnabled ? InkwellNewPostPreviewBackgroundColorName : InkwellNewPostEditorBackgroundColorName;
+	return [NSColor colorNamed:color_name] ?: NSColor.windowBackgroundColor;
 }
 
 - (void) resetCharacterCount
@@ -977,7 +1012,24 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	#pragma unused(navigation)
 
 	self.didLoadEditorHTML = YES;
-	[self applyMarkdownTextToEditor];
+	__weak typeof(self) weak_self = self;
+	[self applyMarkdownTextToEditorWithCompletion:^{
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		// slight delay for good measure
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			MBNewPostController* delayed_strong_self = weak_self;
+			if (delayed_strong_self == nil) {
+				return;
+			}
+
+			delayed_strong_self.webView.hidden = NO;
+			[delayed_strong_self.window makeFirstResponder:delayed_strong_self.webView];
+		});
+	}];
 }
 
 - (void) userContentController:(WKUserContentController *)user_content_controller didReceiveScriptMessage:(WKScriptMessage *)script_message
