@@ -1367,12 +1367,6 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		if ([host isEqualToString:destination_host]) {
 			return YES;
 		}
-		if ([host rangeOfString:destination_host].location != NSNotFound) {
-			return YES;
-		}
-		if ([destination_host rangeOfString:host].location != NSNotFound) {
-			return YES;
-		}
 	}
 
 	return NO;
