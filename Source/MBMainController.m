@@ -111,7 +111,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSDictionary * _Nullable) destinationWithUID:(NSString *)destinationUID destinations:(NSArray *)destinations;
 - (MBSubscription * _Nullable) subscriptionMatchingDestinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalizeHosts;
 - (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalizeHosts;
-- (NSString *) currentUsernameMenuTitle;
+- (NSString *) currentUserPostsMenuTitleForSubscription:(MBSubscription * _Nullable)subscription;
 - (NSString *) hostFromURLString:(NSString *)string;
 - (NSString *) normalizedHostFromURLString:(NSString *)string;
 - (NSString *) normalizedHostString:(NSString *)hostString;
@@ -1141,8 +1141,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return [self.sidebarController canShowAllPostsForSelectedSite];
 	}
 	if (menu_item.action == @selector(showCurrentUserPosts:)) {
-		menu_item.title = [self currentUsernameMenuTitle];
-		return [self canShowCurrentUserPosts];
+		MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
+		menu_item.title = [self currentUserPostsMenuTitleForSubscription:current_user_blog_subscription];
+		return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
 	}
 	if (menu_item.action == @selector(highlightSelectedItem:)) {
 		return [self canHighlightSelectedItem];
@@ -1184,7 +1185,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) canShowCurrentUserPosts
 {
-	return [self.client hasCachedMicropubDestinations];
+	MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
+	return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
 }
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
@@ -1352,19 +1354,21 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	return NO;
 }
 
-- (NSString *) currentUsernameMenuTitle
+- (NSString *) currentUserPostsMenuTitleForSubscription:(MBSubscription *)subscription
 {
-	NSString* username = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellUsernameDefaultsKey] ?: @"";
-	username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (username.length == 0) {
+	if (subscription == nil) {
 		return @"Posts";
 	}
 
-	if (![username hasPrefix:@"@"]) {
-		username = [@"@" stringByAppendingString:username];
+	NSString* hostname = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
+	if (hostname.length == 0) {
+		hostname = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
+	}
+	if (hostname.length == 0) {
+		return @"Posts";
 	}
 
-	return [NSString stringWithFormat:@"Posts: %@", username];
+	return [NSString stringWithFormat:@"Posts: %@", hostname];
 }
 
 - (NSString *) hostFromURLString:(NSString *)string
