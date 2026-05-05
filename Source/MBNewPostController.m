@@ -549,11 +549,22 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	blog_hostname_chevron_view.hidden = YES;
 
 	__weak NSImageView* weak_chevron_view = blog_hostname_chevron_view;
+	__weak typeof(self) weak_self = self;
 	hostname_hover_view.hoverChangedHandler = ^(BOOL isHovering) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self != nil && [strong_self isEditingExistingPost]) {
+			weak_chevron_view.hidden = YES;
+			return;
+		}
+
 		weak_chevron_view.hidden = !isHovering;
 	};
-	__weak typeof(self) weak_self = self;
 	hostname_hover_view.clickHandler = ^(NSView* view, NSEvent* event) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self != nil && [strong_self isEditingExistingPost]) {
+			return;
+		}
+
 		[weak_self showDestinationsMenuFromView:view event:event];
 	};
 
@@ -1300,6 +1311,10 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
 {
+	if ([self isEditingExistingPost]) {
+		return;
+	}
+
 	if (self.destinationsProvider != nil) {
 		NSArray* cached_destinations = self.destinationsProvider();
 		self.destinations = cached_destinations ?: @[];
