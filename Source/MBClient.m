@@ -1176,6 +1176,22 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	return [self normalizedMicropubDestinationsFromDestinations:(NSArray*) payload];
 }
 
+- (BOOL) hasCachedMicropubDestinations
+{
+	NSURL* cache_url = [self micropubDestinationsCacheURL];
+	if (cache_url == nil) {
+		return NO;
+	}
+
+	NSData* data = [NSData dataWithContentsOfURL:cache_url options:0 error:nil];
+	return (data.length > 0);
+}
+
+- (NSArray *) cachedFeedSubscriptions
+{
+	return [self loadCachedFeedSubscriptionsDeletingIfExpired];
+}
+
 - (NSDictionary<NSString*, NSString*>*) normalizedIconURLByHostFromMap:(NSDictionary*) icons_by_host
 {
 	if (icons_by_host.count == 0) {

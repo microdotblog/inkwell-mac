@@ -17,6 +17,7 @@
 #import "MBNewPostController.h"
 #import "MBPreferencesController.h"
 #import "MBSidebarController.h"
+#import "MBSubscription.h"
 
 static NSToolbarItemIdentifier const InkwellToolbarFilterItemIdentifier = @"InkwellToolbarFilter";
 static NSToolbarItemIdentifier const InkwellToolbarSearchItemIdentifier = @"InkwellToolbarSearch";
@@ -102,8 +103,18 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canPrintCurrentContent;
 - (BOOL) canHighlightSelectedItem;
 - (BOOL) canReplyToConversation;
+- (BOOL) canShowCurrentUserPosts;
 - (NSArray*) sharingItemsForSelectedItem;
 - (NSRect) sharingPickerRectInView:(NSView*) view;
+- (MBSubscription * _Nullable) currentUserBlogSubscription;
+- (NSDictionary * _Nullable) destinationWithUID:(NSString *)destinationUID destinations:(NSArray *)destinations;
+- (MBSubscription * _Nullable) subscriptionMatchingDestinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalizeHosts;
+- (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalizeHosts;
+- (NSString *) currentUsernameMenuTitle;
+- (NSString *) hostFromURLString:(NSString *)string;
+- (NSString *) normalizedHostFromURLString:(NSString *)string;
+- (NSString *) normalizedHostString:(NSString *)hostString;
+- (BOOL) host:(NSString *)host matchesDestinationHosts:(NSArray *)destinationHosts;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload;
 - (NSString*) markdownTextForNewPostWithItem:(MBEntry*) item selectionPayload:(NSDictionary* _Nullable) payload includeLinkWithoutSelection:(BOOL) include_link_without_selection;
 - (NSString*) blockquoteMarkdownFromText:(NSString*) text_string;
@@ -534,6 +545,33 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 	self.sidebarController.searchQuery = @"";
 	[self.sidebarController showAllPostsForSelectedSite];
+	[self updateFilterSegmentedControlEnabledState];
+}
+
+- (IBAction) showCurrentUserPosts:(id)sender
+{
+	#pragma unused(sender)
+
+	MBSubscription* subscription = [self currentUserBlogSubscription];
+	if (subscription == nil || subscription.feedID <= 0) {
+		return;
+	}
+
+	if (self.toolbarSearchField != nil && self.toolbarSearchField.stringValue.length > 0) {
+		self.toolbarSearchField.stringValue = @"";
+	}
+
+	NSString* site_name = [subscription.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* feed_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
+	if (feed_host.length == 0) {
+		feed_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
+	}
+	if (site_name.length == 0) {
+		site_name = feed_host;
+	}
+
+	self.sidebarController.searchQuery = @"";
+	[self.sidebarController showAllPostsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
 	[self updateFilterSegmentedControlEnabledState];
 }
 
@@ -1070,6 +1108,10 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	if (menu_item.action == @selector(showAllPosts:)) {
 		return [self.sidebarController canShowAllPostsForSelectedSite];
 	}
+	if (menu_item.action == @selector(showCurrentUserPosts:)) {
+		menu_item.title = [self currentUsernameMenuTitle];
+		return [self canShowCurrentUserPosts];
+	}
 	if (menu_item.action == @selector(highlightSelectedItem:)) {
 		return [self canHighlightSelectedItem];
 	}
@@ -1108,6 +1150,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	return ([self.sidebarController selectedItem] != nil && self.detailController != nil);
 }
 
+- (BOOL) canShowCurrentUserPosts
+{
+	return [self.client hasCachedMicropubDestinations];
+}
+
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
 {
 	if (toolbar_item.action == @selector(newPost:)) {
@@ -1136,6 +1183,199 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canReplyToConversation
 {
 	return (self.conversationController.window.isVisible && [self.conversationController canReplyToConversation]);
+}
+
+- (MBSubscription *) currentUserBlogSubscription
+{
+	NSArray* destinations = [self.client cachedMicropubDestinations];
+	NSArray* subscriptions = [self.client cachedFeedSubscriptions];
+	if (subscriptions.count == 0) {
+		return nil;
+	}
+
+	NSString* current_destination_uid = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
+	current_destination_uid = [current_destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (current_destination_uid.length > 0) {
+		NSDictionary* current_destination = [self destinationWithUID:current_destination_uid destinations:destinations];
+		NSString* current_destination_name = [self stringValueFromObjectOrNumber:current_destination[@"name"]];
+		MBSubscription* raw_subscription = [self subscriptionMatchingDestinationUID:current_destination_uid destinationName:current_destination_name subscriptions:subscriptions normalizeHosts:NO];
+		if (raw_subscription != nil) {
+			return raw_subscription;
+		}
+
+		MBSubscription* normalized_subscription = [self subscriptionMatchingDestinationUID:current_destination_uid destinationName:current_destination_name subscriptions:subscriptions normalizeHosts:YES];
+		if (normalized_subscription != nil) {
+			return normalized_subscription;
+		}
+	}
+
+	if (destinations.count == 0) {
+		return nil;
+	}
+
+	for (id object in destinations) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
+
+		MBSubscription* raw_subscription = [self subscriptionMatchingDestinationUID:destination_uid destinationName:destination_name subscriptions:subscriptions normalizeHosts:NO];
+		if (raw_subscription != nil) {
+			return raw_subscription;
+		}
+
+		MBSubscription* normalized_subscription = [self subscriptionMatchingDestinationUID:destination_uid destinationName:destination_name subscriptions:subscriptions normalizeHosts:YES];
+		if (normalized_subscription != nil) {
+			return normalized_subscription;
+		}
+	}
+
+	return nil;
+}
+
+- (NSDictionary *) destinationWithUID:(NSString *)destinationUID destinations:(NSArray *)destinations
+{
+	NSString* normalized_uid = [destinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_uid.length == 0) {
+		return nil;
+	}
+
+	for (id object in destinations ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([destination_uid isEqualToString:normalized_uid]) {
+			return destination;
+		}
+	}
+
+	return nil;
+}
+
+- (MBSubscription *) subscriptionMatchingDestinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalizeHosts
+{
+	for (MBSubscription* subscription in subscriptions) {
+		if (subscription.feedID <= 0) {
+			continue;
+		}
+		if ([self destinationUID:destinationUID destinationName:destinationName matchesSubscription:subscription normalizeHosts:normalizeHosts]) {
+			return subscription;
+		}
+	}
+
+	return nil;
+}
+
+- (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalizeHosts
+{
+	NSArray* destination_hosts = nil;
+	if (normalizeHosts) {
+		destination_hosts = @[
+			[self normalizedHostFromURLString:destinationUID ?: @""],
+			[self normalizedHostFromURLString:destinationName ?: @""]
+		];
+	}
+	else {
+		destination_hosts = @[
+			[self hostFromURLString:destinationUID ?: @""],
+			[self hostFromURLString:destinationName ?: @""]
+		];
+	}
+
+	NSArray* url_strings = @[ subscription.siteURL ?: @"", subscription.feedURL ?: @"" ];
+	for (NSString* url_string in url_strings) {
+		NSString* subscription_host = normalizeHosts ? [self normalizedHostFromURLString:url_string] : [self hostFromURLString:url_string];
+		if ([self host:subscription_host matchesDestinationHosts:destination_hosts]) {
+			return YES;
+		}
+	}
+
+	return NO;
+}
+
+- (NSString *) currentUsernameMenuTitle
+{
+	NSString* username = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellUsernameDefaultsKey] ?: @"";
+	username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (username.length == 0) {
+		return @"Show Posts";
+	}
+
+	if (![username hasPrefix:@"@"]) {
+		username = [@"@" stringByAppendingString:username];
+	}
+
+	return [NSString stringWithFormat:@"Show Posts: %@", username];
+}
+
+- (NSString *) hostFromURLString:(NSString *)string
+{
+	if (string.length == 0) {
+		return @"";
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:string];
+	NSString* host_value = components.host ?: @"";
+	if (host_value.length == 0) {
+		NSString* possible_url_string = [NSString stringWithFormat:@"https://%@", string];
+		NSURLComponents* host_only_components = [NSURLComponents componentsWithString:possible_url_string];
+		host_value = host_only_components.host ?: @"";
+	}
+
+	return [[host_value lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
+- (NSString *) normalizedHostFromURLString:(NSString *)string
+{
+	return [self normalizedHostString:[self hostFromURLString:string]];
+}
+
+- (NSString *) normalizedHostString:(NSString *)hostString
+{
+	if (hostString.length == 0) {
+		return @"";
+	}
+
+	NSString* normalized_host = [[hostString lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if ([normalized_host hasPrefix:@"www."]) {
+		normalized_host = [normalized_host substringFromIndex:4];
+	}
+	if ([normalized_host hasSuffix:@"."]) {
+		normalized_host = [normalized_host substringToIndex:(normalized_host.length - 1)];
+	}
+
+	return normalized_host;
+}
+
+- (BOOL) host:(NSString *)host matchesDestinationHosts:(NSArray *)destinationHosts
+{
+	if (host.length == 0) {
+		return NO;
+	}
+
+	for (NSString* destination_host in destinationHosts) {
+		if (destination_host.length == 0) {
+			continue;
+		}
+		if ([host isEqualToString:destination_host]) {
+			return YES;
+		}
+		if ([host rangeOfString:destination_host].location != NSNotFound) {
+			return YES;
+		}
+		if ([destination_host rangeOfString:host].location != NSNotFound) {
+			return YES;
+		}
+	}
+
+	return NO;
 }
 
 - (NSArray*) sharingItemsForSelectedItem

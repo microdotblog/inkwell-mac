@@ -670,6 +670,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self showAllPostsForFeedID:selected_item.feedID siteName:[self siteNameForEntry:selected_item] feedHost:[self feedHostForEntry:selected_item]];
+}
+
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
+{
+	if (self.client == nil || self.token.length == 0 || feedID <= 0) {
+		return;
+	}
+
 	[self clearRememberedDeselectedRow];
 
 	BOOL was_showing_special_mode = [self isShowingSpecialMode];
@@ -680,10 +689,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.contentMode = MBSidebarContentModeAllPosts;
 	}
 
-	self.allPostsFeedID = selected_item.feedID;
-	self.allPostsSiteName = [self siteNameForEntry:selected_item];
-	self.allPostsFeedHost = [self feedHostForEntry:selected_item];
-	self.allPostsItems = [self cachedItemsForFeedID:selected_item.feedID];
+	self.allPostsFeedID = feedID;
+	self.allPostsSiteName = siteName ?: @"";
+	self.allPostsFeedHost = feedHost ?: @"";
+	self.allPostsItems = [self cachedItemsForFeedID:feedID];
 	[self applyFiltersAndReload];
 	[self ensureSpecialModeSelectionIfNeeded];
 	[self fetchAllPosts];

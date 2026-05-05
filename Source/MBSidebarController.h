@@ -43,6 +43,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) showMentions;
 - (void) showBookmarks;
 - (void) showAllPostsForSelectedSite;
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
 - (void) clearSpecialMode;
 - (void) focusAndSelectFirstItem;
 - (BOOL) focusSidebar;
