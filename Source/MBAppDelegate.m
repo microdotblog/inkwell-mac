@@ -120,13 +120,17 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	self.welcomeController = nil;
 }
 
-- (void) showMainWindow
+- (void) setupMainControllerIfNeeded
 {
 	if (self.mainController == nil) {
 		NSString* token_value = [self.sessionController token] ?: @"";
 		self.mainController = [[MBMainController alloc] initWithWindow:nil client:self.client token:token_value];
 	}
+}
 
+- (void) showMainWindow
+{
+	[self setupMainControllerIfNeeded];
 	[self.mainController showWindow:nil];
 }
 
@@ -156,7 +160,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 - (IBAction) openPostWindow:(id) sender
 {
-	[self showMainWindow];
+	[self setupMainControllerIfNeeded];
 	[self.mainController openPostWindow:sender];
 }
 
