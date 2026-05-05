@@ -1633,4 +1633,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	return nil;
 }
 
+- (NSArray<NSToolbarItemIdentifier> *) toolbarSelectableItemIdentifiers:(NSToolbar *)toolbar
+{
+	return @[ InkwellNewPostToolbarProgressIdentifier ];
+}
+
 @end
