@@ -240,6 +240,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) finishPostingWithError:(NSError * _Nullable)error;
 - (void) postContent:(NSString *)content;
 - (void) postContent:(NSString *)content asDraft:(BOOL)is_draft;
+- (void) updatePostContent:(NSString *)content asDraft:(BOOL)is_draft postURL:(NSString *)postURL;
 - (void) saveDraftAndClose;
 - (void) fetchEditingPostSource;
 - (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError * _Nullable)error;
@@ -882,16 +883,17 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		return;
 	}
 
+	NSString* editing_post_url = [self.editingPostURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (editing_post_url.length > 0) {
+		[self updatePostContent:content asDraft:is_draft postURL:editing_post_url];
+		return;
+	}
+
 	NSMutableArray* body_parts = [NSMutableArray array];
 	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:(content ?: @"")]]];
 	[body_parts addObject:[NSString stringWithFormat:@"mp-destination=%@", [self urlEncodedString:(self.destinationUID ?: @"")]]];
 	if (is_draft) {
 		[body_parts addObject:@"post-status=draft"];
-	}
-	NSString* editing_post_url = [self.editingPostURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (editing_post_url.length > 0) {
-		[body_parts addObject:[NSString stringWithFormat:@"url=%@", [self urlEncodedString:editing_post_url]]];
-		[body_parts addObject:@"action=update"];
 	}
 	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (title.length > 0) {
@@ -912,6 +914,64 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
 			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Posting failed."];
+				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			}
+		}
+
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self finishPostingWithError:result_error];
+		});
+	}];
+	[task resume];
+}
+
+- (void) updatePostContent:(NSString *)content asDraft:(BOOL)is_draft postURL:(NSString *)postURL
+{
+	NSURL* request_url = [NSURL URLWithString:InkwellNewPostMicropubEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1010 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub endpoint URL was invalid." }];
+		[self finishPostingWithError:error];
+		return;
+	}
+
+	NSMutableDictionary* replace = [NSMutableDictionary dictionary];
+	replace[@"content"] = @[ content ?: @"" ];
+
+	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* initial_title = self.initialTitleText ?: @"";
+	if (title.length > 0 || initial_title.length > 0) {
+		replace[@"name"] = @[ title ];
+	}
+	if (is_draft) {
+		replace[@"post-status"] = @[ @"draft" ];
+	}
+
+	NSDictionary* payload = @{
+		@"action": @"update",
+		@"url": postURL ?: @"",
+		@"replace": replace
+	};
+	NSError* json_error = nil;
+	NSData* json_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&json_error];
+	if (json_data == nil || json_error != nil) {
+		NSError* error = json_error ?: [NSError errorWithDomain:InkwellNewPostErrorDomain code:1011 userInfo:@{ NSLocalizedDescriptionKey: @"Could not encode update request." }];
+		[self finishPostingWithError:error];
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"POST";
+	request.HTTPBody = json_data;
+	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:[NSString stringWithFormat:@"Bearer %@", self.token] forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		NSError* result_error = error;
+		if (result_error == nil) {
+			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Updating failed."];
 				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
 			}
 		}
