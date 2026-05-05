@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>New Post</title>
+	<link rel="stylesheet" href="micro_editor.css">
+	<script src="showdown.min.js"></script>
+	<script src="micro_editor.js"></script>
+</head>
+<body>
+	<div class="inkwell_editor_page">
+		<div class="editor_shell">
+			<div class="editor_stage">
+				<div contenteditable="true" class="editor" id="editor"></div>
+				<div class="editor_preview" id="editor_preview"></div>
+			</div>
+			<div class="editor_toolbar" id="editor_toolbar"></div>
+		</div>
+	</div>
+	<script>
+		const editor = MicroEditor.init({
+			textbox_id: "editor",
+			preview_id: "editor_preview",
+			toolbar_id: "editor_toolbar",
+			show_chars: false,
+			content_change_handler: function(payload) {
+				if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.newPostContentChanged) {
+					window.webkit.messageHandlers.newPostContentChanged.postMessage(payload);
+				}
+			}
+		});
+
+		window.InkwellNewPostEditor = {
+			setText: function(text) {
+				editor.setText(text || "", true);
+			},
+			markdown: function() {
+				return editor.getMarkdown();
+			},
+			html: function() {
+				return editor.getHTML();
+			},
+			togglePreview: function(html) {
+				editor.togglePreview(html || "");
+			},
+			focus: function() {
+				document.getElementById("editor").focus();
+			}
+		};
+	</script>
+</body>
+</html>

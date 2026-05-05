@@ -10,9 +10,12 @@
 #import <QuartzCore/CAMediaTimingFunction.h>
 #import "MBAvatarLoader.h"
 #import "MBClient.h"
+#import "MBConversationCellView.h"
 #import "MBEntry.h"
+#import "MBMention.h"
 #import "MBPathUtilities.h"
 #import "MBPodcastController.h"
+#import "MBReplyController.h"
 #import "MBRoundedImageView.h"
 #import "MBSidebarRecapBoxView.h"
 #import "MBSidebarCell.h"
@@ -22,6 +25,7 @@
 #import "NSStrings+Extras.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
+static NSUserInterfaceItemIdentifier const InkwellSidebarMentionCellIdentifier = @"InkwellSidebarMentionCell";
 static NSUserInterfaceItemIdentifier const InkwellSidebarRowIdentifier = @"InkwellSidebarRow";
 static CGFloat const InkwellSidebarAvatarSize = 26.0;
 static CGFloat const InkwellSidebarRecapBoxHeight = 42.0;
@@ -43,7 +47,8 @@ static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	MBSidebarContentModeFeeds = 0,
 	MBSidebarContentModeBookmarks = 1,
-	MBSidebarContentModeAllPosts = 2
+	MBSidebarContentModeMentions = 2,
+	MBSidebarContentModeAllPosts = 3
 };
 
 @interface MBSidebarController () <NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation>
@@ -62,11 +67,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (assign) BOOL keepsPausedPodcastPaneVisibleUntilSelectionChange;
 @property (copy) NSArray<MBEntry *> *allItems;
 @property (copy) NSArray<MBEntry *> *bookmarkItems;
+@property (copy) NSArray<MBEntry *> *mentionItems;
+@property (copy) NSArray* mentions;
 @property (copy) NSArray<MBEntry *> *allPostsItems;
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
 @property (strong) MBAvatarLoader* avatarLoader;
 @property (strong) NSImage *defaultAvatarImage;
 @property (strong) NSMenu* contextMenu;
+@property (strong) MBReplyController* replyController;
 @property (strong) NSBox* recapBoxView;
 @property (strong) NSButton* recapButton;
 @property (strong) NSTextField* recapCountLabel;
@@ -76,9 +84,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSLayoutConstraint* recapToTableTopConstraint;
 @property (assign) BOOL isRecapFetching;
 @property (assign) BOOL isFetchingBookmarks;
+@property (assign) BOOL isFetchingMentions;
 @property (assign) BOOL isFetchingAllPosts;
 @property (assign) NSInteger recapRequestIdentifier;
 @property (assign) NSInteger bookmarksRequestIdentifier;
+@property (assign) NSInteger mentionsRequestIdentifier;
 @property (assign) NSInteger allPostsRequestIdentifier;
 @property (weak) NSWindow* observedWindowForSelectionStyling;
 @property (strong) NSView* premiumRequiredView;
@@ -95,6 +105,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy) NSArray* fadingEntryIDs;
 @property (assign) BOOL hasFadingEntryIDsCache;
 @property (strong) MBSidebarCell* sizingCellView;
+@property (strong) MBConversationCellView* sizingMentionCellView;
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row;
 - (void) updateCachedReadState:(BOOL)is_read forEntryID:(NSInteger)entry_id;
@@ -133,10 +144,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
 - (void) fetchBookmarksIfNeeded;
 - (void) fetchBookmarks;
+- (void) fetchMentions;
 - (void) fetchAllPostsIfNeeded;
 - (void) fetchAllPosts;
 - (void) ensureSpecialModeSelectionIfNeeded;
 - (void) resetBookmarksModeState;
+- (void) resetMentionsModeState;
 - (void) resetAllPostsModeState;
 - (void) cacheRecentEntries;
 - (NSURL* _Nullable) recentEntriesCacheURL;
@@ -167,6 +180,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) shouldShowSpecialModeBanner;
 - (BOOL) isShowingAllPostsMode;
+- (MBMention* _Nullable) selectedMention;
+- (BOOL) canReplyToMention:(MBMention*) mention;
+- (NSString*) prefillTextForUsername:(NSString*) username;
+- (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text;
 - (NSString*) specialModeBannerTitle;
 - (NSString*) siteNameForEntry:(MBEntry*) entry;
 - (NSString*) feedHostForEntry:(MBEntry*) entry;
@@ -176,6 +193,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item;
 - (void) configureSidebarCellContent:(MBSidebarCell*) cell_view entry:(MBEntry*) item includeAvatar:(BOOL) includeAvatar;
 - (CGFloat) fittingHeightForSidebarCellWithEntry:(MBEntry*) item width:(CGFloat) width;
+- (CGFloat) fittingHeightForMention:(MBMention*) mention width:(CGFloat) width;
 - (NSString*) podcastArtworkURLStringForEntry:(MBEntry*) entry;
 - (void) setPodcastPaneVisible:(BOOL) is_visible;
 - (void) updatePodcastPaneForSelectedItem:(MBEntry* _Nullable) selected_item;
@@ -191,6 +209,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) reloadRowsForAvatarURLString:(NSString*) url_string;
 - (void) reloadRowsForIconURLString:(NSString*) url_string;
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
+- (NSArray*) mentionsFromItems:(NSArray*) items;
+- (NSArray<MBEntry *> *) sidebarItemsForMentions:(NSArray*) mentions;
 - (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (BOOL) shouldPreserveExistingSidebarItemDuringRefresh:(MBEntry*) item oldestFetchedDate:(NSDate* _Nullable) oldest_fetched_date;
@@ -198,6 +218,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date;
 - (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date;
 - (NSString*) bookmarksDisplayDateString:(NSDate* _Nullable) date;
+- (NSString*) mentionsDisplayDateString:(NSDate* _Nullable) date;
+- (NSDictionary*) dictionaryValueFromObject:(id) object;
+- (NSString*) stringValueFromObjectOrNumber:(id) object;
+- (NSString*) plainTextFromHTMLString:(NSString*) html_string;
+- (NSString*) normalizedTextString:(NSString*) text_string;
+- (NSImage*) avatarImageForMention:(MBMention*) mention;
 
 @end
 
@@ -221,6 +247,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.avatarLoader = [MBAvatarLoader sharedLoader];
 		self.items = @[];
 		self.contentMode = MBSidebarContentModeFeeds;
+		self.mentionItems = @[];
+		self.mentions = @[];
 		self.allPostsSiteName = @"";
 		self.allPostsFeedHost = @"";
 		self.pendingReadStateOverridesByEntryID = [NSMutableDictionary dictionary];
@@ -569,6 +597,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		[self fetchBookmarks];
 		return;
 	}
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		[self fetchMentions];
+		return;
+	}
 	if (self.contentMode == MBSidebarContentModeAllPosts) {
 		[self fetchAllPosts];
 		return;
@@ -577,6 +609,30 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.hasLoadedRemoteItems = NO;
 	[self updateRecapUI];
 	[self fetchEntriesIfNeeded];
+}
+
+- (void) showMentions
+{
+	if (self.client == nil || self.token.length == 0) {
+		return;
+	}
+
+	[self clearRememberedDeselectedRow];
+
+	BOOL was_showing_special_mode = [self isShowingSpecialMode];
+	if (self.contentMode != MBSidebarContentModeMentions) {
+		[self clearPreservedHiddenReadState];
+		[self resetBookmarksModeState];
+		[self resetAllPostsModeState];
+		self.contentMode = MBSidebarContentModeMentions;
+	}
+
+	[self applyFiltersAndReload];
+	[self ensureSpecialModeSelectionIfNeeded];
+	[self fetchMentions];
+	if (!was_showing_special_mode && self.specialModeChangedHandler != nil) {
+		self.specialModeChangedHandler(YES);
+	}
 }
 
 - (void) showBookmarks
@@ -590,6 +646,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	BOOL was_showing_special_mode = [self isShowingSpecialMode];
 	if (self.contentMode != MBSidebarContentModeBookmarks) {
 		[self clearPreservedHiddenReadState];
+		[self resetMentionsModeState];
 		[self resetAllPostsModeState];
 		self.contentMode = MBSidebarContentModeBookmarks;
 	}
@@ -613,19 +670,29 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[self showAllPostsForFeedID:selected_item.feedID siteName:[self siteNameForEntry:selected_item] feedHost:[self feedHostForEntry:selected_item]];
+}
+
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
+{
+	if (self.client == nil || self.token.length == 0 || feedID <= 0) {
+		return;
+	}
+
 	[self clearRememberedDeselectedRow];
 
 	BOOL was_showing_special_mode = [self isShowingSpecialMode];
 	if (self.contentMode != MBSidebarContentModeAllPosts) {
 		[self clearPreservedHiddenReadState];
 		[self resetBookmarksModeState];
+		[self resetMentionsModeState];
 		self.contentMode = MBSidebarContentModeAllPosts;
 	}
 
-	self.allPostsFeedID = selected_item.feedID;
-	self.allPostsSiteName = [self siteNameForEntry:selected_item];
-	self.allPostsFeedHost = [self feedHostForEntry:selected_item];
-	self.allPostsItems = [self cachedItemsForFeedID:selected_item.feedID];
+	self.allPostsFeedID = feedID;
+	self.allPostsSiteName = siteName ?: @"";
+	self.allPostsFeedHost = feedHost ?: @"";
+	self.allPostsItems = [self cachedItemsForFeedID:feedID];
 	[self applyFiltersAndReload];
 	[self ensureSpecialModeSelectionIfNeeded];
 	[self fetchAllPosts];
@@ -645,6 +712,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSInteger preferred_entry_id = [self savedSelectedEntryID];
 	[self clearPreservedHiddenReadState];
 	[self resetBookmarksModeState];
+	[self resetMentionsModeState];
 	[self resetAllPostsModeState];
 	self.contentMode = MBSidebarContentModeFeeds;
 	[self applyFiltersAndReloadPreservingSelectionEntryID:preferred_entry_id];
@@ -709,8 +777,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (BOOL) canToggleSelectedItemReadState
 {
+	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
+		return NO;
+	}
+
 	MBEntry* selected_item = [self selectedItem];
-	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+	return (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry && self.client != nil && self.token.length > 0);
 }
 
 - (BOOL) canMarkAllItemsAsRead
@@ -730,8 +802,17 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (BOOL) canToggleSelectedItemBookmarkedState
 {
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		return NO;
+	}
+
 	MBEntry* selected_item = [self selectedItem];
 	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+}
+
+- (BOOL) canReplyToSelectedMention
+{
+	return [self canReplyToMention:[self selectedMention]];
 }
 
 - (NSString*) readToggleMenuTitle
@@ -813,6 +894,21 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	[self applyFiltersAndReload];
+}
+
+- (void) replyToSelectedMention
+{
+	MBMention* mention = [self selectedMention];
+	if (![self canReplyToMention:mention]) {
+		return;
+	}
+
+	if (self.replyController != nil) {
+		return;
+	}
+
+	NSString* prefill_text = [self prefillTextForUsername:mention.username];
+	[self presentReplyControllerWithPostID:mention.postID prefillText:prefill_text];
 }
 
 - (MBEntry* _Nullable) selectedItem
@@ -1117,6 +1213,38 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}];
 }
 
+- (void) fetchMentions
+{
+	if (self.client == nil || self.token.length == 0 || self.isFetchingMentions) {
+		return;
+	}
+
+	self.isFetchingMentions = YES;
+	self.mentionsRequestIdentifier += 1;
+	NSInteger request_identifier = self.mentionsRequestIdentifier;
+	__weak typeof(self) weak_self = self;
+	[self.client fetchRecentMentionsWithToken:self.token completion:^(NSArray* _Nullable items, NSError* _Nullable error) {
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (request_identifier != strong_self.mentionsRequestIdentifier) {
+			return;
+		}
+
+		strong_self.isFetchingMentions = NO;
+		if (error != nil || strong_self.contentMode != MBSidebarContentModeMentions) {
+			return;
+		}
+
+		strong_self.mentions = [strong_self mentionsFromItems:items ?: @[]];
+		strong_self.mentionItems = [strong_self sidebarItemsForMentions:strong_self.mentions];
+		[strong_self applyFiltersAndReload];
+		[strong_self ensureSpecialModeSelectionIfNeeded];
+	}];
+}
+
 - (void) fetchAllPostsIfNeeded
 {
 	if (self.allPostsItems.count > 0 || self.isFetchingAllPosts) {
@@ -1164,7 +1292,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) ensureSpecialModeSelectionIfNeeded
 {
-	if (![self isShowingSpecialMode] || self.tableView == nil) {
+	if (self.contentMode != MBSidebarContentModeAllPosts || self.tableView == nil) {
 		return;
 	}
 
@@ -1183,6 +1311,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	self.isFetchingBookmarks = NO;
 	self.bookmarksRequestIdentifier += 1;
+}
+
+- (void) resetMentionsModeState
+{
+	self.isFetchingMentions = NO;
+	self.mentionsRequestIdentifier += 1;
 }
 
 - (void) resetAllPostsModeState
@@ -1656,6 +1790,22 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
 }
 
+- (NSImage*) avatarImageForMention:(MBMention*) mention
+{
+	NSString* avatar_url = [mention.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (avatar_url.length == 0) {
+		return [self fallbackAvatarImage];
+	}
+
+	NSImage* cached_image = [self.avatarLoader cachedImageForURLString:avatar_url];
+	if (cached_image != nil) {
+		return cached_image;
+	}
+
+	[self.avatarLoader loadImageForURLString:avatar_url];
+	return [self fallbackAvatarImage];
+}
+
 - (NSImage *) fallbackAvatarImage
 {
 	if (self.defaultAvatarImage != nil) {
@@ -1758,6 +1908,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		filtered_items = [self.bookmarkItems copy];
 	}
+	else if (self.contentMode == MBSidebarContentModeMentions) {
+		filtered_items = [self.mentionItems copy];
+	}
 	else if (self.contentMode == MBSidebarContentModeAllPosts) {
 		filtered_items = [self.allPostsItems copy];
 	}
@@ -1767,7 +1920,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	else {
 		filtered_items = [self filteredItemsForDateFilter:self.dateFilter];
 	}
-	NSArray* sorted_items = [self sortedItems:(filtered_items ?: @[])];
+	NSArray* sorted_items = (self.contentMode == MBSidebarContentModeMentions) ? (filtered_items ?: @[]) : [self sortedItems:(filtered_items ?: @[])];
 	if ([self isShowingSpecialMode]) {
 		self.items = [sorted_items copy] ?: @[];
 	}
@@ -1794,13 +1947,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSInteger) preferredSelectionEntryIDForReload
 {
+	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
+		return 0;
+	}
+
 	MBEntry* selected_item = [self selectedItem];
 	if (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry) {
 		return selected_item.entryID;
-	}
-
-	if (self.contentMode == MBSidebarContentModeBookmarks) {
-		return 0;
 	}
 
 	return [self savedSelectedEntryID];
@@ -1942,7 +2095,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	row_view.customSelectionBackgroundColor = nil;
 	MBEntry* item = self.items[(NSUInteger) row];
-	if (self.contentMode == MBSidebarContentModeBookmarks) {
+	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
 		return;
@@ -2205,10 +2358,74 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return (self.contentMode == MBSidebarContentModeAllPosts);
 }
 
+- (MBMention* _Nullable) selectedMention
+{
+	if (self.contentMode != MBSidebarContentModeMentions) {
+		return nil;
+	}
+
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.mentions.count) {
+		return nil;
+	}
+
+	id object = self.mentions[(NSUInteger) selected_row];
+	if (![object isKindOfClass:[MBMention class]]) {
+		return nil;
+	}
+
+	return (MBMention*) object;
+}
+
+- (BOOL) canReplyToMention:(MBMention*) mention
+{
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return NO;
+	}
+
+	NSString* post_id = [mention.postID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* username = [mention.username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (self.client != nil && self.token.length > 0 && post_id.length > 0 && username.length > 0);
+}
+
+- (NSString*) prefillTextForUsername:(NSString*) username
+{
+	NSString* normalized_username = [username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_username.length == 0) {
+		return @"";
+	}
+
+	return [NSString stringWithFormat:@"@%@ ", normalized_username];
+}
+
+- (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text
+{
+	if (self.view.window == nil || self.replyController != nil) {
+		return;
+	}
+
+	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
+	__weak typeof(self) weak_self = self;
+	reply_controller.didCloseHandler = ^{
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		strong_self.replyController = nil;
+	};
+	self.replyController = reply_controller;
+	[self.replyController showForWindow:self.view.window postID:post_id prefillText:prefill_text];
+}
+
 - (NSString*) specialModeBannerTitle
 {
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		return @"Showing recent bookmarks";
+	}
+
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		return @"Showing mentions";
 	}
 
 	NSString* site_name = [self.allPostsSiteName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
@@ -2739,6 +2956,81 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [sidebar_items copy];
 }
 
+- (NSArray*) mentionsFromItems:(NSArray*) items
+{
+	NSMutableArray* mentions = [NSMutableArray array];
+	for (id object in items ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* item = (NSDictionary*) object;
+		NSDictionary* author = [self dictionaryValueFromObject:item[@"author"]];
+		NSDictionary* microblog = [self dictionaryValueFromObject:author[@"_microblog"]];
+		if (microblog.count == 0) {
+			microblog = [self dictionaryValueFromObject:item[@"_microblog"]];
+		}
+
+		MBMention* mention = [[MBMention alloc] init];
+		mention.avatarURL = [self stringValueFromObject:author[@"avatar"]];
+		mention.fullName = [self stringValueFromObject:author[@"name"]];
+		mention.username = [self stringValueFromObject:microblog[@"username"]];
+		mention.postID = [self stringValueFromObjectOrNumber:item[@"id"]];
+		mention.url = [self stringValueFromObject:item[@"url"]];
+
+		NSString* content_html = [self stringValueFromObject:item[@"content_html"]];
+		NSString* content_text = [self stringValueFromObject:item[@"content_text"]];
+		NSString* text_value = [self plainTextFromHTMLString:content_html];
+		if (text_value.length == 0) {
+			text_value = [self normalizedTextString:content_text];
+		}
+		mention.text = text_value;
+		mention.contentHTML = content_html;
+		mention.date = [self dateValueFromEntry:item];
+
+		[mentions addObject:mention];
+	}
+
+	return [mentions copy];
+}
+
+- (NSArray<MBEntry *> *) sidebarItemsForMentions:(NSArray*) mentions
+{
+	NSMutableArray<MBEntry *> *sidebar_items = [NSMutableArray array];
+	for (id object in mentions ?: @[]) {
+		if (![object isKindOfClass:[MBMention class]]) {
+			continue;
+		}
+
+		MBMention* mention = (MBMention*) object;
+		NSString* title_value = [mention.fullName stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (title_value.length == 0 && mention.username.length > 0) {
+			title_value = [NSString stringWithFormat:@"@%@", mention.username];
+		}
+
+		MBEntry* sidebar_entry = [[MBEntry alloc] init];
+		sidebar_entry.title = title_value;
+		sidebar_entry.url = mention.url ?: @"";
+		sidebar_entry.subscriptionTitle = @"";
+		sidebar_entry.summary = mention.text ?: @"";
+		sidebar_entry.text = (mention.contentHTML.length > 0) ? mention.contentHTML : @"";
+		sidebar_entry.source = @"";
+		sidebar_entry.author = mention.username ?: @"";
+		sidebar_entry.avatarURL = mention.avatarURL ?: @"";
+		sidebar_entry.entryID = [mention.postID integerValue];
+		sidebar_entry.feedID = 0;
+		sidebar_entry.feedHost = [self normalizedHostFromURLString:mention.url ?: @""];
+		sidebar_entry.date = mention.date;
+		sidebar_entry.isRead = YES;
+		sidebar_entry.isBookmarked = NO;
+		sidebar_entry.isBookmarkEntry = YES;
+
+		[sidebar_items addObject:sidebar_entry];
+	}
+
+	return [sidebar_items copy];
+}
+
 - (NSString *) stringValueFromObject:(id)object
 {
 	if ([object isKindOfClass:[NSString class]]) {
@@ -2746,6 +3038,28 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return @"";
+}
+
+- (NSString*) stringValueFromObjectOrNumber:(id) object
+{
+	if ([object isKindOfClass:[NSString class]]) {
+		return (NSString*) object;
+	}
+
+	if ([object isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber*) object stringValue] ?: @"";
+	}
+
+	return @"";
+}
+
+- (NSDictionary*) dictionaryValueFromObject:(id) object
+{
+	if ([object isKindOfClass:[NSDictionary class]]) {
+		return (NSDictionary*) object;
+	}
+
+	return @{};
 }
 
 - (NSInteger) integerValueFromObject:(id)object
@@ -2989,7 +3303,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];
 		menu_item.title = [self readToggleMenuTitleForSelectedItem:selected_item];
-		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+		return [self canToggleSelectedItemReadState];
 	}
 	if (menu_item.action == @selector(toggleSelectedItemBookmarkedStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];
@@ -3045,7 +3359,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) markSelectedItemAsReadIfNeeded:(MBEntry *)item atRow:(NSInteger)row
 {
-	if (item == nil || item.isRead || item.entryID <= 0 || item.isBookmarkEntry || self.contentMode == MBSidebarContentModeBookmarks) {
+	if (item == nil || item.isRead || item.entryID <= 0 || item.isBookmarkEntry || self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
 		return;
 	}
 
@@ -3227,6 +3541,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSInteger) numberOfRowsInTableView:(NSTableView *)tableView
 {
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		return self.mentions.count;
+	}
+
 	return self.items.count;
 }
 
@@ -3245,7 +3563,25 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-	#pragma unused(tableColumn)
+	CGFloat cell_width = MAX(120.0, tableColumn.width);
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		MBConversationCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarMentionCellIdentifier owner:self];
+		if (cell_view == nil) {
+			cell_view = [[MBConversationCellView alloc] initWithFrame:NSZeroRect];
+			cell_view.identifier = InkwellSidebarMentionCellIdentifier;
+		}
+
+		if (row >= 0 && row < self.mentions.count) {
+			MBMention* mention = self.mentions[(NSUInteger) row];
+			NSImage* avatar_image = [self avatarImageForMention:mention];
+			NSString* date_text = [self mentionsDisplayDateString:mention.date];
+			[cell_view configureWithMention:mention dateText:date_text avatarImage:avatar_image];
+		}
+		[cell_view prepareForLayoutWithWidth:cell_width];
+
+		return cell_view;
+	}
+
 	MBSidebarCell* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
 
 	if (cell_view == nil) {
@@ -3255,6 +3591,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	MBEntry* item = self.items[(NSUInteger) row];
 	[self configureSidebarCellContent:cell_view entry:item];
+	[cell_view prepareForLayoutWithWidth:cell_width];
 
 	MBRoundedImageView* avatar_view = cell_view.avatarView;
 	NSTextField* title_field = cell_view.titleTextField;
@@ -3310,12 +3647,28 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (CGFloat) tableView:(NSTableView *)tableView heightOfRow:(NSInteger)row
 {
-	if (row < 0 || row >= self.items.count) {
+	if (row < 0) {
+		return 54.0;
+	}
+
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		if (row >= self.mentions.count) {
+			return 54.0;
+		}
+
+		MBMention* mention = self.mentions[(NSUInteger) row];
+		NSTableColumn* table_column = tableView.tableColumns.firstObject;
+		CGFloat table_width = MAX(120.0, table_column.width > 0 ? table_column.width : tableView.bounds.size.width);
+		return [self fittingHeightForMention:mention width:table_width];
+	}
+
+	if (row >= self.items.count) {
 		return 54.0;
 	}
 
 	MBEntry* item = self.items[(NSUInteger) row];
-	CGFloat table_width = MAX(120.0, tableView.bounds.size.width);
+	NSTableColumn* table_column = tableView.tableColumns.firstObject;
+	CGFloat table_width = MAX(120.0, table_column.width > 0 ? table_column.width : tableView.bounds.size.width);
 	return [self fittingHeightForSidebarCellWithEntry:item width:table_width];
 }
 
@@ -3388,11 +3741,34 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
 	width_constraint.active = YES;
-	[cell_view layoutSubtreeIfNeeded];
+	[cell_view prepareForLayoutWithWidth:width];
 	CGFloat row_height = ceil(cell_view.fittingSize.height);
 	width_constraint.active = NO;
 
 	return MAX(50.0, row_height);
+}
+
+- (CGFloat) fittingHeightForMention:(MBMention*) mention width:(CGFloat) width
+{
+	if (mention == nil) {
+		return 72.0;
+	}
+
+	if (self.sizingMentionCellView == nil) {
+		self.sizingMentionCellView = [[MBConversationCellView alloc] initWithFrame:NSZeroRect];
+		self.sizingMentionCellView.translatesAutoresizingMaskIntoConstraints = NO;
+	}
+
+	MBConversationCellView* cell_view = self.sizingMentionCellView;
+	[cell_view configureWithMention:mention dateText:[self mentionsDisplayDateString:mention.date] avatarImage:[self fallbackAvatarImage]];
+
+	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
+	width_constraint.active = YES;
+	[cell_view prepareForLayoutWithWidth:width];
+	CGFloat row_height = ceil(cell_view.fittingSize.height);
+	width_constraint.active = NO;
+
+	return MAX(72.0, row_height);
 }
 
 - (NSDate * _Nullable) dateValueFromEntry:(NSDictionary<NSString *, id> *)entry
@@ -3506,6 +3882,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (self.contentMode == MBSidebarContentModeBookmarks) {
 		return [self bookmarksDisplayDateString:date];
 	}
+	if (self.contentMode == MBSidebarContentModeMentions) {
+		return [self mentionsDisplayDateString:date];
+	}
 	if (self.contentMode == MBSidebarContentModeAllPosts) {
 		return [self allPostsDisplayDateString:date];
 	}
@@ -3550,6 +3929,47 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [NSString stringWithFormat:@"%@, %@", date_part, time_part];
+}
+
+- (NSString*) mentionsDisplayDateString:(NSDate* _Nullable) date
+{
+	if (date == nil) {
+		return @"";
+	}
+
+	return [NSDateFormatter localizedStringFromDate:date dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle] ?: @"";
+}
+
+- (NSString*) plainTextFromHTMLString:(NSString*) html_string
+{
+	NSString* trimmed_html = [html_string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_html.length == 0) {
+		return @"";
+	}
+
+	NSData* html_data = [trimmed_html dataUsingEncoding:NSUTF8StringEncoding];
+	if (html_data.length == 0) {
+		return @"";
+	}
+
+	NSDictionary* options = @{
+		NSDocumentTypeDocumentOption: NSHTMLTextDocumentType,
+		NSCharacterEncodingDocumentOption: @(NSUTF8StringEncoding)
+	};
+	NSAttributedString* attributed_string = [[NSAttributedString alloc] initWithData:html_data options:options documentAttributes:nil error:nil];
+	NSString* plain_text = attributed_string.string ?: @"";
+	return [self normalizedTextString:plain_text];
+}
+
+- (NSString*) normalizedTextString:(NSString*) text_string
+{
+	NSString* normalized_text = [text_string stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"] ?: @"";
+	normalized_text = [normalized_text stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"] ?: @"";
+	while ([normalized_text containsString:@"\n\n\n"]) {
+		normalized_text = [normalized_text stringByReplacingOccurrencesOfString:@"\n\n\n" withString:@"\n\n"];
+	}
+
+	return [normalized_text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 }
 
 - (NSString *) normalizedPreviewString:(NSString *)string

@@ -405,6 +405,10 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	copy_link_item.target = self;
 	[menu addItem:copy_link_item];
 
+	NSMenuItem* copy_username_item = [[NSMenuItem alloc] initWithTitle:@"Copy Username" action:@selector(copySelectedMentionUsername:) keyEquivalent:@""];
+	copy_username_item.target = self;
+	[menu addItem:copy_username_item];
+
 	return menu;
 }
 
@@ -448,6 +452,17 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 - (BOOL) canCopySelectedMentionLink
 {
 	return [self canOpenSelectedMentionInBrowser];
+}
+
+- (BOOL) canCopySelectedMentionUsername
+{
+	MBMention* mention = [self selectedMention];
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return NO;
+	}
+
+	NSString* username = [mention.username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (username.length > 0);
 }
 
 - (NSString*) prefillTextForUsername:(NSString*) username
@@ -526,6 +541,25 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
 	[pasteboard clearContents];
 	[pasteboard setString:url_string forType:NSPasteboardTypeString];
+}
+
+- (IBAction) copySelectedMentionUsername:(id) sender
+{
+	#pragma unused(sender)
+
+	MBMention* mention = [self selectedMention];
+	if (![mention isKindOfClass:[MBMention class]]) {
+		return;
+	}
+
+	NSString* username = [mention.username stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (username.length == 0) {
+		return;
+	}
+
+	NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:username forType:NSPasteboardTypeString];
 }
 
 - (void) fetchFeedIconsIfNeeded
@@ -737,6 +771,9 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 	if (menu_item.action == @selector(copySelectedMentionLink:)) {
 		return [self canCopySelectedMentionLink];
+	}
+	if (menu_item.action == @selector(copySelectedMentionUsername:)) {
+		return [self canCopySelectedMentionUsername];
 	}
 
 	return YES;

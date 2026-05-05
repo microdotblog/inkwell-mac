@@ -40,8 +40,10 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) reloadData;
 - (void) loadCachedRecentEntries;
 - (void) refreshData;
+- (void) showMentions;
 - (void) showBookmarks;
 - (void) showAllPostsForSelectedSite;
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
 - (void) clearSpecialMode;
 - (void) focusAndSelectFirstItem;
 - (BOOL) focusSidebar;
@@ -52,6 +54,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (BOOL) canMarkAllItemsAsRead;
 - (BOOL) canToggleSelectedItemBookmarkedState;
 - (BOOL) canShowReadingRecap;
+- (BOOL) canReplyToSelectedMention;
 - (NSString*) readToggleMenuTitle;
 - (NSString*) bookmarkToggleMenuTitle;
 - (NSString*) readPostsVisibilityMenuTitle;
@@ -59,6 +62,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) markAllItemsAsRead;
 - (void) toggleSelectedItemBookmarkedState;
 - (void) toggleReadPostsVisibility;
+- (void) replyToSelectedMention;
 - (IBAction) showReadingRecap:(id)sender;
 - (MBEntry* _Nullable) selectedItem;
 

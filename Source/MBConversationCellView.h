@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBConversationCellView : NSTableCellView
 
 - (void) configureWithMention:(MBMention*) mention dateText:(NSString*) date_text avatarImage:(NSImage*) avatar_image;
+- (void) prepareForLayoutWithWidth:(CGFloat) width;
 
 @end
 

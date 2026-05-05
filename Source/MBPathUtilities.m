@@ -17,6 +17,7 @@ static NSString* const InkwellSubscriptionsCacheFilename = @"Subscriptions.json"
 static NSString* const InkwellUnreadEntryIDsCacheFilename = @"UnreadEntryIDs.json";
 static NSString* const InkwellHighlightsCacheFilename = @"Highlights.json";
 static NSString* const InkwellPodcastsFilename = @"Podcasts.json";
+static NSString* const InkwellDestinationsCacheFilename = @"Destinations.json";
 
 @implementation MBPathUtilities
 
@@ -120,7 +121,8 @@ static NSString* const InkwellPodcastsFilename = @"Podcasts.json";
 	];
 	NSArray* application_support_filenames = @[
 		InkwellHighlightsCacheFilename,
-		InkwellPodcastsFilename
+		InkwellPodcastsFilename,
+		InkwellDestinationsCacheFilename
 	];
 
 	NSURL* caches_directory_url = [self appContainerDirectoryURLForSearchPathDirectory:NSCachesDirectory createIfNeeded:NO];

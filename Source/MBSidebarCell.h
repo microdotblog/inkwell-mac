@@ -25,6 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, readonly) NSLayoutConstraint* dateTopWithSubtitleConstraint;
 @property (nonatomic, strong, readonly) NSLayoutConstraint* dateTopWithoutSecondaryTextConstraint;
 
+- (void) prepareForLayoutWithWidth:(CGFloat) width;
+
 @end
 
 NS_ASSUME_NONNULL_END

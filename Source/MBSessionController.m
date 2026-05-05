@@ -41,6 +41,7 @@ NSString* const InkwellTokenDefaultsKey = @"Token";
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUsernameDefaultsKey];
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellUserAvatarURLDefaultsKey];
 	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellReadingRecapDayOfWeekDefaultsKey];
+	[[NSUserDefaults standardUserDefaults] removeObjectForKey:InkwellCurrentDestinationDefaultsKey];
 	[MBPathUtilities clearUserScopedCacheFiles];
 }
 

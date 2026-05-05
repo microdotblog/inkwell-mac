@@ -9,12 +9,14 @@
 #import "MBAuthController.h"
 #import "MBClient.h"
 #import "MBMainController.h"
+#import "MBNewPostController.h"
 #import "MBPodcastController.h"
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
 
 static NSString* const InkwellUnavailableMessage = @"Inkwell requires a Micro.blog subscription.";
 static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-inkwell/4302";
+static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 @interface MBAppDelegate ()
 
@@ -150,6 +152,45 @@ static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-
 	}
 
 	[[NSWorkspace sharedWorkspace] openURL:help_url];
+}
+
+- (IBAction) preview:(id) sender
+{
+	NSWindowController* window_controller = NSApp.keyWindow.windowController;
+	if (![window_controller isKindOfClass:[MBNewPostController class]]) {
+		return;
+	}
+
+	[(MBNewPostController*) window_controller preview:sender];
+}
+
+- (IBAction) toggleTitleField:(id) sender
+{
+	NSWindowController* window_controller = NSApp.keyWindow.windowController;
+	if (![window_controller isKindOfClass:[MBNewPostController class]]) {
+		return;
+	}
+
+	[(MBNewPostController*) window_controller toggleTitleField:sender];
+}
+
+- (BOOL) validateMenuItem:(NSMenuItem*) menu_item
+{
+	if (menu_item.action == @selector(preview:)) {
+		NSWindowController* window_controller = NSApp.keyWindow.windowController;
+		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		menu_item.state = (is_new_post_window_frontmost && [(MBNewPostController*) window_controller isPreviewEnabled]) ? NSControlStateValueOn : NSControlStateValueOff;
+		return is_new_post_window_frontmost;
+	}
+
+	if (menu_item.action == @selector(toggleTitleField:)) {
+		NSWindowController* window_controller = NSApp.keyWindow.windowController;
+		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		menu_item.state = [[NSUserDefaults standardUserDefaults] boolForKey:InkwellShowTitleFieldDefaultsKey] ? NSControlStateValueOn : NSControlStateValueOff;
+		return is_new_post_window_frontmost;
+	}
+
+	return YES;
 }
 
 - (IBAction) signOut:(id) sender

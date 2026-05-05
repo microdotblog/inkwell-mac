@@ -32,6 +32,7 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 @property (nonatomic, strong) NSPopUpButton* sizePopUpButton;
 @property (nonatomic, strong) NSButton* readingRecapCheckbox;
 @property (nonatomic, strong) NSPopUpButton* readingRecapPopUpButton;
+@property (nonatomic, strong) NSPopUpButton* postDestinationPopUpButton;
 @property (nonatomic, strong) NSSearchField* feedsSearchField;
 @property (nonatomic, copy) NSArray* backgroundColorHexes;
 @property (nonatomic, copy) NSArray* fontNames;
@@ -222,12 +223,17 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 	NSButton* reading_recap_checkbox = [[NSButton alloc] initWithFrame:NSZeroRect];
 	reading_recap_checkbox.translatesAutoresizingMaskIntoConstraints = NO;
 	reading_recap_checkbox.buttonType = NSButtonTypeSwitch;
-	reading_recap_checkbox.title = @"Reading Recap on:";
-	reading_recap_checkbox.font = [NSFont systemFontOfSize:InkwellPreferencesSettingsLabelFontSize weight:NSFontWeightSemibold];
-	reading_recap_checkbox.lineBreakMode = NSLineBreakByClipping;
+	reading_recap_checkbox.title = @"";
 	reading_recap_checkbox.target = self;
 	reading_recap_checkbox.action = @selector(toggleReadingRecap:);
 	[content_view addSubview:reading_recap_checkbox];
+
+	NSTextField* reading_recap_label = [NSTextField labelWithString:@"Reading Recap on:"];
+	reading_recap_label.translatesAutoresizingMaskIntoConstraints = NO;
+	reading_recap_label.font = [NSFont systemFontOfSize:InkwellPreferencesSettingsLabelFontSize weight:NSFontWeightSemibold];
+	reading_recap_label.alignment = NSTextAlignmentRight;
+	reading_recap_label.lineBreakMode = NSLineBreakByClipping;
+	[content_view addSubview:reading_recap_label];
 
 	NSPopUpButton* reading_recap_popup_button = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
 	reading_recap_popup_button.translatesAutoresizingMaskIntoConstraints = NO;
@@ -237,6 +243,21 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 		[reading_recap_popup_button addItemWithTitle:day_name];
 	}
 	[content_view addSubview:reading_recap_popup_button];
+
+	NSTextField* new_post_destination_label = [NSTextField labelWithString:@"Start new posts in:"];
+	new_post_destination_label.translatesAutoresizingMaskIntoConstraints = NO;
+	new_post_destination_label.font = [NSFont systemFontOfSize:InkwellPreferencesSettingsLabelFontSize weight:NSFontWeightSemibold];
+	new_post_destination_label.alignment = NSTextAlignmentRight;
+	new_post_destination_label.lineBreakMode = NSLineBreakByClipping;
+	[content_view addSubview:new_post_destination_label];
+
+	NSPopUpButton* new_post_destination_popup_button = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+	new_post_destination_popup_button.translatesAutoresizingMaskIntoConstraints = NO;
+	new_post_destination_popup_button.target = self;
+	new_post_destination_popup_button.action = @selector(selectNewPostDestination:);
+	[new_post_destination_popup_button addItemWithTitle:@"Inkwell"];
+	[new_post_destination_popup_button addItemWithTitle:@"Micro.blog"];
+	[content_view addSubview:new_post_destination_popup_button];
 
 	NSBox* feeds_separator_line = [[NSBox alloc] initWithFrame:NSZeroRect];
 	feeds_separator_line.translatesAutoresizingMaskIntoConstraints = NO;
@@ -301,15 +322,26 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 		[size_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
 		[size_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
 		[size_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
-			[reading_recap_checkbox.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:38.0],
-			[reading_recap_checkbox.trailingAnchor constraintEqualToAnchor:reading_recap_popup_button.leadingAnchor constant:-12.0],
-			[reading_recap_checkbox.centerYAnchor constraintEqualToAnchor:reading_recap_popup_button.centerYAnchor],
-			[reading_recap_popup_button.topAnchor constraintEqualToAnchor:size_popup_button.bottomAnchor constant:InkwellPreferencesRowSpacing],
-			[reading_recap_popup_button.leadingAnchor constraintEqualToAnchor:size_popup_button.leadingAnchor],
-			[reading_recap_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
-			[reading_recap_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
-			[reading_recap_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
-		[feeds_separator_line.topAnchor constraintEqualToAnchor:reading_recap_popup_button.bottomAnchor constant:18.0],
+		[reading_recap_checkbox.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:43.0],
+		[reading_recap_checkbox.centerYAnchor constraintEqualToAnchor:reading_recap_popup_button.centerYAnchor],
+		[reading_recap_checkbox.widthAnchor constraintEqualToConstant:18.0],
+		[reading_recap_label.leadingAnchor constraintEqualToAnchor:reading_recap_checkbox.trailingAnchor constant:4.0],
+		[reading_recap_label.trailingAnchor constraintEqualToAnchor:reading_recap_popup_button.leadingAnchor constant:-12.0],
+		[reading_recap_label.centerYAnchor constraintEqualToAnchor:reading_recap_popup_button.centerYAnchor],
+		[reading_recap_popup_button.topAnchor constraintEqualToAnchor:size_popup_button.bottomAnchor constant:InkwellPreferencesRowSpacing],
+		[reading_recap_popup_button.leadingAnchor constraintEqualToAnchor:size_popup_button.leadingAnchor],
+		[reading_recap_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
+		[reading_recap_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
+		[reading_recap_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
+		[new_post_destination_label.leadingAnchor constraintEqualToAnchor:reading_recap_checkbox.leadingAnchor],
+		[new_post_destination_label.trailingAnchor constraintEqualToAnchor:new_post_destination_popup_button.leadingAnchor constant:-12.0],
+		[new_post_destination_label.centerYAnchor constraintEqualToAnchor:new_post_destination_popup_button.centerYAnchor],
+		[new_post_destination_popup_button.topAnchor constraintEqualToAnchor:reading_recap_popup_button.bottomAnchor constant:InkwellPreferencesRowSpacing],
+		[new_post_destination_popup_button.leadingAnchor constraintEqualToAnchor:reading_recap_popup_button.leadingAnchor],
+		[new_post_destination_popup_button.widthAnchor constraintGreaterThanOrEqualToConstant:InkwellPreferencesPopupMinWidth],
+		[new_post_destination_popup_button.widthAnchor constraintLessThanOrEqualToConstant:InkwellPreferencesPopupMaxWidth],
+		[new_post_destination_popup_button.trailingAnchor constraintLessThanOrEqualToAnchor:content_view.trailingAnchor constant:-18.0],
+		[feeds_separator_line.topAnchor constraintEqualToAnchor:new_post_destination_popup_button.bottomAnchor constant:18.0],
 		[feeds_separator_line.leadingAnchor constraintEqualToAnchor:separator_line.leadingAnchor],
 		[feeds_separator_line.trailingAnchor constraintEqualToAnchor:separator_line.trailingAnchor],
 
@@ -333,6 +365,7 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 	self.sizePopUpButton = size_popup_button;
 	self.readingRecapCheckbox = reading_recap_checkbox;
 	self.readingRecapPopUpButton = reading_recap_popup_button;
+	self.postDestinationPopUpButton = new_post_destination_popup_button;
 	self.feedsSearchField = feeds_search_field;
 	self.didSetupContent = YES;
 
@@ -359,6 +392,7 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 	[defaults setObject:selected_size_name forKey:InkwellTextSizeNameDefaultsKey];
 	[self.sizePopUpButton selectItemWithTitle:selected_size_name];
 	[self refreshReadingRecapControls];
+	[self refreshNewPostDestinationControls];
 
 	[self refreshBackgroundColorSelection];
 }
@@ -477,6 +511,15 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 	[self saveReadingRecapPreferenceToServer];
 }
 
+- (void) selectNewPostDestination:(id) sender
+{
+	#pragma unused(sender)
+	NSString* selected_title = self.postDestinationPopUpButton.selectedItem.title ?: @"";
+	BOOL should_use_micro_app = [selected_title isEqualToString:@"Micro.blog"];
+	[[NSUserDefaults standardUserDefaults] setBool:should_use_micro_app forKey:InkwellNewPostToMicroAppDefaultsKey];
+	[self refreshNewPostDestinationControls];
+}
+
 - (void) signOut:(id) sender
 {
 	#pragma unused(sender)
@@ -541,6 +584,13 @@ static NSString* const InkwellDefaultReadingRecapDayOfWeek = @"Monday";
 		selected_day_of_week = InkwellDefaultReadingRecapDayOfWeek;
 	}
 	[self.readingRecapPopUpButton selectItemWithTitle:selected_day_of_week];
+}
+
+- (void) refreshNewPostDestinationControls
+{
+	BOOL should_use_micro_app = [[NSUserDefaults standardUserDefaults] boolForKey:InkwellNewPostToMicroAppDefaultsKey];
+	NSString* selected_title = should_use_micro_app ? @"Micro.blog" : @"Inkwell";
+	[self.postDestinationPopUpButton selectItemWithTitle:selected_title];
 }
 
 - (void) setReadingRecapDayOfWeekInDefaults:(NSString*) day_of_week

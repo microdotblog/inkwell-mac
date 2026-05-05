@@ -44,6 +44,39 @@ static CGFloat const InkwellSidebarCellDateFontSize = 13.0;
 	return self;
 }
 
+- (void) prepareForLayoutWithWidth:(CGFloat) width
+{
+	CGFloat text_width = [self textColumnWidthForCellWidth:width];
+	self.titleTextField.preferredMaxLayoutWidth = text_width;
+	self.subtitleTextField.preferredMaxLayoutWidth = text_width;
+	self.frame = NSMakeRect(self.frame.origin.x, self.frame.origin.y, width, self.frame.size.height);
+	[self.titleTextField invalidateIntrinsicContentSize];
+	[self.subtitleTextField invalidateIntrinsicContentSize];
+	[self setNeedsLayout:YES];
+	[self layoutSubtreeIfNeeded];
+}
+
+- (void) layout
+{
+	CGFloat text_width = [self textColumnWidthForCellWidth:self.bounds.size.width];
+	if (fabs(self.titleTextField.preferredMaxLayoutWidth - text_width) > 0.5) {
+		self.titleTextField.preferredMaxLayoutWidth = text_width;
+		[self.titleTextField invalidateIntrinsicContentSize];
+	}
+	if (fabs(self.subtitleTextField.preferredMaxLayoutWidth - text_width) > 0.5) {
+		self.subtitleTextField.preferredMaxLayoutWidth = text_width;
+		[self.subtitleTextField invalidateIntrinsicContentSize];
+	}
+
+	[super layout];
+}
+
+- (CGFloat) textColumnWidthForCellWidth:(CGFloat) width
+{
+	CGFloat text_width = width - InkwellSidebarCellAvatarInset - InkwellSidebarCellAvatarSize - InkwellSidebarCellTextInset - InkwellSidebarCellRightInset;
+	return MAX(1.0, floor(text_width));
+}
+
 - (void) setupViews
 {
 	MBRoundedImageView* avatar_view = [[MBRoundedImageView alloc] initWithFrame:NSZeroRect];
