@@ -1694,6 +1694,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) postWindowControllerDidClose:(MBNewPostController*)controller
 {
 	[self.postControllers removeObject:controller];
+	if (self.postControllers.count == 0) {
+		[MBNewPostController resetPostWindowCascade];
+	}
 }
 
 - (NSDictionary *) defaultMicropubDestinationFromDestinations:(NSArray *)destinations

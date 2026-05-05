@@ -27,7 +27,10 @@ static NSString* const InkwellNewPostContentChangedScriptMessageName = @"newPost
 static NSString* const InkwellNewPostCharacterCountOverLimitColorName = @"color_chars_remaining";
 static NSString* const InkwellNewPostEditorBackgroundColorName = @"color_post_editor_background";
 static NSString* const InkwellNewPostPreviewBackgroundColorName = @"color_post_preview_background";
+static NSString* const InkwellNewPostWindowAutosaveName = @"PostWindow";
 static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
+static BOOL InkwellHasNewPostWindowCascadePoint = NO;
+static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 @interface MBNewPostHostnameHoverView : NSView
 
@@ -213,6 +216,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (nonatomic, assign) BOOL isContentOverCharacterLimit;
 @property (nonatomic, assign) BOOL isApplyingInitialMarkdownText;
 @property (nonatomic, assign) BOOL isClosingAfterPost;
+@property (nonatomic, assign) BOOL isSettingWindowFrame;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
@@ -234,6 +238,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion;
 - (void) showPreviewHTML:(NSString *)html;
 - (void) updateCharacterCountWithPayload:(id)payload;
+- (void) savePostWindowFrameIfNeeded;
 - (void) showDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event;
 - (void) selectDestinationFromMenuItem:(NSMenuItem *)menu_item;
 - (NSString *) stringValueFromObject:(id)object;
@@ -244,6 +249,12 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @end
 
 @implementation MBNewPostController
+
++ (void) resetPostWindowCascade
+{
+	InkwellHasNewPostWindowCascadePoint = NO;
+	InkwellNewPostWindowCascadePoint = NSZeroPoint;
+}
 
 - (instancetype) init
 {
@@ -551,7 +562,18 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	if (self.postButton != nil) {
 		post_window.defaultButtonCell = self.postButton.cell;
 	}
-	[post_window center];
+	self.isSettingWindowFrame = YES;
+	BOOL did_restore_frame = [post_window setFrameUsingName:InkwellNewPostWindowAutosaveName];
+	if (!did_restore_frame) {
+		[post_window center];
+	}
+	if (!InkwellHasNewPostWindowCascadePoint) {
+		NSRect window_frame = post_window.frame;
+		InkwellNewPostWindowCascadePoint = NSMakePoint(NSMinX(window_frame), NSMaxY(window_frame));
+		InkwellHasNewPostWindowCascadePoint = YES;
+	}
+	InkwellNewPostWindowCascadePoint = [post_window cascadeTopLeftFromPoint:InkwellNewPostWindowCascadePoint];
+	self.isSettingWindowFrame = NO;
 
 	self.window = post_window;
 	self.editorBackgroundView = content_view;
@@ -1134,6 +1156,15 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	}
 }
 
+- (void) savePostWindowFrameIfNeeded
+{
+	if (self.isSettingWindowFrame || self.window == nil) {
+		return;
+	}
+
+	[self.window saveFrameUsingName:InkwellNewPostWindowAutosaveName];
+}
+
 - (BOOL) windowShouldClose:(id)sender
 {
 	#pragma unused(sender)
@@ -1175,6 +1206,20 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	if (did_close_handler != nil) {
 		did_close_handler(self);
 	}
+}
+
+- (void) windowDidMove:(NSNotification *)notification
+{
+	#pragma unused(notification)
+
+	[self savePostWindowFrameIfNeeded];
+}
+
+- (void) windowDidResize:(NSNotification *)notification
+{
+	#pragma unused(notification)
+
+	[self savePostWindowFrameIfNeeded];
 }
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
