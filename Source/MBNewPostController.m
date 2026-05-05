@@ -110,7 +110,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		background_color = is_dark ? [NSColor colorWithCalibratedWhite:0.1412 alpha:1.0] : [NSColor colorWithCalibratedWhite:0.9686 alpha:1.0];
 	}
 	else {
-		background_color = is_dark ? [NSColor colorWithCalibratedWhite:0.1176 alpha:1.0] : NSColor.whiteColor;
+		background_color = is_dark ? [NSColor colorWithSRGBRed:(30.0 / 255.0) green:(30.0 / 255.0) blue:(30.0 / 255.0) alpha:1.0] : NSColor.whiteColor;
 	}
 	[background_color setFill];
 	NSRectFill(self.bounds);
