@@ -1054,8 +1054,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 	return @[
 		NSToolbarFlexibleSpaceItemIdentifier,
-		InkwellNewPostToolbarPreviewIdentifier,
 		InkwellNewPostToolbarProgressIdentifier,
+		InkwellNewPostToolbarPreviewIdentifier,
 		InkwellNewPostToolbarPostIdentifier
 	];
 }
@@ -1066,8 +1066,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 	return @[
 		NSToolbarFlexibleSpaceItemIdentifier,
-		InkwellNewPostToolbarPreviewIdentifier,
 		InkwellNewPostToolbarProgressIdentifier,
+		InkwellNewPostToolbarPreviewIdentifier,
 		InkwellNewPostToolbarPostIdentifier
 	];
 }
