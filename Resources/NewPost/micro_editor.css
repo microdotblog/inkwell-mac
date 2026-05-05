@@ -65,6 +65,10 @@
 	border-left: 2px solid #CCC;
 }
 
+.editor_preview blockquote p:last-child {
+	margin-bottom: 4px;
+}
+
 .editor_preview img {
 	max-width: 100%;
 	height: auto;
@@ -559,7 +563,7 @@ body.inkwell_previewing {
 	background: transparent;
 	color: inherit;
 	font-size: 18px;
-	line-height: 1.45;
+	line-height: 1.4;
 	transition: none;
 }
 
@@ -581,7 +585,7 @@ body.inkwell_previewing {
 	background: transparent;
 	color: inherit;
 	font-size: 18px;
-	line-height: 1.45;
+	line-height: 1.4;
 }
 
 .inkwell_editor_page .editor_toolbar {

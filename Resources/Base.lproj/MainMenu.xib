@@ -76,7 +76,7 @@
                         <items>
                             <menuItem title="New Post" image="square.and.pencil" catalog="system" keyEquivalent="n" id="Was-JA-tGl">
                                 <connections>
-                                    <action selector="newPost:" target="-1" id="4Si-XN-c54"/>
+                                    <action selector="openPostWindow:" target="-1" id="4Si-XN-c54"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="New Feed..." keyEquivalent="N" id="d0k-NF-4Y5">
@@ -383,9 +383,15 @@
                                     <action selector="showReadingRecap:" target="-1" id="n8M-jA-X7F"/>
                                 </connections>
                             </menuItem>
+                            <menuItem isSeparatorItem="YES" id="E6i-FC-sX2"/>
                             <menuItem title="Bookmarks" keyEquivalent="5" id="G4M-1Q-pK3">
                                 <connections>
                                     <action selector="showBookmarks:" target="-1" id="M03-lq-1qj"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Posts" keyEquivalent="6" id="ZfC-2f-pQu">
+                                <connections>
+                                    <action selector="showCurrentUserPosts:" target="-1" id="vBZ-hD-y11"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="0am-8V-GZd"/>
@@ -418,12 +424,6 @@
                             <menuItem title="Refresh" keyEquivalent="R" id="4gM-KY-Lu6">
                                 <connections>
                                     <action selector="refreshView:" target="-1" id="Yl6-JE-S9h"/>
-                                </connections>
-                            </menuItem>
-                            <menuItem title="Show Posts" id="ZfC-2f-pQu">
-                                <modifierMask key="keyEquivalentModifierMask"/>
-                                <connections>
-                                    <action selector="showCurrentUserPosts:" target="-1" id="vBZ-hD-y11"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Preview" keyEquivalent="P" id="VOw-Fh-ndD">

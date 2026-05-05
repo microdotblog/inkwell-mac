@@ -74,6 +74,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) MBAvatarLoader* avatarLoader;
 @property (strong) NSImage *defaultAvatarImage;
 @property (strong) NSMenu* contextMenu;
+@property (strong) NSMenuItem* editPostMenuItem;
 @property (strong) MBReplyController* replyController;
 @property (strong) NSBox* recapBoxView;
 @property (strong) NSButton* recapButton;
@@ -3098,13 +3099,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSMenu*) sidebarContextMenu
 {
 	if (self.contextMenu != nil) {
+		self.editPostMenuItem.hidden = NO;
 		return self.contextMenu;
 	}
 
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
-	SEL new_post_selector = NSSelectorFromString(@"newPost:");
+	SEL new_post_selector = NSSelectorFromString(@"openPostWindow:");
 	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
 	SEL toggle_bookmark_selector = NSSelectorFromString(@"toggleSelectedItemBookmarkedState:");
+	SEL edit_post_selector = NSSelectorFromString(@"editPost:");
 	SEL show_conversation_selector = NSSelectorFromString(@"showConversation:");
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 	SEL show_all_posts_selector = NSSelectorFromString(@"showAllPosts:");
@@ -3120,6 +3123,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSMenuItem* toggle_bookmark_item = [[NSMenuItem alloc] initWithTitle:@"Bookmark" action:toggle_bookmark_selector keyEquivalent:@""];
 	toggle_bookmark_item.target = nil;
 	[menu addItem:toggle_bookmark_item];
+
+	NSMenuItem* edit_post_item = [[NSMenuItem alloc] initWithTitle:@"Edit" action:edit_post_selector keyEquivalent:@""];
+	edit_post_item.target = nil;
+	[menu addItem:edit_post_item];
+	self.editPostMenuItem = edit_post_item;
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
@@ -3297,7 +3305,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
-	if (menu_item.action == NSSelectorFromString(@"newPost:")) {
+	if (menu_item.action == NSSelectorFromString(@"openPostWindow:")) {
 		return ([self selectedItem] != nil);
 	}
 	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {

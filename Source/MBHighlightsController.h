@@ -17,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, assign, readonly) NSInteger entryID;
 @property (nonatomic, copy, nullable) void (^highlightDeletedHandler)(MBHighlight* highlight);
+@property (nonatomic, copy, nullable) void (^postWindowHandler)(NSString* markdownText);
 
 - (instancetype) initWithClient:(MBClient*) client token:(NSString*) token;
 - (void) updateForSelectedEntry:(MBEntry* _Nullable) entry;
