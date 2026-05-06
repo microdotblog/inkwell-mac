@@ -14,8 +14,8 @@
 
 static NSUserInterfaceItemIdentifier const InkwellFeedsCellIdentifier = @"InkwellFeedsCell";
 static NSUserInterfaceItemIdentifier const InkwellFeedsRowIdentifier = @"InkwellFeedsRow";
-static CGFloat const InkwellFeedsAvatarSize = 16.0;
-static CGFloat const InkwellFeedsRowHeight = 55.0;
+static CGFloat const InkwellFeedsAvatarSize = 20.0;
+static CGFloat const InkwellFeedsRowHeight = 70.0;
 static CGFloat const InkwellRenameFeedSheetWidth = 360.0;
 static CGFloat const InkwellRenameFeedSheetHeight = 126.0;
 
