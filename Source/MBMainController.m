@@ -737,22 +737,33 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 			return;
 		}
 
-		strong_self.isCreatingFeedSubscription = NO;
-
 		if (error != nil) {
+			strong_self.isCreatingFeedSubscription = NO;
 			[strong_self updateNewFeedControls];
 			[strong_self presentNewFeedError:error];
 			return;
 		}
 
 		if (status_code == 300) {
+			strong_self.isCreatingFeedSubscription = NO;
 			[strong_self updateNewFeedChoicesWithDictionaries:choices ?: @[]];
 			[strong_self updateNewFeedControls];
 			return;
 		}
 
 		[strong_self.client invalidateFeedIconsCache];
-		[strong_self closeNewFeedSheetWithReturnCode:NSModalResponseOK];
+		[strong_self.client fetchFeedSubscriptionsWithToken:strong_self.token completion:^(NSArray* _Nullable subscriptions, NSError* _Nullable refresh_error) {
+			#pragma unused(subscriptions)
+			#pragma unused(refresh_error)
+
+			MBMainController* inner_self = weak_self;
+			if (inner_self == nil) {
+				return;
+			}
+
+			inner_self.isCreatingFeedSubscription = NO;
+			[inner_self closeNewFeedSheetWithReturnCode:NSModalResponseOK];
+		}];
 	}];
 }
 
