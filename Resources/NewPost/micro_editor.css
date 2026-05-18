@@ -266,6 +266,15 @@
 	color: black;
 }
 
+.editor_marker {
+	display: inline;
+	line-height: inherit;
+	color: transparent;
+	pointer-events: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
 .editor_link_text {
 	color: #337AB7;
 	text-decoration: underline;
