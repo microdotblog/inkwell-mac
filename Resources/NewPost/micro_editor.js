@@ -245,14 +245,13 @@ var MicroEditor = (function () {
 		const marker = document.createElement('span');
 		marker.className = 'editor_marker';
 		marker.setAttribute('data-editor-marker', 'caret');
-		marker.setAttribute('contenteditable', 'false');
 		marker.setAttribute('aria-hidden', 'true');
 		marker.textContent = '\u00a0';
 		return marker;
 	}
 
 	function editorMarkerHTML() {
-		return '<span class="editor_marker" data-editor-marker="caret" contenteditable="false" aria-hidden="true">&nbsp;</span>';
+		return '<span class="editor_marker" data-editor-marker="caret" aria-hidden="true">&nbsp;</span>';
 	}
 
 	function editorPlainText(editor) {
@@ -281,7 +280,7 @@ var MicroEditor = (function () {
 
 	function preserveTrailingNewline(html) {
 		if (html.endsWith('\n')) {
-			return html.slice(0, -1) + '<br>' + editorMarkerHTML();
+			return html + editorMarkerHTML();
 		}
 		else {
 			return html;
@@ -403,13 +402,85 @@ var MicroEditor = (function () {
 		}
 
 		const range = document.createRange();
-		const offset = childIndex(marker);
-		range.setStart(marker.parentNode, offset);
-		range.setEnd(marker.parentNode, offset);
+		if (marker.firstChild && (marker.firstChild.nodeType === Node.TEXT_NODE)) {
+			range.setStart(marker.firstChild, 0);
+			range.setEnd(marker.firstChild, 0);
+		}
+		else {
+			const offset = childIndex(marker);
+			range.setStart(marker.parentNode, offset);
+			range.setEnd(marker.parentNode, offset);
+		}
 
 		const selection = window.getSelection();
 		selection.removeAllRanges();
 		selection.addRange(range);
+		return true;
+	}
+
+	function markerAroundCaret() {
+		const editor = document.getElementById(textBoxID);
+		const selection = window.getSelection();
+		if (!selection || (selection.rangeCount == 0) || !selection.isCollapsed) {
+			return null;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!editor.contains(range.startContainer) && (range.startContainer != editor)) {
+			return null;
+		}
+
+		let marker = null;
+		let is_caret_inside_marker = false;
+		if (range.startContainer.nodeType === Node.TEXT_NODE) {
+			const parent = range.startContainer.parentNode;
+			if (parent && isEditorMarker(parent)) {
+				marker = parent;
+				is_caret_inside_marker = true;
+			}
+		}
+		else if ((range.startContainer.nodeType === Node.ELEMENT_NODE) && isEditorMarker(range.startContainer)) {
+			marker = range.startContainer;
+			is_caret_inside_marker = true;
+		}
+		if (range.startContainer.nodeType === Node.TEXT_NODE) {
+			const node = range.startContainer.nextSibling;
+			if ((range.startOffset == range.startContainer.length) && node && isEditorMarker(node)) {
+				marker = node;
+			}
+		}
+		if (!marker && (range.startContainer.nodeType === Node.ELEMENT_NODE) && (range.startOffset > 0)) {
+			const node = range.startContainer.childNodes[range.startOffset - 1];
+			if (node && isEditorMarker(node)) {
+				marker = node;
+			}
+		}
+		if (!marker && (range.startContainer.nodeType === Node.ELEMENT_NODE)) {
+			const node = range.startContainer.childNodes[range.startOffset];
+			if (node && isEditorMarker(node)) {
+				marker = node;
+			}
+		}
+
+		if (!marker) {
+			return null;
+		}
+
+		return { marker: marker, is_caret_inside_marker: is_caret_inside_marker };
+	}
+
+	function insertTextAtMarker(text) {
+		const editor = document.getElementById(textBoxID);
+		const marker_info = markerAroundCaret();
+		if (!marker_info) {
+			return false;
+		}
+
+		const marker = marker_info.marker;
+		const text_node = document.createTextNode(text);
+		marker.parentNode.insertBefore(text_node, marker);
+		marker.remove();
+		setSelection(editor, text_node, text_node.length);
 		return true;
 	}
 
@@ -423,14 +494,12 @@ var MicroEditor = (function () {
 		}
 		removeMarkerAroundCaret();
 
-		let did_insert = document.execCommand('insertLineBreak', false, null);
+		let did_insert = insertLineBreakByText();
 		if (!did_insert || (editorPlainText(editor) == before)) {
-			did_insert = document.execCommand('insertHTML', false, '<br>');
-		}
-		if (!did_insert || (editorPlainText(editor) == before)) {
-			did_insert = insertLineBreakByText();
-		}
-		if (!did_insert || (editorPlainText(editor) == before)) {
+			if (saved_selection) {
+				restoreSelection(editor, saved_selection);
+			}
+			removeMarkerAroundCaret();
 			did_insert = insertLineBreakWithMarker();
 		}
 
@@ -478,52 +547,15 @@ var MicroEditor = (function () {
 	}
 
 	function removeMarkerAroundCaret() {
-		const editor = document.getElementById(textBoxID);
 		const selection = window.getSelection();
-		if (!selection || (selection.rangeCount == 0) || !selection.isCollapsed) {
+		const marker_info = markerAroundCaret();
+		if (!marker_info) {
 			return;
 		}
 
 		const range = selection.getRangeAt(0);
-		if (!editor.contains(range.startContainer) && (range.startContainer != editor)) {
-			return;
-		}
-
-		let marker = null;
-		let is_caret_inside_marker = false;
-		if (range.startContainer.nodeType === Node.TEXT_NODE) {
-			const parent = range.startContainer.parentNode;
-			if (parent && isEditorMarker(parent)) {
-				marker = parent;
-				is_caret_inside_marker = true;
-			}
-		}
-		else if ((range.startContainer.nodeType === Node.ELEMENT_NODE) && isEditorMarker(range.startContainer)) {
-			marker = range.startContainer;
-			is_caret_inside_marker = true;
-		}
-		if (range.startContainer.nodeType === Node.TEXT_NODE) {
-			const node = range.startContainer.nextSibling;
-			if ((range.startOffset == range.startContainer.length) && node && isEditorMarker(node)) {
-				marker = node;
-			}
-		}
-		if (!marker && (range.startContainer.nodeType === Node.ELEMENT_NODE) && (range.startOffset > 0)) {
-			const node = range.startContainer.childNodes[range.startOffset - 1];
-			if (node && isEditorMarker(node)) {
-				marker = node;
-			}
-		}
-		if (!marker && (range.startContainer.nodeType === Node.ELEMENT_NODE)) {
-			const node = range.startContainer.childNodes[range.startOffset];
-			if (node && isEditorMarker(node)) {
-				marker = node;
-			}
-		}
-
-		if (!marker) {
-			return;
-		}
+		const marker = marker_info.marker;
+		const is_caret_inside_marker = marker_info.is_caret_inside_marker;
 
 		if (is_caret_inside_marker) {
 			const previous_node = marker.previousSibling;
@@ -661,6 +693,12 @@ var MicroEditor = (function () {
 				e.preventDefault();
 				insertLineBreak();
 			}
+			else if ((e.inputType == "insertText") && e.data && markerAroundCaret()) {
+				e.preventDefault();
+				if (insertTextAtMarker(e.data)) {
+					handleEditorInput(e);
+				}
+			}
 		});
 
 		document.getElementById(textBoxID).addEventListener('compositionstart', function (e) {
@@ -673,9 +711,6 @@ var MicroEditor = (function () {
 			const is_modifier = is_apple ? e.metaKey : e.ctrlKey;
 			const arrow_keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 			if (e.key == "Backspace") {
-				removeMarkerAroundCaret();
-			}
-			else if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key.length == 1)) {
 				removeMarkerAroundCaret();
 			}
 
@@ -798,6 +833,7 @@ var MicroEditor = (function () {
 
 		document.getElementById(textBoxID).addEventListener('paste', function (e) {
 			e.preventDefault();
+			removeMarkerAroundCaret();
 
 			// get just the text from the clipboard
 			const clipboard_data = e.clipboardData || window.clipboardData;
