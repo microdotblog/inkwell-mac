@@ -17,7 +17,7 @@
 		NSEventModifierFlags modifier_flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
 		BOOL has_disallowed_modifiers = ((modifier_flags & (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift)) != 0);
 		BOOL is_return_key = (key_code == NSCarriageReturnCharacter || key_code == NSNewlineCharacter || key_code == NSEnterCharacter);
-		if (is_return_key && self.openSelectedItemHandler != nil && self.openSelectedItemHandler()) {
+		if (is_return_key && self.primaryActionHandler != nil && self.primaryActionHandler()) {
 			return;
 		}
 

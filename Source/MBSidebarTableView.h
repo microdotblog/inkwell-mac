@@ -11,7 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MBSidebarTableView : NSTableView
 
-@property (copy, nullable) BOOL (^openSelectedItemHandler)(void);
+@property (copy, nullable) BOOL (^primaryActionHandler)(void);
 @property (copy, nullable) BOOL (^focusDetailHandler)(void);
 @property (copy, nullable) NSMenu* (^contextMenuHandler)(void);
 @property (copy, nullable) void (^focusChangedHandler)(void);

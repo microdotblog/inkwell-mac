@@ -10,6 +10,7 @@
 #import "MBPathUtilities.h"
 #import "MBSessionController.h"
 #import "MBSubscription.h"
+#import "../Shared/MMMarkdown/MMMarkdown.h"
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
 NSString* const MBClientNetworkingDidStartNotification = @"MBClientNetworkingDidStartNotification";
@@ -75,6 +76,14 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (void) recordUnreadStateMutationForEntryIDs:(NSArray*) entry_ids shouldMarkUnread:(BOOL) should_mark_unread;
 - (void) fetchFeedSubscriptionsWithAuthorizationValue:(NSString *) authorization_value completion:(void (^)(NSArray * _Nullable subscriptions, NSError * _Nullable error))completion;
 - (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions existingEntryIDs:(NSSet *) existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion;
+- (void) fetchPagedEntriesForFeedID:(NSInteger) feed_id authorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion;
+- (void) fetchSourceEntriesForDestinationUID:(NSString *) destination_uid postStatus:(NSString *) post_status token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion;
+- (NSArray *) sourceEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft;
+- (NSArray*) sourceItemsFromMicropubSourcePayload:(id) payload;
+- (NSDictionary * _Nullable) sourceEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft;
+- (NSString*) sourceStringValueFromObject:(id) object;
+- (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown;
+- (NSString*) escapedHTMLString:(NSString*) string;
 - (BOOL) entries:(NSArray *) entries containFeedIDMissingFromSubscriptions:(NSArray *) subscriptions;
 - (NSURL * _Nullable) feedSubscriptionsCacheURL;
 - (NSURL * _Nullable) micropubDestinationsCacheURL;
@@ -85,6 +94,8 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (void) cacheMicropubDestinations:(NSArray *)destinations;
 - (void) finishWithMicropubDestinations:(NSArray * _Nullable)destinations error:(NSError * _Nullable)error completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion;
 - (void) finishWithMentions:(NSArray* _Nullable) items error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion;
+- (NSMutableURLRequest *) authenticatedRequestWithURL:(NSURL *)url method:(NSString *)method token:(NSString *)token accept:(NSString *)accept contentType:(NSString * _Nullable)contentType body:(NSData * _Nullable)body;
+- (void) performSimpleRequest:(NSURLRequest *)request defaultErrorMessage:(NSString *)defaultMessage completion:(void (^)(NSError * _Nullable error))completion success:(void (^ _Nullable)(void))success;
 - (void) logAPIRequest:(NSURLRequest *) request;
 - (void) logRefreshEntriesStopReason:(NSString *) reason pageNumber:(NSInteger) page_number pageEntryCount:(NSUInteger) page_entry_count addedCount:(NSInteger) added_count newCount:(NSInteger) new_count totalCount:(NSUInteger) total_count oldestEntryDate:(NSDate * _Nullable) oldest_entry_date cutoffDate:(NSDate * _Nullable) cutoff_date;
 - (NSISO8601DateFormatter*) iso8601Formatter;
@@ -385,6 +396,88 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		}];
 	}];
 	[unread_task resume];
+}
+
+- (void) fetchSourceEntriesForDestinationUID:(NSString *) destination_uid postStatus:(NSString *) post_status token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion
+{
+	NSString* normalized_destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_destination_uid.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1059 userInfo:@{ NSLocalizedDescriptionKey: @"Missing destination for posts request." }];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			completion(nil, error);
+		});
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1060 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for posts request." }];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			completion(nil, error);
+		});
+		return;
+	}
+
+	NSString* normalized_post_status = [post_status stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSMutableArray* query_items = [NSMutableArray arrayWithArray:@[
+		[NSURLQueryItem queryItemWithName:@"q" value:@"source"],
+		[NSURLQueryItem queryItemWithName:@"mp-destination" value:normalized_destination_uid]
+	]];
+	if (normalized_post_status.length > 0) {
+		[query_items addObject:[NSURLQueryItem queryItemWithName:@"post-status" value:normalized_post_status]];
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:MBMicropubEndpoint];
+	components.queryItems = query_items;
+	NSURL* request_url = components.URL;
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1061 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub posts endpoint URL was invalid." }];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			completion(nil, error);
+		});
+		return;
+	}
+
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
+	request.HTTPMethod = @"GET";
+	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	[request setValue:[NSString stringWithFormat:@"Bearer %@", token] forHTTPHeaderField:@"Authorization"];
+
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			dispatch_async(dispatch_get_main_queue(), ^{
+				completion(nil, error);
+			});
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Posts request failed."];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			dispatch_async(dispatch_get_main_queue(), ^{
+				completion(nil, request_error);
+			});
+			return;
+		}
+
+		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		BOOL is_draft = [normalized_post_status isEqualToString:@"draft"];
+		NSArray* entries = [self sourceEntryDictionariesFromMicropubSourcePayload:payload destinationUID:normalized_destination_uid isDraft:is_draft];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			completion(entries, nil);
+		});
+	}];
+	[task resume];
+}
+
+- (void) fetchPostEntriesForDestinationUID:(NSString *) destination_uid token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion
+{
+	[self fetchSourceEntriesForDestinationUID:destination_uid postStatus:@"" token:token completion:completion];
+}
+
+- (void) fetchDraftEntriesForDestinationUID:(NSString*) destination_uid token:(NSString*) token completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
+{
+	[self fetchSourceEntriesForDestinationUID:destination_uid postStatus:@"draft" token:token completion:completion];
 }
 
 - (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion
@@ -1325,37 +1418,49 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
-	request.HTTPMethod = @"POST";
-	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-
-	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
 	NSMutableArray* body_parts = [NSMutableArray array];
 	[body_parts addObject:[NSString stringWithFormat:@"id=%@", [self urlEncodedString:normalized_post_id]]];
 	[body_parts addObject:[NSString stringWithFormat:@"content=%@", [self urlEncodedString:content_string]]];
 	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
-	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	NSData* body_data = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:request_url method:@"POST" token:token accept:@"application/json" contentType:@"application/x-www-form-urlencoded" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:@"Reply request failed." completion:completion success:nil];
+}
 
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
+- (void) deletePostAtURLString:(NSString *)urlString destinationUID:(NSString *)destinationUID token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion
+{
+	NSString* normalized_url = [urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_url.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1062 userInfo:@{ NSLocalizedDescriptionKey: @"Missing URL for delete request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
 
-		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Reply request failed."];
-			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1063 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for delete request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
 
-		[self finishWithSimpleError:nil completion:completion];
-	}];
-	[task resume];
+	NSURL* request_url = [NSURL URLWithString:MBMicropubEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1064 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub delete endpoint URL was invalid." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* normalized_destination_uid = [destinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSMutableArray* body_parts = [NSMutableArray array];
+	[body_parts addObject:@"action=delete"];
+	[body_parts addObject:[NSString stringWithFormat:@"url=%@", [self urlEncodedString:normalized_url]]];
+	if (normalized_destination_uid.length > 0) {
+		[body_parts addObject:[NSString stringWithFormat:@"mp-destination=%@", [self urlEncodedString:normalized_destination_uid]]];
+	}
+
+	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
+	NSData* body_data = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:request_url method:@"POST" token:token accept:@"application/json" contentType:@"application/x-www-form-urlencoded" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:@"Delete post request failed." completion:completion success:nil];
 }
 
 - (void) fetchReadingRecapForEntryIDs:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion
@@ -1504,32 +1609,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	NSString* normalized_day_of_week = [day_of_week stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* body_string = [NSString stringWithFormat:@"dayofweek=%@", [self urlEncodedString:normalized_day_of_week]];
 
-	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:request_url];
-	request.HTTPMethod = @"POST";
-	request.HTTPBody = [body_string dataUsingEncoding:NSUTF8StringEncoding];
-	[request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-
-	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
-
-		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Recap email update failed."];
-			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
-
-		[self finishWithSimpleError:nil completion:completion];
-	}];
-	[task resume];
+	NSData* body_data = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:request_url method:@"POST" token:token accept:@"application/json" contentType:@"application/x-www-form-urlencoded" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:@"Recap email update failed." completion:completion success:nil];
 }
 
 - (void) beginManualNetworkingActivity
@@ -1721,31 +1803,10 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	NSString* encoded_highlight_id = [self urlEncodedString:highlight_id];
 	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld/highlights/%@", MBFeedsEndpointBase, (long) highlight.entryID, encoded_highlight_id];
-	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
-	request.HTTPMethod = @"DELETE";
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-
-	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
-
-		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Delete highlight request failed."];
-			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
-
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:[NSURL URLWithString:endpoint] method:@"DELETE" token:token accept:@"application/json" contentType:nil body:nil];
+	[self performSimpleRequest:request defaultErrorMessage:@"Delete highlight request failed." completion:completion success:^{
 		[self removeHighlightFromCache:highlight];
-		[self finishWithSimpleError:nil completion:completion];
 	}];
-	[task resume];
 }
 
 - (void) deleteFeedSubscription:(MBSubscription*) subscription token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion
@@ -1763,30 +1824,8 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld.json", MBFeedSubscriptionsEndpointBase, (long) subscription.subscriptionID];
-	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
-	request.HTTPMethod = @"DELETE";
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-
-	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
-
-		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Delete subscription request failed."];
-			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
-
-		[self finishWithSimpleError:nil completion:completion];
-	}];
-	[task resume];
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:[NSURL URLWithString:endpoint] method:@"DELETE" token:token accept:@"application/json" contentType:nil body:nil];
+	[self performSimpleRequest:request defaultErrorMessage:@"Delete subscription request failed." completion:completion success:nil];
 }
 
 - (void) updateFeedSubscription:(MBSubscription*) subscription title:(NSString*) title token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion
@@ -1805,34 +1844,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	NSString* normalized_title = [title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* endpoint = [NSString stringWithFormat:@"%@/%ld.json", MBFeedSubscriptionsEndpointBase, (long) subscription.subscriptionID];
-	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:endpoint]];
-	request.HTTPMethod = @"PATCH";
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-
-	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
 	NSData* body_data = [NSJSONSerialization dataWithJSONObject:@{ @"title": normalized_title } options:0 error:nil];
-	request.HTTPBody = body_data;
-
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
-
-		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Rename subscription request failed."];
-			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
-
-		[self finishWithSimpleError:nil completion:completion];
-	}];
-	[task resume];
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:[NSURL URLWithString:endpoint] method:@"PATCH" token:token accept:@"application/json" contentType:@"application/json" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:@"Rename subscription request failed." completion:completion success:nil];
 }
 
 - (NSArray*) cachedHighlightsForEntryID:(NSInteger) entry_id
@@ -2059,43 +2073,14 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint]];
-	if (should_mark_unread) {
-		request.HTTPMethod = @"POST";
-	}
-	else {
-		request.HTTPMethod = @"DELETE";
-	}
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-
-	NSString *authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
 	NSDictionary *payload = @{ @"unread_entries": [normalized_entry_ids copy] };
 	NSData *body_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
-	request.HTTPBody = body_data;
-
-	NSURLSessionDataTask *task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
-
-		NSHTTPURLResponse *http_response = (NSHTTPURLResponse *) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString *default_message = should_mark_unread ? @"Mark unread request failed." : @"Mark read request failed.";
-			NSString *description = [self responseDescriptionForData:data defaultMessage:default_message];
-			NSError *request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
-
+	NSString* method = should_mark_unread ? @"POST" : @"DELETE";
+	NSString* default_message = should_mark_unread ? @"Mark unread request failed." : @"Mark read request failed.";
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:[NSURL URLWithString:MBFeedUnreadEntriesEndpoint] method:method token:token accept:@"application/json" contentType:@"application/json" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:default_message completion:completion success:^{
 		[self recordUnreadStateMutationForEntryIDs:normalized_entry_ids shouldMarkUnread:should_mark_unread];
-
-		[self finishWithSimpleError:nil completion:completion];
 	}];
-	[task resume];
 }
 
 - (NSInteger) nextUnreadFetchRequestID
@@ -2198,36 +2183,12 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:MBFeedStarredEntriesEndpoint]];
-	request.HTTPMethod = should_unbookmark ? @"DELETE" : @"POST";
-	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-	[request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-
-	NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
-	[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
-
 	NSDictionary* payload = @{ @"starred_entries": @[ @(entry_id) ] };
 	NSData* body_data = [NSJSONSerialization dataWithJSONObject:payload options:0 error:nil];
-	request.HTTPBody = body_data;
-
-	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		if (error != nil) {
-			[self finishWithSimpleError:error completion:completion];
-			return;
-		}
-
-		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* default_message = should_unbookmark ? @"Unbookmark request failed." : @"Bookmark request failed.";
-			NSString* description = [self responseDescriptionForData:data defaultMessage:default_message];
-			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			[self finishWithSimpleError:request_error completion:completion];
-			return;
-		}
-
-		[self finishWithSimpleError:nil completion:completion];
-	}];
-	[task resume];
+	NSString* method = should_unbookmark ? @"DELETE" : @"POST";
+	NSString* default_message = should_unbookmark ? @"Unbookmark request failed." : @"Bookmark request failed.";
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:[NSURL URLWithString:MBFeedStarredEntriesEndpoint] method:method token:token accept:@"application/json" contentType:@"application/json" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:default_message completion:completion success:nil];
 }
 
 - (NSArray<MBSubscription *> *) subscriptionsFromPayload:(NSArray *)payload
@@ -2518,6 +2479,143 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	return [normalized_destinations copy];
+}
+
+- (NSArray *) sourceEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft
+{
+	NSArray* items = [self sourceItemsFromMicropubSourcePayload:payload];
+	NSMutableArray* entries = [NSMutableArray array];
+	for (id item in items) {
+		NSDictionary* entry = [self sourceEntryDictionaryFromMicropubSourceItem:item destinationUID:destination_uid isDraft:is_draft];
+		if (entry != nil) {
+			[entries addObject:entry];
+		}
+	}
+
+	return [entries copy];
+}
+
+- (NSArray*) sourceItemsFromMicropubSourcePayload:(id) payload
+{
+	if ([payload isKindOfClass:[NSArray class]]) {
+		return (NSArray*) payload;
+	}
+
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return @[];
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) payload;
+	id items_object = dictionary[@"items"];
+	if ([items_object isKindOfClass:[NSArray class]]) {
+		return (NSArray*) items_object;
+	}
+
+	if ([dictionary[@"properties"] isKindOfClass:[NSDictionary class]] || dictionary[@"content"] != nil || dictionary[@"name"] != nil) {
+		return @[ dictionary ];
+	}
+
+	return @[];
+}
+
+- (NSDictionary *) sourceEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft
+{
+	if (![item isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) item;
+	NSDictionary* properties = [dictionary[@"properties"] isKindOfClass:[NSDictionary class]] ? dictionary[@"properties"] : dictionary;
+
+	NSString* title = [self sourceStringValueFromObject:properties[@"name"]];
+	NSString* content = [self sourceStringValueFromObject:properties[@"content"]];
+	NSString* content_html = [self markdownHTMLStringFromSourceMarkdown:content];
+	NSString* summary = [self sourceStringValueFromObject:properties[@"summary"]];
+	NSString* url = [self sourceStringValueFromObject:properties[@"url"]];
+	NSString* published = [self sourceStringValueFromObject:properties[@"published"]];
+	if (published.length == 0) {
+		published = [self sourceStringValueFromObject:properties[@"updated"]];
+	}
+	NSString* uid = [self sourceStringValueFromObject:properties[@"uid"]];
+	if (uid.length == 0) {
+		uid = [self sourceStringValueFromObject:dictionary[@"uid"]];
+	}
+	if (uid.length == 0) {
+		uid = [self sourceStringValueFromObject:dictionary[@"id"]];
+	}
+	if (summary.length == 0) {
+		summary = content;
+	}
+
+	NSMutableDictionary* entry = [NSMutableDictionary dictionary];
+	entry[@"title"] = title ?: @"";
+	entry[@"summary"] = summary ?: @"";
+	entry[@"content"] = content ?: @"";
+	entry[@"content_html"] = content_html ?: @"";
+	entry[@"url"] = url ?: @"";
+	entry[@"date_published"] = published ?: @"";
+	entry[@"source"] = destination_uid ?: @"";
+	entry[@"is_read"] = @YES;
+	entry[@"is_draft"] = @(is_draft);
+	if (uid.length > 0) {
+		entry[@"id"] = uid;
+	}
+
+	return [entry copy];
+}
+
+- (NSString*) sourceStringValueFromObject:(id) object
+{
+	if ([object isKindOfClass:[NSArray class]]) {
+		for (id item in (NSArray*) object) {
+			NSString* value = [self sourceStringValueFromObject:item];
+			if (value.length > 0) {
+				return value;
+			}
+		}
+
+		return @"";
+	}
+
+	if ([object isKindOfClass:[NSDictionary class]]) {
+		NSDictionary* dictionary = (NSDictionary*) object;
+		id value_object = dictionary[@"value"];
+		if (value_object != nil && ![value_object isKindOfClass:[NSNull class]]) {
+			return [self sourceStringValueFromObject:value_object];
+		}
+
+		return [self sourceStringValueFromObject:dictionary[@"html"]];
+	}
+
+	return [self stringValueFromObjectOrNumber:object];
+}
+
+- (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown
+{
+	NSString* markdown_string = markdown ?: @"";
+	if (markdown_string.length == 0) {
+		return @"";
+	}
+
+	NSError* error = nil;
+	MMMarkdownExtensions extensions = MMMarkdownExtensionsFencedCodeBlocks | MMMarkdownExtensionsTables;
+	NSString* html = [MMMarkdown HTMLStringWithMarkdown:markdown_string extensions:extensions error:&error];
+	if (html.length == 0) {
+		NSString* escaped_text = [self escapedHTMLString:markdown_string];
+		return [NSString stringWithFormat:@"<p>%@</p>", [escaped_text stringByReplacingOccurrencesOfString:@"\n\n" withString:@"</p><p>"]];
+	}
+
+	return html;
+}
+
+- (NSString*) escapedHTMLString:(NSString*) string
+{
+	NSMutableString* escaped_string = [NSMutableString stringWithString:string ?: @""];
+	[escaped_string replaceOccurrencesOfString:@"&" withString:@"&amp;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	[escaped_string replaceOccurrencesOfString:@"<" withString:@"&lt;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	[escaped_string replaceOccurrencesOfString:@">" withString:@"&gt;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	[escaped_string replaceOccurrencesOfString:@"\"" withString:@"&quot;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	return escaped_string;
 }
 
 - (void) cacheMicropubDestinations:(NSArray *)destinations
@@ -3196,6 +3294,53 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}];
 
 	return task;
+}
+
+- (NSMutableURLRequest *) authenticatedRequestWithURL:(NSURL *)url method:(NSString *)method token:(NSString *)token accept:(NSString *)accept contentType:(NSString *)contentType body:(NSData *)body
+{
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
+	request.HTTPMethod = method ?: @"GET";
+	request.HTTPBody = body;
+
+	if (accept.length > 0) {
+		[request setValue:accept forHTTPHeaderField:@"Accept"];
+	}
+
+	if (contentType.length > 0) {
+		[request setValue:contentType forHTTPHeaderField:@"Content-Type"];
+	}
+
+	if (token.length > 0) {
+		NSString* authorization_value = [NSString stringWithFormat:@"Bearer %@", token];
+		[request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
+	}
+
+	return request;
+}
+
+- (void) performSimpleRequest:(NSURLRequest *)request defaultErrorMessage:(NSString *)defaultMessage completion:(void (^)(NSError * _Nullable error))completion success:(void (^ _Nullable)(void))success
+{
+	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		if (error != nil) {
+			[self finishWithSimpleError:error completion:completion];
+			return;
+		}
+
+		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
+		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
+			NSString* description = [self responseDescriptionForData:data defaultMessage:defaultMessage];
+			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishWithSimpleError:request_error completion:completion];
+			return;
+		}
+
+		if (success != nil) {
+			success();
+		}
+
+		[self finishWithSimpleError:nil completion:completion];
+	}];
+	[task resume];
 }
 
 - (void) logAPIRequest:(NSURLRequest *) request

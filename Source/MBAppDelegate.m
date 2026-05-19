@@ -164,6 +164,16 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	[self.mainController openPostWindow:sender];
 }
 
+- (IBAction) saveDraft:(id) sender
+{
+	NSWindowController* window_controller = NSApp.keyWindow.windowController;
+	if (![window_controller isKindOfClass:[MBNewPostController class]]) {
+		return;
+	}
+
+	[(MBNewPostController*) window_controller saveDraft:sender];
+}
+
 - (IBAction) preview:(id) sender
 {
 	NSWindowController* window_controller = NSApp.keyWindow.windowController;
@@ -191,6 +201,12 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
 		menu_item.state = (is_new_post_window_frontmost && [(MBNewPostController*) window_controller isPreviewEnabled]) ? NSControlStateValueOn : NSControlStateValueOff;
 		return is_new_post_window_frontmost;
+	}
+
+	if (menu_item.action == @selector(saveDraft:)) {
+		NSWindowController* window_controller = NSApp.keyWindow.windowController;
+		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		return (is_new_post_window_frontmost && [(MBNewPostController*) window_controller canSaveDraft]);
 	}
 
 	if (menu_item.action == @selector(toggleTitleField:)) {

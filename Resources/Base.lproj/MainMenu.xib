@@ -85,6 +85,11 @@
                                     <action selector="newFeed:" target="-1" id="s8I-jj-K5v"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Save Draft" keyEquivalent="s" id="ZMz-kd-SvD">
+                                <connections>
+                                    <action selector="saveDraft:" target="Voe-Tx-rLC" id="knA-Bb-9GX"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Reply" keyEquivalent="r" id="QXQ-rP-zWf">
                                 <connections>
                                     <action selector="reply:" target="-1" id="c8Q-4a-sS9"/>
@@ -392,6 +397,11 @@
                             <menuItem title="Posts" keyEquivalent="6" id="ZfC-2f-pQu">
                                 <connections>
                                     <action selector="showCurrentUserPosts:" target="-1" id="vBZ-hD-y11"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Drafts" keyEquivalent="7" id="sWm-gk-7nd">
+                                <connections>
+                                    <action selector="showCurrentUserDrafts:" target="-1" id="oZ2-wY-4Ga"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="0am-8V-GZd"/>

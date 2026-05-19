@@ -31,6 +31,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		4B8A2B022FCB01D1000C0123 /* MMMarkdown */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared/MMMarkdown;
+			sourceTree = "<group>";
+		};
 		4BFA464C2F575E33008BD8A3 /* Resources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -67,6 +72,7 @@
 				4B5F345C2F65A9970044F906 /* Inkwell.entitlements */,
 				4BFA46502F575E33008BD8A3 /* Source */,
 				4BFA464C2F575E33008BD8A3 /* Resources */,
+				4B8A2B022FCB01D1000C0123 /* MMMarkdown */,
 				4BFA46582F57970E008BD8A3 /* Frameworks */,
 				4BFA46242F575DBC008BD8A3 /* Products */,
 			);
@@ -105,6 +111,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				4B8A2B022FCB01D1000C0123 /* MMMarkdown */,
 				4BFA464C2F575E33008BD8A3 /* Resources */,
 				4BFA46502F575E33008BD8A3 /* Source */,
 			);

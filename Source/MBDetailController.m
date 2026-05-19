@@ -450,7 +450,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 		content_value = [self escapedHTMLString:fallback_text];
 	}
 
-	NSString* html = [self htmlForPostTitle:safe_title author:item.author siteTitle:item.subscriptionTitle content:content_value];
+	NSString* author = item.isDraft ? @"draft" : item.author;
+	NSString* html = [self htmlForPostTitle:safe_title author:author siteTitle:item.subscriptionTitle content:content_value];
 	[self.webView loadHTMLString:html baseURL:[self baseURLForEntry:item]];
 }
 

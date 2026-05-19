@@ -9,6 +9,7 @@
 
 @class MBClient;
 @class MBEntry;
+@class MBSubscription;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -44,6 +45,11 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) showBookmarks;
 - (void) showAllPostsForSelectedSite;
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
+- (void) showCurrentUserPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
+- (void) showCurrentUserDraftsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
+- (void) showCurrentUserPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription * _Nullable)subscription;
+- (void) showCurrentUserDraftsForDestination:(NSDictionary *)destination subscription:(MBSubscription * _Nullable)subscription;
+- (void) reloadCurrentPostsFromServer;
 - (void) clearSpecialMode;
 - (void) focusAndSelectFirstItem;
 - (BOOL) focusSidebar;
@@ -55,6 +61,8 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (BOOL) canToggleSelectedItemBookmarkedState;
 - (BOOL) canShowReadingRecap;
 - (BOOL) canReplyToSelectedMention;
+- (BOOL) canEditSelectedPost;
+- (NSDictionary * _Nullable) cachedDestinationForEntry:(MBEntry *)entry;
 - (NSString*) readToggleMenuTitle;
 - (NSString*) bookmarkToggleMenuTitle;
 - (NSString*) readPostsVisibilityMenuTitle;
