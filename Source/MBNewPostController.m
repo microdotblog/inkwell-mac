@@ -221,6 +221,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 @property (nonatomic, assign) BOOL isApplyingInitialMarkdownText;
 @property (nonatomic, assign) BOOL isClosingAfterPost;
 @property (nonatomic, assign) BOOL isSettingWindowFrame;
+@property (nonatomic, assign) NSInteger editingPostSourceRequestIdentifier;
+@property (nonatomic, assign) NSInteger applyMarkdownTextRequestIdentifier;
 
 - (void) loadEditorHTMLIfNeeded;
 - (void) applyMarkdownTextToEditor;
@@ -248,6 +250,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) saveDraftAndClose;
 - (void) fetchEditingPostSource;
 - (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError * _Nullable)error;
+- (void) showEditingPostSourceErrorAlert:(NSError *)error;
 - (NSString *) markdownTextFromMicropubSourcePayload:(id)payload;
 - (NSString *) titleTextFromMicropubSourcePayload:(id)payload;
 - (NSString *) sourceStringValueFromObject:(id)object;
@@ -671,6 +674,13 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) applyMarkdownTextToEditorWithCompletion:(void (^)(void))completionHandler
 {
+	if (![NSThread isMainThread]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self applyMarkdownTextToEditorWithCompletion:completionHandler];
+		});
+		return;
+	}
+
 	if (!self.didLoadEditorHTML) {
 		if (completionHandler != nil) {
 			completionHandler();
@@ -679,6 +689,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	}
 
 	NSString* text = self.markdownText ?: @"";
+	self.applyMarkdownTextRequestIdentifier += 1;
+	NSInteger apply_request_id = self.applyMarkdownTextRequestIdentifier;
 	self.isApplyingInitialMarkdownText = YES;
 	NSDictionary* payload = @{ @"text": text };
 	NSError* error = nil;
@@ -702,12 +714,42 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	NSString* script = [NSString stringWithFormat:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.setText(%@.text);", json_string];
 	__weak typeof(self) weak_self = self;
+	__block BOOL did_complete = NO;
+	void (^complete_once)(void) = ^{
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self != nil && strong_self.applyMarkdownTextRequestIdentifier != apply_request_id) {
+			return;
+		}
+
+		if (did_complete) {
+			return;
+		}
+
+		did_complete = YES;
+		if (completionHandler != nil) {
+			completionHandler();
+		}
+	};
+
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil || did_complete || strong_self.applyMarkdownTextRequestIdentifier != apply_request_id) {
+			return;
+		}
+
+		strong_self.isApplyingInitialMarkdownText = NO;
+		strong_self.initialMarkdownText = strong_self.currentMarkdownText ?: @"";
+		[strong_self updateDocumentEditedState];
+		complete_once();
+	});
+
 	[self.webView evaluateJavaScript:script completionHandler:^(id _Nullable result, NSError* _Nullable error) {
 		#pragma unused(result)
 		#pragma unused(error)
+
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 			MBNewPostController* strong_self = weak_self;
-			if (strong_self == nil || !strong_self.isApplyingInitialMarkdownText) {
+			if (strong_self == nil || strong_self.applyMarkdownTextRequestIdentifier != apply_request_id || !strong_self.isApplyingInitialMarkdownText) {
 				return;
 			}
 
@@ -715,9 +757,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			strong_self.initialMarkdownText = strong_self.currentMarkdownText ?: @"";
 			[strong_self updateDocumentEditedState];
 		});
-		if (completionHandler != nil) {
-			completionHandler();
-		}
+		complete_once();
 	}];
 }
 
@@ -1091,7 +1131,16 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) fetchEditingPostSource
 {
+	if (![NSThread isMainThread]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self fetchEditingPostSource];
+		});
+		return;
+	}
+
 	[self setPosting:YES];
+	self.editingPostSourceRequestIdentifier += 1;
+	NSInteger request_id = self.editingPostSourceRequestIdentifier;
 
 	if (self.token.length == 0) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for source request." }];
@@ -1129,16 +1178,23 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 	[request setValue:[NSString stringWithFormat:@"Bearer %@", self.token] forHTTPHeaderField:@"Authorization"];
 
+	__weak typeof(self) weak_self = self;
 	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+		MBNewPostController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
 		NSError* result_error = error;
 		NSString* markdown = @"";
 		NSString* title = @"";
+		NSHTTPURLResponse* http_response = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse*) response : nil;
+		NSInteger status_code = http_response.statusCode;
 
 		if (result_error == nil) {
-			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
-			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Source request failed."];
-				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
+			if (status_code < 200 || status_code >= 300) {
+				NSString* description = [strong_self responseDescriptionForData:data defaultMessage:@"Source request failed."];
+				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:status_code userInfo:@{ NSLocalizedDescriptionKey: description }];
 			}
 		}
 
@@ -1148,13 +1204,21 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1009 userInfo:@{ NSLocalizedDescriptionKey: @"Source response was invalid." }];
 			}
 			else {
-				markdown = [self markdownTextFromMicropubSourcePayload:payload] ?: @"";
-				title = [self titleTextFromMicropubSourcePayload:payload] ?: @"";
+				markdown = [strong_self markdownTextFromMicropubSourcePayload:payload] ?: @"";
+				title = [strong_self titleTextFromMicropubSourcePayload:payload] ?: @"";
 			}
 		}
 
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self finishEditingPostSourceWithMarkdown:markdown title:title error:result_error];
+			MBNewPostController* main_self = weak_self;
+			if (main_self == nil) {
+				return;
+			}
+			if (main_self.editingPostSourceRequestIdentifier != request_id) {
+				return;
+			}
+
+			[main_self finishEditingPostSourceWithMarkdown:markdown title:title error:result_error];
 		});
 	}];
 	[task resume];
@@ -1162,6 +1226,13 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError *)error
 {
+	if (![NSThread isMainThread]) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[self finishEditingPostSourceWithMarkdown:markdown title:title error:error];
+		});
+		return;
+	}
+
 	self.isLoadingEditingPostSource = NO;
 	[self setPosting:NO];
 
@@ -1170,7 +1241,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			self.webView.hidden = NO;
 			[self.window makeFirstResponder:self.webView];
 		}
-		NSBeep();
+		[self showEditingPostSourceErrorAlert:error];
 		return;
 	}
 
@@ -1194,6 +1265,22 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			strong_self.webView.hidden = NO;
 			[strong_self.window makeFirstResponder:strong_self.webView];
 		}];
+	}
+}
+
+- (void) showEditingPostSourceErrorAlert:(NSError *)error
+{
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.alertStyle = NSAlertStyleWarning;
+	alert.messageText = @"Could Not Load Post";
+	alert.informativeText = error.localizedDescription.length > 0 ? error.localizedDescription : @"The post could not be loaded for editing.";
+	[alert addButtonWithTitle:@"OK"];
+
+	if (self.window != nil) {
+		[alert beginSheetModalForWindow:self.window completionHandler:nil];
+	}
+	else {
+		[alert runModal];
 	}
 }
 
@@ -1591,6 +1678,10 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	#pragma unused(notification)
 
 	[self removeCommandReturnEventMonitor];
+	self.editingPostSourceRequestIdentifier += 1;
+	self.applyMarkdownTextRequestIdentifier += 1;
+	self.isLoadingEditingPostSource = NO;
+	self.isApplyingInitialMarkdownText = NO;
 
 	void (^did_close_handler)(MBNewPostController* controller) = self.didCloseHandler;
 	self.didCloseHandler = nil;
