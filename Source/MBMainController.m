@@ -1763,7 +1763,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	MBNewPostController* post_controller = [self configuredPostWindowController];
-	[post_controller showEditingPostURL:post_url destinationName:destination_name destinationUID:destination_uid destinations:cached_destinations token:self.token];
+	[post_controller showEditingPostURL:post_url destinationName:destination_name destinationUID:destination_uid destinations:cached_destinations isDraft:item.isDraft token:self.token];
 	[self scheduleMicropubDestinationsRefreshAfterOpeningNewPost];
 }
 

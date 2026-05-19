@@ -220,6 +220,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 @property (nonatomic, assign) BOOL isContentOverCharacterLimit;
 @property (nonatomic, assign) BOOL isApplyingInitialMarkdownText;
 @property (nonatomic, assign) BOOL isClosingAfterPost;
+@property (nonatomic, assign) BOOL shouldCloseAfterSuccessfulPost;
+@property (nonatomic, assign) BOOL currentPostOperationIsDraftSave;
+@property (nonatomic, assign) BOOL editingPostIsDraft;
 @property (nonatomic, assign) BOOL isSettingWindowFrame;
 @property (nonatomic, assign) NSInteger editingPostSourceRequestIdentifier;
 @property (nonatomic, assign) NSInteger applyMarkdownTextRequestIdentifier;
@@ -244,15 +247,20 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) updatePostButtonTitle;
 - (void) setPosting:(BOOL) is_posting;
 - (void) finishPostingWithError:(NSError * _Nullable)error;
+- (void) finishPostingWithError:(NSError * _Nullable)error createdPostURLString:(NSString * _Nullable)createdPostURLString;
 - (void) postContent:(NSString *)content;
 - (void) postContent:(NSString *)content asDraft:(BOOL)is_draft;
 - (void) updatePostContent:(NSString *)content asDraft:(BOOL)is_draft postURL:(NSString *)postURL;
+- (void) saveDraftClosingWindow:(BOOL)should_close_window;
 - (void) saveDraftAndClose;
+- (void) markCurrentContentAsSavedWithMarkdownText:(NSString *)markdownText;
+- (NSString * _Nullable) createdPostURLStringFromData:(NSData * _Nullable)data response:(NSURLResponse * _Nullable)response;
 - (void) fetchEditingPostSource;
-- (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError * _Nullable)error;
+- (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title postStatus:(NSString *)postStatus error:(NSError * _Nullable)error;
 - (void) showEditingPostSourceErrorAlert:(NSError *)error;
 - (NSString *) markdownTextFromMicropubSourcePayload:(id)payload;
 - (NSString *) titleTextFromMicropubSourcePayload:(id)payload;
+- (NSString *) postStatusTextFromMicropubSourcePayload:(id)payload;
 - (NSString *) sourceStringValueFromObject:(id)object;
 - (void) postPreviewContent:(NSString *)content completion:(void (^)(NSString* _Nullable html, NSError* _Nullable error))completion;
 - (void) showPreviewHTML:(NSString *)html;
@@ -288,6 +296,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		self.destinationUID = @"";
 		self.destinations = @[];
 		self.token = @"";
+		self.shouldCloseAfterSuccessfulPost = YES;
 	}
 	return self;
 }
@@ -312,6 +321,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 {
 	[self setupWindowIfNeeded];
 	self.editingPostURLString = @"";
+	self.editingPostIsDraft = NO;
 	self.isLoadingEditingPostSource = NO;
 	[self updatePostButtonTitle];
 	self.markdownText = markdownText ?: @"";
@@ -341,10 +351,11 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	}
 }
 
-- (void) showEditingPostURL:(NSString *)postURLString destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token
+- (void) showEditingPostURL:(NSString *)postURLString destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations isDraft:(BOOL)isDraft token:(NSString *)token
 {
 	[self setupWindowIfNeeded];
 	self.editingPostURLString = postURLString ?: @"";
+	self.editingPostIsDraft = isDraft;
 	self.isLoadingEditingPostSource = YES;
 	[self updatePostButtonTitle];
 	self.markdownText = @"";
@@ -396,6 +407,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		}
 
 		[strong_self setPosting:YES];
+		strong_self.shouldCloseAfterSuccessfulPost = YES;
+		strong_self.currentPostOperationIsDraftSave = NO;
 		[strong_self postContent:content asDraft:NO];
 	}];
 }
@@ -939,7 +952,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (NSString *) postToolbarButtonTitle
 {
-	return [self isEditingExistingPost] ? @"Update" : @"Post";
+	return ([self isEditingExistingPost] && !self.editingPostIsDraft) ? @"Update" : @"Post";
 }
 
 - (void) updatePostButtonTitle
@@ -968,15 +981,33 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) finishPostingWithError:(NSError *)error
 {
+	[self finishPostingWithError:error createdPostURLString:nil];
+}
+
+- (void) finishPostingWithError:(NSError *)error createdPostURLString:(NSString *)createdPostURLString
+{
 	if (error == nil) {
 		BOOL did_update_post = [self isEditingExistingPost];
+		BOOL did_save_draft = self.currentPostOperationIsDraftSave;
 		[self setPosting:NO];
-		self.isClosingAfterPost = YES;
+		if (createdPostURLString.length > 0) {
+			self.editingPostURLString = createdPostURLString;
+		}
+		if (did_save_draft) {
+			self.editingPostIsDraft = YES;
+		}
+		[self updatePostButtonTitle];
+		if (did_save_draft && !self.shouldCloseAfterSuccessfulPost) {
+			[self markCurrentContentAsSavedWithMarkdownText:self.currentMarkdownText];
+		}
 		self.window.documentEdited = NO;
-		if (did_update_post && self.didUpdatePostHandler != nil) {
+		if ((did_update_post || did_save_draft) && self.didUpdatePostHandler != nil) {
 			self.didUpdatePostHandler();
 		}
-		[self close];
+		if (self.shouldCloseAfterSuccessfulPost) {
+			self.isClosingAfterPost = YES;
+			[self close];
+		}
 		return;
 	}
 
@@ -1031,16 +1062,20 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	NSURLSessionDataTask* task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
 		NSError* result_error = error;
+		NSString* created_post_url = nil;
 		if (result_error == nil) {
 			NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
 			if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 				NSString* description = [self responseDescriptionForData:data defaultMessage:@"Posting failed."];
 				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
 			}
+			else {
+				created_post_url = [self createdPostURLStringFromData:data response:response];
+			}
 		}
 
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self finishPostingWithError:result_error];
+			[self finishPostingWithError:result_error createdPostURLString:created_post_url];
 		});
 	}];
 	[task resume];
@@ -1065,6 +1100,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	}
 	if (is_draft) {
 		replace[@"post-status"] = @[ @"draft" ];
+	}
+	else if (self.editingPostIsDraft) {
+		replace[@"post-status"] = @[ @"published" ];
 	}
 
 	NSMutableDictionary* payload = [@{
@@ -1109,7 +1147,32 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	[task resume];
 }
 
+- (BOOL) canSaveDraft
+{
+	if (self.isPosting || self.isLoadingEditingPostSource || self.token.length == 0) {
+		return NO;
+	}
+
+	return (![self isEditingExistingPost] || self.editingPostIsDraft);
+}
+
+- (IBAction) saveDraft:(id) sender
+{
+	#pragma unused(sender)
+
+	if (![self canSaveDraft]) {
+		return;
+	}
+
+	[self saveDraftClosingWindow:NO];
+}
+
 - (void) saveDraftAndClose
+{
+	[self saveDraftClosingWindow:YES];
+}
+
+- (void) saveDraftClosingWindow:(BOOL)should_close_window
 {
 	if (self.isPosting) {
 		return;
@@ -1128,7 +1191,10 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		}
 
 		NSString* content = [result isKindOfClass:[NSString class]] ? (NSString*) result : @"";
+		strong_self.currentMarkdownText = content;
 		[strong_self setPosting:YES];
+		strong_self.shouldCloseAfterSuccessfulPost = should_close_window;
+		strong_self.currentPostOperationIsDraftSave = YES;
 		[strong_self postContent:content asDraft:YES];
 	}];
 }
@@ -1148,14 +1214,14 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	if (self.token.length == 0) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1006 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for source request." }];
-		[self finishEditingPostSourceWithMarkdown:@"" title:@"" error:error];
+		[self finishEditingPostSourceWithMarkdown:@"" title:@"" postStatus:@"" error:error];
 		return;
 	}
 
 	NSString* post_url = [self.editingPostURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (post_url.length == 0) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1007 userInfo:@{ NSLocalizedDescriptionKey: @"Missing post URL for source request." }];
-		[self finishEditingPostSourceWithMarkdown:@"" title:@"" error:error];
+		[self finishEditingPostSourceWithMarkdown:@"" title:@"" postStatus:@"" error:error];
 		return;
 	}
 
@@ -1173,7 +1239,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	NSURL* request_url = components.URL;
 	if (request_url == nil) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1008 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub source endpoint URL was invalid." }];
-		[self finishEditingPostSourceWithMarkdown:@"" title:@"" error:error];
+		[self finishEditingPostSourceWithMarkdown:@"" title:@"" postStatus:@"" error:error];
 		return;
 	}
 
@@ -1189,10 +1255,11 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			return;
 		}
 
-		NSError* result_error = error;
-		NSString* markdown = @"";
-		NSString* title = @"";
-		NSHTTPURLResponse* http_response = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse*) response : nil;
+			NSError* result_error = error;
+			NSString* markdown = @"";
+			NSString* title = @"";
+			NSString* post_status = @"";
+			NSHTTPURLResponse* http_response = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse*) response : nil;
 		NSInteger status_code = http_response.statusCode;
 
 		if (result_error == nil) {
@@ -1207,11 +1274,12 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			if (![payload isKindOfClass:[NSDictionary class]]) {
 				result_error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1009 userInfo:@{ NSLocalizedDescriptionKey: @"Source response was invalid." }];
 			}
-			else {
-				markdown = [strong_self markdownTextFromMicropubSourcePayload:payload] ?: @"";
-				title = [strong_self titleTextFromMicropubSourcePayload:payload] ?: @"";
+				else {
+					markdown = [strong_self markdownTextFromMicropubSourcePayload:payload] ?: @"";
+					title = [strong_self titleTextFromMicropubSourcePayload:payload] ?: @"";
+					post_status = [strong_self postStatusTextFromMicropubSourcePayload:payload] ?: @"";
+				}
 			}
-		}
 
 		dispatch_async(dispatch_get_main_queue(), ^{
 			MBNewPostController* main_self = weak_self;
@@ -1222,17 +1290,17 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 				return;
 			}
 
-			[main_self finishEditingPostSourceWithMarkdown:markdown title:title error:result_error];
-		});
+				[main_self finishEditingPostSourceWithMarkdown:markdown title:title postStatus:post_status error:result_error];
+			});
 	}];
 	[task resume];
 }
 
-- (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title error:(NSError *)error
+- (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title postStatus:(NSString *)postStatus error:(NSError *)error
 {
 	if (![NSThread isMainThread]) {
 		dispatch_async(dispatch_get_main_queue(), ^{
-			[self finishEditingPostSourceWithMarkdown:markdown title:title error:error];
+			[self finishEditingPostSourceWithMarkdown:markdown title:title postStatus:postStatus error:error];
 		});
 		return;
 	}
@@ -1255,6 +1323,14 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	[self resetCharacterCount];
 	self.titleField.stringValue = title ?: @"";
 	self.initialTitleText = self.titleField.stringValue ?: @"";
+	NSString* normalized_post_status = [[postStatus lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if ([normalized_post_status isEqualToString:@"draft"]) {
+		self.editingPostIsDraft = YES;
+	}
+	else if ([normalized_post_status isEqualToString:@"published"]) {
+		self.editingPostIsDraft = NO;
+	}
+	[self updatePostButtonTitle];
 	[self updateTitleAndCharacterCountVisibilityAnimated:NO];
 	[self updateDocumentEditedState];
 
@@ -1322,6 +1398,24 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	}
 
 	return [self sourceStringValueFromObject:dictionary[@"name"]];
+}
+
+- (NSString *) postStatusTextFromMicropubSourcePayload:(id)payload
+{
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return @"";
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) payload;
+	id properties_object = dictionary[@"properties"];
+	if ([properties_object isKindOfClass:[NSDictionary class]]) {
+		NSString* value = [self sourceStringValueFromObject:((NSDictionary*) properties_object)[@"post-status"]];
+		if (value.length > 0) {
+			return value;
+		}
+	}
+
+	return [self sourceStringValueFromObject:dictionary[@"post-status"]];
 }
 
 - (NSString *) sourceStringValueFromObject:(id)object
@@ -1595,6 +1689,40 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	NSString* string_value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 	return (string_value.length > 0) ? string_value : default_message;
+}
+
+- (void) markCurrentContentAsSavedWithMarkdownText:(NSString *)markdownText
+{
+	self.currentMarkdownText = markdownText ?: @"";
+	self.initialMarkdownText = self.currentMarkdownText ?: @"";
+	self.initialTitleText = self.titleField.stringValue ?: @"";
+	[self updateDocumentEditedState];
+}
+
+- (NSString *) createdPostURLStringFromData:(NSData *)data response:(NSURLResponse *)response
+{
+	NSHTTPURLResponse* http_response = [response isKindOfClass:[NSHTTPURLResponse class]] ? (NSHTTPURLResponse*) response : nil;
+	NSString* location = [self stringValueFromObject:http_response.allHeaderFields[@"Location"]];
+	if (location.length > 0) {
+		return location;
+	}
+
+	if (data.length == 0) {
+		return nil;
+	}
+
+	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	if (![payload isKindOfClass:[NSDictionary class]]) {
+		return nil;
+	}
+
+	NSDictionary* dictionary = (NSDictionary*) payload;
+	NSString* url_string = [self stringValueFromObject:dictionary[@"url"]];
+	if (url_string.length > 0) {
+		return url_string;
+	}
+
+	return [self stringValueFromObject:dictionary[@"location"]];
 }
 
 - (void) webView:(WKWebView *)web_view didFinishNavigation:(WKNavigation *)navigation

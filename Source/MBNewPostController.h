@@ -21,7 +21,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) showWithMarkdownText:(NSString *)markdownText;
 - (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID token:(NSString *)token;
 - (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token;
-- (void) showEditingPostURL:(NSString *)postURLString destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token;
+- (void) showEditingPostURL:(NSString *)postURLString destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations isDraft:(BOOL)isDraft token:(NSString *)token;
+- (BOOL) canSaveDraft;
+- (IBAction) saveDraft:(id) sender;
 - (BOOL) isPreviewEnabled;
 - (IBAction) preview:(id) sender;
 - (IBAction) toggleTitleField:(id) sender;

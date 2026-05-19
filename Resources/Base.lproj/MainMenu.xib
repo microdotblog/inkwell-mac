@@ -85,6 +85,11 @@
                                     <action selector="newFeed:" target="-1" id="s8I-jj-K5v"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Save Draft" keyEquivalent="s" id="ZMz-kd-SvD">
+                                <connections>
+                                    <action selector="saveDraft:" target="Voe-Tx-rLC" id="knA-Bb-9GX"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Reply" keyEquivalent="r" id="QXQ-rP-zWf">
                                 <connections>
                                     <action selector="reply:" target="-1" id="c8Q-4a-sS9"/>
