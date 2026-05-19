@@ -125,8 +125,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (copy) NSDictionary<NSString *, NSString *> *iconURLByHost;
 @property (strong) MBAvatarLoader* avatarLoader;
 @property (strong) NSImage *defaultAvatarImage;
-@property (strong) NSMenu* contextMenu;
-@property (strong) NSMenuItem* editPostMenuItem;
 @property (strong) MBReplyController* replyController;
 @property (strong) NSBox* recapBoxView;
 @property (strong) NSButton* recapButton;
@@ -934,7 +932,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	MBEntry* selected_item = [self selectedItem];
-	return (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry && self.client != nil && self.token.length > 0);
+	return (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry && !selected_item.isDraft && self.client != nil && self.token.length > 0);
 }
 
 - (BOOL) canMarkAllItemsAsRead
@@ -959,7 +957,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	MBEntry* selected_item = [self selectedItem];
-	return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+	return (selected_item != nil && selected_item.entryID > 0 && !selected_item.isDraft && self.client != nil && self.token.length > 0);
 }
 
 - (BOOL) canReplyToSelectedMention
@@ -3321,6 +3319,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	sidebar_entry.date = entry_date;
 	sidebar_entry.isRead = is_read_value;
 	sidebar_entry.isBookmarked = is_bookmarked_value;
+	sidebar_entry.isDraft = [self boolValueFromObject:entry[@"is_draft"]];
 
 	return sidebar_entry;
 }
@@ -3514,11 +3513,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSMenu*) sidebarContextMenu
 {
-	if (self.contextMenu != nil) {
-		self.editPostMenuItem.hidden = NO;
-		return self.contextMenu;
-	}
-
+	MBEntry* selected_item = [self selectedItem];
+	BOOL is_draft = selected_item.isDraft;
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 	SEL new_post_selector = NSSelectorFromString(@"openPostWindow:");
 	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
@@ -3528,22 +3524,23 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 	SEL show_all_posts_selector = NSSelectorFromString(@"showAllPosts:");
 
-	NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:new_post_selector keyEquivalent:@""];
-	new_post_item.target = nil;
-	[menu addItem:new_post_item];
+	if (!is_draft) {
+		NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:new_post_selector keyEquivalent:@""];
+		new_post_item.target = nil;
+		[menu addItem:new_post_item];
 
-	NSMenuItem* toggle_read_item = [[NSMenuItem alloc] initWithTitle:@"Mark as Read" action:toggle_read_selector keyEquivalent:@""];
-	toggle_read_item.target = self;
-	[menu addItem:toggle_read_item];
+		NSMenuItem* toggle_read_item = [[NSMenuItem alloc] initWithTitle:@"Mark as Read" action:toggle_read_selector keyEquivalent:@""];
+		toggle_read_item.target = self;
+		[menu addItem:toggle_read_item];
 
-	NSMenuItem* toggle_bookmark_item = [[NSMenuItem alloc] initWithTitle:@"Bookmark" action:toggle_bookmark_selector keyEquivalent:@""];
-	toggle_bookmark_item.target = nil;
-	[menu addItem:toggle_bookmark_item];
+		NSMenuItem* toggle_bookmark_item = [[NSMenuItem alloc] initWithTitle:@"Bookmark" action:toggle_bookmark_selector keyEquivalent:@""];
+		toggle_bookmark_item.target = nil;
+		[menu addItem:toggle_bookmark_item];
+	}
 
 	NSMenuItem* edit_post_item = [[NSMenuItem alloc] initWithTitle:@"Edit" action:edit_post_selector keyEquivalent:@""];
 	edit_post_item.target = nil;
 	[menu addItem:edit_post_item];
-	self.editPostMenuItem = edit_post_item;
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
@@ -3569,8 +3566,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	copy_item.target = self;
 	[menu addItem:copy_item];
 
-	self.contextMenu = menu;
-	return self.contextMenu;
+	return menu;
 }
 
 - (IBAction) openSelectedItemInBrowserAction:(id)sender
@@ -3722,7 +3718,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) validateMenuItem:(NSMenuItem*) menu_item
 {
 	if (menu_item.action == NSSelectorFromString(@"openPostWindow:")) {
-		return ([self selectedItem] != nil);
+		MBEntry* selected_item = [self selectedItem];
+		return (selected_item != nil && !selected_item.isDraft);
 	}
 	if (menu_item.action == @selector(toggleSelectedItemReadStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];
@@ -3732,7 +3729,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (menu_item.action == @selector(toggleSelectedItemBookmarkedStateAction:)) {
 		MBEntry* selected_item = [self selectedItem];
 		menu_item.title = [self bookmarkToggleMenuTitleForSelectedItem:selected_item];
-		return (selected_item != nil && selected_item.entryID > 0 && self.client != nil && self.token.length > 0);
+		return [self canToggleSelectedItemBookmarkedState];
 	}
 	if (menu_item.action == NSSelectorFromString(@"showAllPosts:")) {
 		return [self canShowAllPostsForSelectedSite];

@@ -29,6 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL isRead;
 @property (nonatomic, assign) BOOL isBookmarked;
 @property (nonatomic, assign) BOOL isBookmarkEntry;
+@property (nonatomic, assign) BOOL isDraft;
 
 - (BOOL) hasAudioEnclosure;
 

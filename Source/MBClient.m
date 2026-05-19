@@ -10,6 +10,7 @@
 #import "MBPathUtilities.h"
 #import "MBSessionController.h"
 #import "MBSubscription.h"
+#import <JavaScriptCore/JavaScriptCore.h>
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
 NSString* const MBClientNetworkingDidStartNotification = @"MBClientNetworkingDidStartNotification";
@@ -68,6 +69,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 @property (assign) BOOL hasLoadedFeedIcons;
 @property (assign) BOOL isFetchingFeedIcons;
 @property (strong) NSMutableArray* pendingFeedIconsCompletions;
+@property (strong) JSContext* markdownContext;
 
 - (NSArray*) defaultEntryQueryItemsForPageNumber:(NSInteger) page_number;
 - (NSInteger) nextUnreadFetchRequestID;
@@ -80,6 +82,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (NSArray*) sourceItemsFromMicropubSourcePayload:(id) payload;
 - (NSDictionary* _Nullable) draftEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString*) destination_uid;
 - (NSString*) sourceStringValueFromObject:(id) object;
+- (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown;
+- (JSContext* _Nullable) markdownConversionContext;
+- (NSString*) escapedHTMLString:(NSString*) string;
 - (BOOL) entries:(NSArray *) entries containFeedIDMissingFromSubscriptions:(NSArray *) subscriptions;
 - (NSURL * _Nullable) feedSubscriptionsCacheURL;
 - (NSURL * _Nullable) micropubDestinationsCacheURL;
@@ -2639,6 +2644,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	NSString* title = [self sourceStringValueFromObject:properties[@"name"]];
 	NSString* content = [self sourceStringValueFromObject:properties[@"content"]];
+	NSString* content_html = [self markdownHTMLStringFromSourceMarkdown:content];
 	NSString* summary = [self sourceStringValueFromObject:properties[@"summary"]];
 	NSString* url = [self sourceStringValueFromObject:properties[@"url"]];
 	NSString* published = [self sourceStringValueFromObject:properties[@"published"]];
@@ -2660,10 +2666,12 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	entry[@"title"] = title ?: @"";
 	entry[@"summary"] = summary ?: @"";
 	entry[@"content"] = content ?: @"";
+	entry[@"content_html"] = content_html ?: @"";
 	entry[@"url"] = url ?: @"";
 	entry[@"date_published"] = published ?: @"";
 	entry[@"source"] = destination_uid ?: @"";
 	entry[@"is_read"] = @YES;
+	entry[@"is_draft"] = @YES;
 	if (uid.length > 0) {
 		entry[@"id"] = uid;
 	}
@@ -2695,6 +2703,65 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	return [self stringValueFromObjectOrNumber:object];
+}
+
+- (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown
+{
+	NSString* markdown_string = markdown ?: @"";
+	if (markdown_string.length == 0) {
+		return @"";
+	}
+
+	JSContext* context = [self markdownConversionContext];
+	JSValue* showdown = context[@"showdown"];
+	JSValue* converter_constructor = showdown[@"Converter"];
+	if (context == nil || showdown.isUndefined || converter_constructor.isUndefined) {
+		NSString* escaped_text = [self escapedHTMLString:markdown_string];
+		return [NSString stringWithFormat:@"<p>%@</p>", [escaped_text stringByReplacingOccurrencesOfString:@"\n\n" withString:@"</p><p>"]];
+	}
+
+	JSValue* converter = [converter_constructor constructWithArguments:@[]];
+	JSValue* result = [converter invokeMethod:@"makeHtml" withArguments:@[ markdown_string ]];
+	NSString* html = [result toString] ?: @"";
+	if (html.length == 0) {
+		return [self escapedHTMLString:markdown_string];
+	}
+
+	return html;
+}
+
+- (JSContext*) markdownConversionContext
+{
+	if (self.markdownContext != nil) {
+		return self.markdownContext;
+	}
+
+	NSURL* script_url = [[NSBundle mainBundle] URLForResource:@"showdown.min" withExtension:@"js" subdirectory:@"NewPost"];
+	if (script_url == nil) {
+		script_url = [[NSBundle mainBundle] URLForResource:@"showdown.min" withExtension:@"js"];
+	}
+	if (script_url == nil) {
+		return nil;
+	}
+	NSString* script = [NSString stringWithContentsOfURL:script_url encoding:NSUTF8StringEncoding error:nil];
+	if (script.length == 0) {
+		return nil;
+	}
+
+	JSContext* context = [[JSContext alloc] init];
+	[context evaluateScript:script];
+	self.markdownContext = context;
+	return self.markdownContext;
+}
+
+- (NSString*) escapedHTMLString:(NSString*) string
+{
+	NSMutableString* escaped_string = [NSMutableString stringWithString:string ?: @""];
+	[escaped_string replaceOccurrencesOfString:@"&" withString:@"&amp;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	[escaped_string replaceOccurrencesOfString:@"<" withString:@"&lt;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	[escaped_string replaceOccurrencesOfString:@">" withString:@"&gt;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	[escaped_string replaceOccurrencesOfString:@"\"" withString:@"&quot;" options:0 range:NSMakeRange(0, escaped_string.length)];
+	return escaped_string;
 }
 
 - (void) cacheMicropubDestinations:(NSArray *)destinations
