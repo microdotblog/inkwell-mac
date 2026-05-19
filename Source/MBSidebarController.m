@@ -191,6 +191,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) windowKeyStateDidChange:(NSNotification*) notification;
 - (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) moveSelectionFromRememberedRow:(NSInteger) direction;
+- (BOOL) performPrimaryActionForSelectedItem;
+- (BOOL) editSelectedItemIfPossible;
 - (BOOL) openSelectedItemInBrowser;
 - (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (NSString*) bookmarkToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
@@ -479,14 +481,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	table_view.delegate = self;
 	table_view.dataSource = self;
 	table_view.target = self;
-	table_view.doubleAction = @selector(editDoubleClickedSidebarItem:);
+	table_view.doubleAction = @selector(performDoubleClickedSidebarItemAction:);
 	table_view.headerView = nil;
 	table_view.allowsEmptySelection = YES;
 	table_view.intercellSpacing = NSMakeSize(0.0, 5.0);
 	table_view.style = NSTableViewStyleSourceList;
 	table_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
-	table_view.openSelectedItemHandler = ^BOOL {
-		return [weak_self openSelectedItemInBrowser];
+	table_view.primaryActionHandler = ^BOOL {
+		return [weak_self performPrimaryActionForSelectedItem];
 	};
 	table_view.focusDetailHandler = ^BOOL {
 		MBSidebarController* strong_self = weak_self;
@@ -3511,6 +3513,38 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return 0;
 }
 
+- (BOOL) performPrimaryActionForSelectedItem
+{
+	if ([self editSelectedItemIfPossible]) {
+		return YES;
+	}
+
+	return [self openSelectedItemInBrowser];
+}
+
+- (BOOL) editSelectedItemIfPossible
+{
+	if ([self selectedItem] == nil) {
+		return NO;
+	}
+
+	SEL edit_post_selector = NSSelectorFromString(@"editPost:");
+	id target = [NSApp targetForAction:edit_post_selector to:nil from:self];
+	if (target == nil) {
+		return NO;
+	}
+
+	if ([target respondsToSelector:@selector(validateMenuItem:)]) {
+		NSMenuItem* validation_item = [[NSMenuItem alloc] initWithTitle:@"" action:edit_post_selector keyEquivalent:@""];
+		validation_item.target = target;
+		if (![(id<NSMenuItemValidation>) target validateMenuItem:validation_item]) {
+			return NO;
+		}
+	}
+
+	return [NSApp sendAction:edit_post_selector to:target from:self];
+}
+
 - (BOOL) openSelectedItemInBrowser
 {
 	MBEntry* selected_item = [self selectedItem];
@@ -3589,7 +3623,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return menu;
 }
 
-- (IBAction) editDoubleClickedSidebarItem:(id)sender
+- (IBAction) performDoubleClickedSidebarItemAction:(id)sender
 {
 	#pragma unused(sender)
 
@@ -3600,7 +3634,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) clicked_row];
 	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-	[NSApp sendAction:NSSelectorFromString(@"editPost:") to:nil from:self];
+	[self performPrimaryActionForSelectedItem];
 }
 
 - (IBAction) openSelectedItemInBrowserAction:(id)sender
