@@ -1768,6 +1768,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	NSString* current_destination_uid = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
 	current_destination_uid = [current_destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSDictionary* first_destination = nil;
+	NSDictionary* microblog_default_destination = nil;
 	for (id object in destinations ?: @[]) {
 		if (![object isKindOfClass:[NSDictionary class]]) {
 			continue;
@@ -1783,9 +1784,13 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		if (current_destination_uid.length > 0 && [destination_uid isEqualToString:current_destination_uid]) {
 			return destination;
 		}
+
+		if (microblog_default_destination == nil && [destination[@"microblog-default"] boolValue]) {
+			microblog_default_destination = destination;
+		}
 	}
 
-	return first_destination;
+	return microblog_default_destination ?: first_destination;
 }
 
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text

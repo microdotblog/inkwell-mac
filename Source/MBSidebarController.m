@@ -208,7 +208,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
 - (NSDictionary * _Nullable) cachedDestinationWithUID:(NSString *)destinationUID;
 - (NSDictionary * _Nullable) cachedDestinationWithHost:(NSString *)host;
-- (NSDictionary * _Nullable) firstCachedDestination;
+- (NSDictionary * _Nullable) defaultCachedDestination;
 - (NSDictionary * _Nullable) cachedDestinationForEntry:(MBEntry *)entry;
 - (BOOL) host:(NSString *)host matchesDestination:(NSDictionary *)destination normalizeHosts:(BOOL)normalize_hosts;
 - (void) fetchBookmarksIfNeeded;
@@ -1460,15 +1460,25 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return nil;
 }
 
-- (NSDictionary *) firstCachedDestination
+- (NSDictionary *) defaultCachedDestination
 {
+	NSDictionary* first_destination = nil;
+	NSDictionary* microblog_default_destination = nil;
 	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
-		if ([object isKindOfClass:[NSDictionary class]]) {
-			return (NSDictionary*) object;
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		if (first_destination == nil) {
+			first_destination = destination;
+		}
+		if (microblog_default_destination == nil && [destination[@"microblog-default"] boolValue]) {
+			microblog_default_destination = destination;
 		}
 	}
 
-	return nil;
+	return microblog_default_destination ?: first_destination;
 }
 
 - (NSDictionary *) cachedDestinationForEntry:(MBEntry *)entry
@@ -2850,7 +2860,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSString* current_destination = [self currentPostsDestinationUID];
 	NSDictionary* destination = [self cachedDestinationWithUID:current_destination];
 	if (destination == nil) {
-		destination = [self firstCachedDestination];
+		destination = [self defaultCachedDestination];
 		current_destination = [self stringValueFromObjectOrNumber:destination[@"uid"]];
 		current_destination = [current_destination stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	}
@@ -2913,8 +2923,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSString* current_destination_uid = [self currentPostsDestinationUID];
 	if ([self cachedDestinationWithUID:current_destination_uid] == nil) {
-		NSDictionary* first_destination = [self firstCachedDestination];
-		current_destination_uid = [self stringValueFromObjectOrNumber:first_destination[@"uid"]];
+		NSDictionary* default_destination = [self defaultCachedDestination];
+		current_destination_uid = [self stringValueFromObjectOrNumber:default_destination[@"uid"]];
 		current_destination_uid = [current_destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	}
 
