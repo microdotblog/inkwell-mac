@@ -111,7 +111,6 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSDictionary * _Nullable) destinationWithUID:(NSString *)destinationUID destinations:(NSArray *)destinations;
 - (MBSubscription * _Nullable) subscriptionMatchingDestinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalizeHosts;
 - (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalizeHosts;
-- (NSString *) currentUserPostsMenuTitleForSubscription:(MBSubscription * _Nullable)subscription;
 - (NSString *) hostFromURLString:(NSString *)string;
 - (NSString *) normalizedHostFromURLString:(NSString *)string;
 - (NSString *) normalizedHostString:(NSString *)hostString;
@@ -578,7 +577,34 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	self.sidebarController.searchQuery = @"";
-	[self.sidebarController showAllPostsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
+	[self.sidebarController showCurrentUserPostsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
+	[self updateFilterSegmentedControlEnabledState];
+}
+
+- (IBAction) showCurrentUserDrafts:(id)sender
+{
+	#pragma unused(sender)
+
+	MBSubscription* subscription = [self currentUserBlogSubscription];
+	if (subscription == nil || subscription.feedID <= 0) {
+		return;
+	}
+
+	if (self.toolbarSearchField != nil && self.toolbarSearchField.stringValue.length > 0) {
+		self.toolbarSearchField.stringValue = @"";
+	}
+
+	NSString* site_name = [subscription.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* feed_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
+	if (feed_host.length == 0) {
+		feed_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
+	}
+	if (site_name.length == 0) {
+		site_name = feed_host;
+	}
+
+	self.sidebarController.searchQuery = @"";
+	[self.sidebarController showCurrentUserDraftsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
 	[self updateFilterSegmentedControlEnabledState];
 }
 
@@ -1153,7 +1179,12 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 	if (menu_item.action == @selector(showCurrentUserPosts:)) {
 		MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
-		menu_item.title = [self currentUserPostsMenuTitleForSubscription:current_user_blog_subscription];
+		menu_item.title = @"Posts";
+		return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
+	}
+	if (menu_item.action == @selector(showCurrentUserDrafts:)) {
+		MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
+		menu_item.title = @"Drafts";
 		return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
 	}
 	if (menu_item.action == @selector(highlightSelectedItem:)) {
@@ -1363,23 +1394,6 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	return NO;
-}
-
-- (NSString *) currentUserPostsMenuTitleForSubscription:(MBSubscription *)subscription
-{
-	if (subscription == nil) {
-		return @"Posts";
-	}
-
-	NSString* hostname = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
-	if (hostname.length == 0) {
-		hostname = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
-	}
-	if (hostname.length == 0) {
-		return @"Posts";
-	}
-
-	return [NSString stringWithFormat:@"Posts: %@", hostname];
 }
 
 - (NSString *) hostFromURLString:(NSString *)string

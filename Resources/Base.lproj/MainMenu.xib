@@ -394,6 +394,11 @@
                                     <action selector="showCurrentUserPosts:" target="-1" id="vBZ-hD-y11"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Drafts" keyEquivalent="7" id="sWm-gk-7nd">
+                                <connections>
+                                    <action selector="showCurrentUserDrafts:" target="-1" id="oZ2-wY-4Ga"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="0am-8V-GZd"/>
                             <menuItem title="Sort By" id="reX-6v-Vkh">
                                 <modifierMask key="keyEquivalentModifierMask"/>

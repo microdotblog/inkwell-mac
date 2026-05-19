@@ -43,6 +43,58 @@ static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
 static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
 static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
+static NSString* const InkwellPostStatusDraft = @"draft";
+
+@interface MBSidebarCurrentPostsButton : NSButton
+
+@property (strong) NSTrackingArea* trackingArea;
+@property (strong) NSImage* chevronImage;
+@property (strong) NSImage* placeholderImage;
+
+@end
+
+@implementation MBSidebarCurrentPostsButton
+
+- (void) updateTrackingAreas
+{
+	[super updateTrackingAreas];
+
+	if (self.trackingArea != nil) {
+		[self removeTrackingArea:self.trackingArea];
+	}
+
+	NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+	self.trackingArea = [[NSTrackingArea alloc] initWithRect:NSZeroRect options:options owner:self userInfo:nil];
+	[self addTrackingArea:self.trackingArea];
+}
+
+- (void) mouseEntered:(NSEvent *) event
+{
+	#pragma unused(event)
+
+	self.image = self.chevronImage;
+}
+
+- (void) mouseExited:(NSEvent *) event
+{
+	#pragma unused(event)
+
+	self.image = self.placeholderImage;
+}
+
+- (void) mouseDown:(NSEvent *) event
+{
+	#pragma unused(event)
+
+	if (self.action != nil) {
+		[NSApp sendAction:self.action to:self.target from:self];
+		return;
+	}
+
+	[super mouseDown:event];
+}
+
+@end
 
 typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	MBSidebarContentModeFeeds = 0,
@@ -80,6 +132,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (strong) NSButton* recapButton;
 @property (strong) NSTextField* recapCountLabel;
 @property (strong) NSTextField* bookmarksTitleLabel;
+@property (strong) NSTextField* currentPostsTitleLabel;
+@property (strong) MBSidebarCurrentPostsButton* currentPostsHostnameButton;
 @property (strong) NSButton* bookmarksClearButton;
 @property (strong) NSLayoutConstraint* recapBoxHeightConstraint;
 @property (strong) NSLayoutConstraint* recapToTableTopConstraint;
@@ -101,6 +155,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (assign) NSInteger rememberedDeselectedRow;
 @property (copy) NSString* allPostsSiteName;
 @property (copy) NSString* allPostsFeedHost;
+@property (assign) BOOL allPostsUsesCurrentDestination;
+@property (copy) NSString* allPostsDestinationUID;
+@property (copy) NSString* allPostsPostStatus;
 @property (copy) NSSet* preservedVisibleEntryIDsForHiddenReadPosts;
 @property (strong) NSMutableDictionary* pendingReadStateOverridesByEntryID;
 @property (copy) NSArray* fadingEntryIDs;
@@ -148,6 +205,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) fetchMentions;
 - (void) fetchAllPostsIfNeeded;
 - (void) fetchAllPosts;
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination postStatus:(NSString *)post_status;
+- (void) showCurrentPostsForSubscription:(MBSubscription *)subscription;
+- (MBSubscription * _Nullable) subscriptionMatchingDestination:(NSDictionary *)destination subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalize_hosts;
+- (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalize_hosts;
+- (BOOL) host:(NSString *)host matchesDestinationHosts:(NSArray *)destination_hosts;
 - (void) ensureSpecialModeSelectionIfNeeded;
 - (void) resetBookmarksModeState;
 - (void) resetMentionsModeState;
@@ -181,11 +243,17 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) shouldShowSpecialModeBanner;
 - (BOOL) isShowingAllPostsMode;
+- (BOOL) shouldShowCurrentPostsBanner;
 - (MBMention* _Nullable) selectedMention;
 - (BOOL) canReplyToMention:(MBMention*) mention;
 - (NSString*) prefillTextForUsername:(NSString*) username;
 - (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text;
 - (NSString*) specialModeBannerTitle;
+- (NSString *) currentDestinationDisplayName;
+- (NSString *) hostFromURLString:(NSString *) string;
+- (NSString *) currentDestinationUID;
+- (void) showCurrentDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event;
+- (void) updateCurrentPostsHostnameButton;
 - (NSString*) siteNameForEntry:(MBEntry*) entry;
 - (NSString*) feedHostForEntry:(MBEntry*) entry;
 - (BOOL) isPremiumUser;
@@ -204,6 +272,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (IBAction) openSelectedItemInBrowserAction:(id)sender;
 - (IBAction) copySelectedItemLinkAction:(id)sender;
 - (IBAction) clearSpecialModeAction:(id)sender;
+- (IBAction) currentPostsHostnameAction:(id)sender;
+- (IBAction) selectCurrentDestinationFromMenuItem:(id)sender;
 - (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 - (void) avatarImageDidLoad:(NSNotification*) notification;
@@ -252,6 +322,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.mentions = @[];
 		self.allPostsSiteName = @"";
 		self.allPostsFeedHost = @"";
+		self.allPostsUsesCurrentDestination = NO;
+		self.allPostsDestinationUID = @"";
+		self.allPostsPostStatus = @"";
 		self.pendingReadStateOverridesByEntryID = [NSMutableDictionary dictionary];
 		self.fadingEntryIDs = @[];
 		NSURL* fading_cache_url = [self fadingEntryIDsCacheURL];
@@ -326,6 +399,34 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[bookmarks_label setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
 	bookmarks_label.hidden = YES;
 
+	NSTextField* current_posts_label = [NSTextField labelWithString:@"Showing posts:"];
+	current_posts_label.translatesAutoresizingMaskIntoConstraints = NO;
+	current_posts_label.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	current_posts_label.textColor = [NSColor labelColor];
+	current_posts_label.lineBreakMode = NSLineBreakByTruncatingTail;
+	current_posts_label.maximumNumberOfLines = 1;
+	current_posts_label.usesSingleLineMode = YES;
+	[current_posts_label setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[current_posts_label setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+	current_posts_label.hidden = YES;
+
+	MBSidebarCurrentPostsButton* current_posts_hostname_button = [MBSidebarCurrentPostsButton buttonWithTitle:@"" target:self action:@selector(currentPostsHostnameAction:)];
+	current_posts_hostname_button.translatesAutoresizingMaskIntoConstraints = NO;
+	current_posts_hostname_button.bordered = NO;
+	current_posts_hostname_button.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	current_posts_hostname_button.imagePosition = NSImageTrailing;
+	current_posts_hostname_button.imageHugsTitle = YES;
+	current_posts_hostname_button.lineBreakMode = NSLineBreakByTruncatingTail;
+	current_posts_hostname_button.focusRingType = NSFocusRingTypeNone;
+	current_posts_hostname_button.hidden = YES;
+	NSImage* current_posts_chevron_image = [NSImage imageWithSystemSymbolName:@"chevron.down" accessibilityDescription:@"Show blogs"];
+	NSImageSymbolConfiguration* current_posts_chevron_configuration = [NSImageSymbolConfiguration configurationWithPointSize:10.0 weight:NSFontWeightSemibold];
+	current_posts_hostname_button.chevronImage = [current_posts_chevron_image imageWithSymbolConfiguration:current_posts_chevron_configuration] ?: current_posts_chevron_image;
+	current_posts_hostname_button.placeholderImage = [[NSImage alloc] initWithSize:NSMakeSize(10.0, 10.0)];
+	current_posts_hostname_button.image = current_posts_hostname_button.placeholderImage;
+	[current_posts_hostname_button setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[current_posts_hostname_button setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+
 	NSButton* clear_button = [NSButton buttonWithTitle:@"Clear" target:self action:@selector(clearSpecialModeAction:)];
 	clear_button.translatesAutoresizingMaskIntoConstraints = NO;
 	clear_button.bezelStyle = NSBezelStyleRounded;
@@ -336,6 +437,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	clear_button.hidden = YES;
 
 	[recap_box addSubview:bookmarks_label];
+	[recap_box addSubview:current_posts_label];
+	[recap_box addSubview:current_posts_hostname_button];
 	[recap_box addSubview:clear_button];
 
 	__weak typeof(self) weak_self = self;
@@ -473,6 +576,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			[bookmarks_label.leadingAnchor constraintEqualToAnchor:recap_box.leadingAnchor constant:12.0],
 			[bookmarks_label.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
 			[bookmarks_label.trailingAnchor constraintLessThanOrEqualToAnchor:clear_button.leadingAnchor constant:-12.0],
+			[current_posts_label.leadingAnchor constraintEqualToAnchor:recap_box.leadingAnchor constant:12.0],
+			[current_posts_label.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
+			[current_posts_hostname_button.leadingAnchor constraintEqualToAnchor:current_posts_label.trailingAnchor constant:4.0],
+			[current_posts_hostname_button.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
+			[current_posts_hostname_button.trailingAnchor constraintLessThanOrEqualToAnchor:clear_button.leadingAnchor constant:-12.0],
 			[clear_button.trailingAnchor constraintEqualToAnchor:recap_box.trailingAnchor constant:-12.0],
 			[clear_button.centerYAnchor constraintEqualToAnchor:recap_box.centerYAnchor],
 		recap_to_table_top_constraint,
@@ -506,6 +614,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.recapButton = recap_button;
 	self.recapCountLabel = recap_label;
 	self.bookmarksTitleLabel = bookmarks_label;
+	self.currentPostsTitleLabel = current_posts_label;
+	self.currentPostsHostnameButton = current_posts_hostname_button;
 	self.bookmarksClearButton = clear_button;
 	self.recapBoxHeightConstraint = recap_height_constraint;
 	self.recapToTableTopConstraint = recap_to_table_top_constraint;
@@ -676,6 +786,44 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
 {
+	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:NO postStatus:@""];
+}
+
+- (void) showCurrentUserPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
+{
+	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES postStatus:@""];
+}
+
+- (void) showCurrentUserDraftsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
+{
+	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES postStatus:InkwellPostStatusDraft];
+}
+
+- (void) showCurrentPostsForSubscription:(MBSubscription *)subscription
+{
+	if (subscription == nil || subscription.feedID <= 0) {
+		return;
+	}
+
+	NSString* site_name = [subscription.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* feed_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
+	if (feed_host.length == 0) {
+		feed_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
+	}
+	if (site_name.length == 0) {
+		site_name = feed_host;
+	}
+
+	if ([self.allPostsPostStatus isEqualToString:InkwellPostStatusDraft]) {
+		[self showCurrentUserDraftsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
+	}
+	else {
+		[self showCurrentUserPostsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
+	}
+}
+
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination postStatus:(NSString *)post_status
+{
 	if (self.client == nil || self.token.length == 0 || feedID <= 0) {
 		return;
 	}
@@ -693,7 +841,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.allPostsFeedID = feedID;
 	self.allPostsSiteName = siteName ?: @"";
 	self.allPostsFeedHost = feedHost ?: @"";
-	self.allPostsItems = [self cachedItemsForFeedID:feedID];
+	self.allPostsUsesCurrentDestination = uses_current_destination;
+	self.allPostsDestinationUID = uses_current_destination ? [self currentDestinationUID] : @"";
+	self.allPostsPostStatus = [post_status stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	self.allPostsItems = [self.allPostsPostStatus isEqualToString:InkwellPostStatusDraft] ? @[] : [self cachedItemsForFeedID:feedID];
 	[self applyFiltersAndReload];
 	[self ensureSpecialModeSelectionIfNeeded];
 	[self fetchAllPosts];
@@ -1266,7 +1417,33 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSInteger request_identifier = self.allPostsRequestIdentifier;
 	NSString* site_name = [self.allPostsSiteName copy];
 	NSString* feed_host = [self.allPostsFeedHost copy];
+	NSString* post_status = [self.allPostsPostStatus copy];
+	NSString* destination_uid = [self.allPostsDestinationUID copy];
 	__weak typeof(self) weak_self = self;
+	if ([post_status isEqualToString:InkwellPostStatusDraft]) {
+		[self.client fetchDraftEntriesForDestinationUID:destination_uid token:self.token completion:^(NSArray* _Nullable entries, NSError* _Nullable error) {
+			MBSidebarController* strong_self = weak_self;
+			if (strong_self == nil) {
+				return;
+			}
+
+			if (request_identifier != strong_self.allPostsRequestIdentifier) {
+				return;
+			}
+
+			strong_self.isFetchingAllPosts = NO;
+
+			if (error != nil || strong_self.contentMode != MBSidebarContentModeAllPosts || strong_self.allPostsFeedID <= 0) {
+				return;
+			}
+
+			strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:nil];
+			[strong_self applyFiltersAndReload];
+			[strong_self ensureSpecialModeSelectionIfNeeded];
+		}];
+		return;
+	}
+
 	[self.client fetchAllEntriesForFeedID:self.allPostsFeedID token:self.token completion:^(NSArray* _Nullable entries, NSSet* _Nullable unread_entry_ids, BOOL is_finished, NSError* _Nullable error) {
 		MBSidebarController* strong_self = weak_self;
 		if (strong_self == nil) {
@@ -1328,6 +1505,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.allPostsFeedID = 0;
 	self.allPostsSiteName = @"";
 	self.allPostsFeedHost = @"";
+	self.allPostsUsesCurrentDestination = NO;
+	self.allPostsDestinationUID = @"";
+	self.allPostsPostStatus = @"";
 }
 
 - (void) fetchFeedIcons
@@ -2191,6 +2371,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) updateRecapUI
 {
 	BOOL should_show_special_mode = [self shouldShowSpecialModeBanner];
+	BOOL should_show_current_posts_banner = [self shouldShowCurrentPostsBanner];
 	BOOL should_show_recap = !should_show_special_mode && (self.dateFilter == MBSidebarDateFilterFading) && ![self shouldShowPremiumRequiredView];
 	if (self.recapBoxView != nil) {
 		self.recapBoxView.hidden = !(should_show_recap || should_show_special_mode);
@@ -2219,8 +2400,19 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.recapCountLabel.hidden = !should_show_recap;
 	}
 	if (self.bookmarksTitleLabel != nil) {
-		self.bookmarksTitleLabel.hidden = !should_show_special_mode;
-		self.bookmarksTitleLabel.stringValue = should_show_special_mode ? [self specialModeBannerTitle] : @"";
+		self.bookmarksTitleLabel.hidden = (!should_show_special_mode || should_show_current_posts_banner);
+		self.bookmarksTitleLabel.stringValue = (should_show_special_mode && !should_show_current_posts_banner) ? [self specialModeBannerTitle] : @"";
+	}
+	if (self.currentPostsTitleLabel != nil) {
+		self.currentPostsTitleLabel.hidden = !should_show_current_posts_banner;
+		self.currentPostsTitleLabel.stringValue = [self.allPostsPostStatus isEqualToString:InkwellPostStatusDraft] ? @"Showing drafts:" : @"Showing posts:";
+	}
+	if (self.currentPostsHostnameButton != nil) {
+		self.currentPostsHostnameButton.hidden = !should_show_current_posts_banner;
+		self.currentPostsHostnameButton.image = self.currentPostsHostnameButton.placeholderImage;
+		if (should_show_current_posts_banner) {
+			[self updateCurrentPostsHostnameButton];
+		}
 	}
 	if (self.bookmarksClearButton != nil) {
 		self.bookmarksClearButton.hidden = !should_show_special_mode;
@@ -2359,6 +2551,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return (self.contentMode == MBSidebarContentModeAllPosts);
 }
 
+- (BOOL) shouldShowCurrentPostsBanner
+{
+	if (self.contentMode != MBSidebarContentModeAllPosts || !self.allPostsUsesCurrentDestination) {
+		return NO;
+	}
+
+	return ([self currentDestinationDisplayName].length > 0);
+}
+
 - (MBMention* _Nullable) selectedMention
 {
 	if (self.contentMode != MBSidebarContentModeMentions) {
@@ -2435,6 +2636,174 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [NSString stringWithFormat:@"Showing posts from %@", site_name];
+}
+
+- (NSString *) currentDestinationDisplayName
+{
+	NSString* current_destination = [self currentDestinationUID];
+	if (current_destination.length == 0) {
+		return @"";
+	}
+
+	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (![destination_uid isEqualToString:current_destination]) {
+			continue;
+		}
+
+		NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
+		destination_name = [destination_name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (destination_name.length > 0) {
+			return destination_name;
+		}
+	}
+
+	return [self hostFromURLString:current_destination];
+}
+
+- (NSString *) currentDestinationUID
+{
+	NSString* current_destination = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
+	return [current_destination stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
+- (NSString *) hostFromURLString:(NSString *) string
+{
+	NSString* trimmed_string = [string stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (trimmed_string.length == 0) {
+		return @"";
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:trimmed_string];
+	NSString* host_value = components.host ?: @"";
+	if (host_value.length == 0) {
+		NSString* possible_url_string = [NSString stringWithFormat:@"https://%@", trimmed_string];
+		NSURLComponents* host_only_components = [NSURLComponents componentsWithString:possible_url_string];
+		host_value = host_only_components.host ?: @"";
+	}
+
+	return [[host_value lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+}
+
+- (void) showCurrentDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event
+{
+	NSArray* destinations = [self.client cachedMicropubDestinations] ?: @[];
+	if (destinations.count == 0) {
+		return;
+	}
+
+	NSString* current_destination_uid = [self currentDestinationUID];
+	NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Blogs"];
+	for (id object in destinations) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		NSString* name = [self stringValueFromObjectOrNumber:destination[@"name"]];
+		if (name.length == 0) {
+			continue;
+		}
+
+		NSMenuItem* menu_item = [[NSMenuItem alloc] initWithTitle:name action:@selector(selectCurrentDestinationFromMenuItem:) keyEquivalent:@""];
+		menu_item.target = self;
+		menu_item.representedObject = destination;
+
+		NSString* uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		if (uid.length > 0 && [uid isEqualToString:current_destination_uid]) {
+			menu_item.state = NSControlStateValueOn;
+		}
+
+		[menu addItem:menu_item];
+	}
+
+	if (menu.numberOfItems == 0) {
+		return;
+	}
+
+	[NSMenu popUpContextMenu:menu withEvent:event forView:view];
+}
+
+- (void) updateCurrentPostsHostnameButton
+{
+	NSString* hostname = [self currentDestinationDisplayName];
+	if (hostname.length == 0 || self.currentPostsHostnameButton == nil) {
+		return;
+	}
+
+	NSFont* font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+	NSDictionary* attributes = @{
+		NSFontAttributeName: font,
+		NSForegroundColorAttributeName: [NSColor labelColor]
+	};
+	self.currentPostsHostnameButton.attributedTitle = [[NSAttributedString alloc] initWithString:hostname attributes:attributes];
+}
+
+- (MBSubscription *) subscriptionMatchingDestination:(NSDictionary *)destination subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalize_hosts
+{
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
+	for (MBSubscription* subscription in subscriptions ?: @[]) {
+		if (subscription.feedID <= 0) {
+			continue;
+		}
+		if ([self destinationUID:destination_uid destinationName:destination_name matchesSubscription:subscription normalizeHosts:normalize_hosts]) {
+			return subscription;
+		}
+	}
+
+	return nil;
+}
+
+- (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalize_hosts
+{
+	NSArray* destination_hosts = nil;
+	if (normalize_hosts) {
+		destination_hosts = @[
+			[self normalizedHostFromURLString:destinationUID ?: @""],
+			[self normalizedHostFromURLString:destinationName ?: @""]
+		];
+	}
+	else {
+		destination_hosts = @[
+			[self hostFromURLString:destinationUID ?: @""],
+			[self hostFromURLString:destinationName ?: @""]
+		];
+	}
+
+	NSArray* url_strings = @[ subscription.siteURL ?: @"", subscription.feedURL ?: @"" ];
+	for (NSString* url_string in url_strings) {
+		NSString* subscription_host = normalize_hosts ? [self normalizedHostFromURLString:url_string] : [self hostFromURLString:url_string];
+		if ([self host:subscription_host matchesDestinationHosts:destination_hosts]) {
+			return YES;
+		}
+	}
+
+	return NO;
+}
+
+- (BOOL) host:(NSString *)host matchesDestinationHosts:(NSArray *)destination_hosts
+{
+	if (host.length == 0) {
+		return NO;
+	}
+
+	for (NSString* destination_host in destination_hosts) {
+		if (destination_host.length == 0) {
+			continue;
+		}
+		if ([host isEqualToString:destination_host]) {
+			return YES;
+		}
+	}
+
+	return NO;
 }
 
 - (NSString*) siteNameForEntry:(MBEntry*) entry
@@ -2526,6 +2895,53 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	#pragma unused(sender)
 	[self clearSpecialMode];
+}
+
+- (IBAction) currentPostsHostnameAction:(id)sender
+{
+	if (![sender isKindOfClass:[NSView class]]) {
+		return;
+	}
+
+	NSEvent* event = [NSApp currentEvent];
+	if (event == nil) {
+		return;
+	}
+
+	[self showCurrentDestinationsMenuFromView:(NSView*) sender event:event];
+}
+
+- (IBAction) selectCurrentDestinationFromMenuItem:(id)sender
+{
+	if (![sender isKindOfClass:[NSMenuItem class]]) {
+		return;
+	}
+
+	NSMenuItem* menu_item = (NSMenuItem*) sender;
+	id represented_object = menu_item.representedObject;
+	if (![represented_object isKindOfClass:[NSDictionary class]]) {
+		return;
+	}
+
+	NSDictionary* destination = (NSDictionary*) represented_object;
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	if (destination_uid.length == 0) {
+		return;
+	}
+
+	[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
+	[self updateCurrentPostsHostnameButton];
+
+	NSArray* subscriptions = [self.client cachedFeedSubscriptions] ?: @[];
+	MBSubscription* subscription = [self subscriptionMatchingDestination:destination subscriptions:subscriptions normalizeHosts:NO];
+	if (subscription == nil) {
+		subscription = [self subscriptionMatchingDestination:destination subscriptions:subscriptions normalizeHosts:YES];
+	}
+	if (subscription == nil) {
+		return;
+	}
+
+	[self showCurrentPostsForSubscription:subscription];
 }
 
 - (IBAction) openPlansAction:(id)sender
