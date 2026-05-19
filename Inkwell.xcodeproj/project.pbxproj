@@ -31,7 +31,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		4B8A2B022FCB01D1000C0123 /* MMMarkdown */ = {
+		4B8A2B022FCB01D1000C0123 /* Shared/MMMarkdown */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Shared/MMMarkdown;
 			sourceTree = "<group>";
@@ -72,7 +72,7 @@
 				4B5F345C2F65A9970044F906 /* Inkwell.entitlements */,
 				4BFA46502F575E33008BD8A3 /* Source */,
 				4BFA464C2F575E33008BD8A3 /* Resources */,
-				4B8A2B022FCB01D1000C0123 /* MMMarkdown */,
+				4B8A2B022FCB01D1000C0123 /* Shared/MMMarkdown */,
 				4BFA46582F57970E008BD8A3 /* Frameworks */,
 				4BFA46242F575DBC008BD8A3 /* Products */,
 			);
@@ -111,7 +111,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				4B8A2B022FCB01D1000C0123 /* MMMarkdown */,
+				4B8A2B022FCB01D1000C0123 /* Shared/MMMarkdown */,
 				4BFA464C2F575E33008BD8A3 /* Resources */,
 				4BFA46502F575E33008BD8A3 /* Source */,
 			);
@@ -306,7 +306,7 @@
 				CODE_SIGN_ENTITLEMENTS = Inkwell.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 23;
+				CURRENT_PROJECT_VERSION = 24;
 				DEVELOPMENT_TEAM = 3F9MDJ6K4E;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -329,7 +329,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = blog.micro.inkwell;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -353,7 +353,7 @@
 				CODE_SIGN_ENTITLEMENTS = Inkwell.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 23;
+				CURRENT_PROJECT_VERSION = 24;
 				DEVELOPMENT_TEAM = 3F9MDJ6K4E;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -376,7 +376,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = blog.micro.inkwell;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
