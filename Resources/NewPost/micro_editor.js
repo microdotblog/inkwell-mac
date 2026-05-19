@@ -29,15 +29,13 @@ var MicroEditor = (function () {
 	const undoMaxSize = 50;
 	let autocompleteTimer = null;
 	const autocompleteDelay = 500;
-	let cleanupTimer = null;
-	const cleanupDelay = 3000;
 	let contentChangeTimer = null;
 	const contentChangeDelay = 200;
 	let autocompleteHandler = null;
 	let dropHandler = null;
 	const maxCharsLength = 300;
 	const maxBlockquoteLength = 600;
-	const zeroWidthChar = '\u200B';
+	const editorMarkerSelector = '[data-editor-marker="caret"]';
 
 	function init(config) {
 		textBoxID = config.textbox_id;
@@ -70,6 +68,7 @@ var MicroEditor = (function () {
 			replaceUsername: replaceUsername,
 			cancelListeners: cancelListeners,
 			setText: setText,
+			insertLineBreak: insertLineBreak,
 			getMarkdown: getMarkdown,
 			getHTML: getHTML,
 			setPreviewBackground: setPreviewBackground,
@@ -79,15 +78,6 @@ var MicroEditor = (function () {
 
 	function debugLog(...args) {
 		if (isDebugging) {
-			args = args.map(arg => {
-				if (typeof arg == "string") {
-					const zerowidth_regex = /\u200B/g;
-					return arg.replace(zerowidth_regex, '•');
-				}
-				else {
-					return arg;
-				}
-			});
 			console.log.apply(console, args);
 		}
 	}
@@ -247,14 +237,368 @@ var MicroEditor = (function () {
 		scheduleContentChanged();
 	}
 
+	function isEditorMarker(node) {
+		return (node.nodeType === Node.ELEMENT_NODE) && node.matches(editorMarkerSelector);
+	}
+
+	function createEditorMarker() {
+		const marker = document.createElement('span');
+		marker.className = 'editor_marker';
+		marker.setAttribute('data-editor-marker', 'caret');
+		marker.setAttribute('aria-hidden', 'true');
+		marker.textContent = '\u00a0';
+		return marker;
+	}
+
+	function editorMarkerHTML() {
+		return '<span class="editor_marker" data-editor-marker="caret" aria-hidden="true">&nbsp;</span>';
+	}
+
+	function editorPlainText(editor) {
+		let s = '';
+
+		function stepThroughNode(node) {
+			if (isEditorMarker(node)) {
+				return;
+			}
+			else if (node.nodeType === Node.TEXT_NODE) {
+				s += node.textContent;
+			}
+			else if ((node.nodeType === Node.ELEMENT_NODE) && (node.nodeName == 'BR')) {
+				s += '\n';
+			}
+			else if (node.nodeType === Node.ELEMENT_NODE) {
+				for (let child = node.firstChild; child; child = child.nextSibling) {
+					stepThroughNode(child);
+				}
+			}
+		}
+
+		stepThroughNode(editor);
+		return s;
+	}
+
+	function preserveTrailingNewline(html) {
+		if (html.endsWith('\n')) {
+			return html + editorMarkerHTML();
+		}
+		else {
+			return html;
+		}
+	}
+
+	function formattingAncestorAtEnd(range, editor) {
+		let node = range.startContainer;
+		if (node.nodeType === Node.TEXT_NODE) {
+			node = node.parentNode;
+		}
+
+		while (node && (node != editor)) {
+			if (node.classList && containsFormattingClass(node.classList)) {
+				const pos = selectionPosition(node, range.startContainer, range.startOffset);
+				if (pos == logicalLength(node)) {
+					return node;
+				}
+			}
+			node = node.parentNode;
+		}
+
+		return null;
+	}
+
+	function insertLineBreakWithMarker() {
+		const editor = document.getElementById(textBoxID);
+		const saved_selection = saveSelection(editor);
+		editor.focus();
+		if (saved_selection) {
+			restoreSelection(editor, saved_selection);
+		}
+
+		let selection = window.getSelection();
+		if (!selection) {
+			return false;
+		}
+
+		if ((selection.rangeCount == 0) || (!editor.contains(selection.getRangeAt(0).startContainer) && (selection.getRangeAt(0).startContainer != editor))) {
+			editor.focus();
+
+			const fallback_range = document.createRange();
+			fallback_range.selectNodeContents(editor);
+			fallback_range.collapse(false);
+			selection.removeAllRanges();
+			selection.addRange(fallback_range);
+		}
+
+		removeMarkerAroundCaret();
+
+		selection = window.getSelection();
+		if (!selection || (selection.rangeCount == 0)) {
+			return false;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!editor.contains(range.startContainer) && (range.startContainer != editor)) {
+			return false;
+		}
+
+		range.deleteContents();
+
+		const formatting_node = formattingAncestorAtEnd(range, editor);
+		if (formatting_node) {
+			range.setStartAfter(formatting_node);
+			range.collapse(true);
+		}
+
+		const fragment = document.createDocumentFragment();
+		const line_break = document.createTextNode('\n');
+		const marker = createEditorMarker();
+		fragment.appendChild(line_break);
+		fragment.appendChild(marker);
+		range.insertNode(fragment);
+
+		range.setStart(line_break, line_break.length);
+		range.setEnd(line_break, line_break.length);
+		selection.removeAllRanges();
+		selection.addRange(range);
+
+		return true;
+	}
+
+	function insertLineBreakByText() {
+		const editor = document.getElementById(textBoxID);
+		const saved_selection = saveSelection(editor);
+		const text = editorPlainText(editor);
+		const position = saved_selection ? saved_selection.position : text.length;
+		const next_text = text.slice(0, position) + '\n' + text.slice(position);
+		const next_selection = { position: position + 1, character: '\n' };
+
+		isIgnoringInput = true;
+		editor.innerText = next_text;
+		isIgnoringInput = false;
+
+		restoreSelection(editor, next_selection);
+		applyStyles();
+		restoreLineBreakSelection(editor, next_text, position, next_selection);
+		setTimeout(() => {
+			restoreLineBreakSelection(editor, next_text, position, next_selection);
+		}, 0);
+
+		return editorPlainText(editor) == next_text;
+	}
+
+	function restoreLineBreakSelection(editor, text, position, selection) {
+		if ((position + 1) == text.length) {
+			moveSelectionAfterTrailingMarker(editor);
+		}
+		else {
+			restoreSelection(editor, selection);
+		}
+	}
+
+	function moveSelectionAfterTrailingMarker(editor) {
+		const marker = editor.querySelector(editorMarkerSelector);
+		if (!marker || !marker.parentNode) {
+			return false;
+		}
+
+		const range = document.createRange();
+		if (marker.firstChild && (marker.firstChild.nodeType === Node.TEXT_NODE)) {
+			range.setStart(marker.firstChild, 0);
+			range.setEnd(marker.firstChild, 0);
+		}
+		else {
+			const offset = childIndex(marker);
+			range.setStart(marker.parentNode, offset);
+			range.setEnd(marker.parentNode, offset);
+		}
+
+		const selection = window.getSelection();
+		selection.removeAllRanges();
+		selection.addRange(range);
+		return true;
+	}
+
+	function markerAroundCaret() {
+		const editor = document.getElementById(textBoxID);
+		const selection = window.getSelection();
+		if (!selection || (selection.rangeCount == 0) || !selection.isCollapsed) {
+			return null;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!editor.contains(range.startContainer) && (range.startContainer != editor)) {
+			return null;
+		}
+
+		let marker = null;
+		let is_caret_inside_marker = false;
+		if (range.startContainer.nodeType === Node.TEXT_NODE) {
+			const parent = range.startContainer.parentNode;
+			if (parent && isEditorMarker(parent)) {
+				marker = parent;
+				is_caret_inside_marker = true;
+			}
+		}
+		else if ((range.startContainer.nodeType === Node.ELEMENT_NODE) && isEditorMarker(range.startContainer)) {
+			marker = range.startContainer;
+			is_caret_inside_marker = true;
+		}
+		if (range.startContainer.nodeType === Node.TEXT_NODE) {
+			const node = range.startContainer.nextSibling;
+			if ((range.startOffset == range.startContainer.length) && node && isEditorMarker(node)) {
+				marker = node;
+			}
+		}
+		if (!marker && (range.startContainer.nodeType === Node.ELEMENT_NODE) && (range.startOffset > 0)) {
+			const node = range.startContainer.childNodes[range.startOffset - 1];
+			if (node && isEditorMarker(node)) {
+				marker = node;
+			}
+		}
+		if (!marker && (range.startContainer.nodeType === Node.ELEMENT_NODE)) {
+			const node = range.startContainer.childNodes[range.startOffset];
+			if (node && isEditorMarker(node)) {
+				marker = node;
+			}
+		}
+
+		if (!marker) {
+			return null;
+		}
+
+		return { marker: marker, is_caret_inside_marker: is_caret_inside_marker };
+	}
+
+	function insertTextAtMarker(text) {
+		const editor = document.getElementById(textBoxID);
+		const marker_info = markerAroundCaret();
+		if (!marker_info) {
+			return false;
+		}
+
+		const marker = marker_info.marker;
+		const text_node = document.createTextNode(text);
+		marker.parentNode.insertBefore(text_node, marker);
+		marker.remove();
+		setSelection(editor, text_node, text_node.length);
+		return true;
+	}
+
+	function insertLineBreak() {
+		const editor = document.getElementById(textBoxID);
+		const before = editorPlainText(editor);
+		const saved_selection = saveSelection(editor);
+		editor.focus();
+		if (saved_selection) {
+			restoreSelection(editor, saved_selection);
+		}
+		removeMarkerAroundCaret();
+
+		let did_insert = insertLineBreakByText();
+		if (!did_insert || (editorPlainText(editor) == before)) {
+			if (saved_selection) {
+				restoreSelection(editor, saved_selection);
+			}
+			removeMarkerAroundCaret();
+			did_insert = insertLineBreakWithMarker();
+		}
+
+		if (did_insert) {
+			isLastCharEnter = true;
+			handleEditorInput({ data: null, inputType: "insertLineBreak" });
+		}
+
+		return did_insert;
+	}
+
+	function handleEditorInput(e) {
+		const is_return_input = (e.inputType == "insertParagraph") || (e.inputType == "insertLineBreak");
+		const should_snapshot_for_return = isLastCharEnter || is_return_input;
+
+		clearTimeout(undoTimer);
+		undoTimer = setTimeout(() => {
+			saveStateForUndo();
+		}, undoDelay);
+
+		clearTimeout(autocompleteTimer);
+		autocompleteTimer = setTimeout(() => {
+			checkAutocomplete();
+		}, autocompleteDelay);
+
+		// don't apply styles unless new Markdown-ish characters
+		const markdown_characters = [' ', '*', '_', '[', ']', '(', ')', '<', '>', '"', '`'];
+		if (e.data && markdown_characters.some(char => e.data.includes(char))) {
+			applyStyles();
+		}
+
+		if (should_snapshot_for_return) {
+			isLastCharEnter = false;
+		}
+
+		if ((e.data == ".") || should_snapshot_for_return) {
+			checkpointUndo();
+		}
+
+		scrollIfNeeded();
+		checkButtons();
+		updateRemaining();
+		scheduleContentChanged();
+		hideSuccess();
+	}
+
+	function removeMarkerAroundCaret() {
+		const selection = window.getSelection();
+		const marker_info = markerAroundCaret();
+		if (!marker_info) {
+			return;
+		}
+
+		const range = selection.getRangeAt(0);
+		const marker = marker_info.marker;
+		const is_caret_inside_marker = marker_info.is_caret_inside_marker;
+
+		if (is_caret_inside_marker) {
+			const previous_node = marker.previousSibling;
+			if (previous_node && (previous_node.nodeType === Node.TEXT_NODE)) {
+				marker.remove();
+				range.setStart(previous_node, previous_node.length);
+				range.setEnd(previous_node, previous_node.length);
+				selection.removeAllRanges();
+				selection.addRange(range);
+				return;
+			}
+		}
+
+		if ((range.startContainer.nodeType === Node.TEXT_NODE) && (range.startContainer.length == 0)) {
+			const caret_node = range.startContainer;
+			const previous_node = caret_node.previousSibling;
+			const parent = caret_node.parentNode;
+			marker.remove();
+			caret_node.remove();
+			if (previous_node) {
+				const offset = childIndex(previous_node) + 1;
+				range.setStart(parent, offset);
+				range.setEnd(parent, offset);
+				selection.removeAllRanges();
+				selection.addRange(range);
+			}
+			return;
+		}
+
+		const parent = marker.parentNode;
+		const offset = childIndex(marker);
+		marker.remove();
+		range.setStart(parent, offset);
+		range.setEnd(parent, offset);
+		selection.removeAllRanges();
+		selection.addRange(range);
+	}
+
 	function getMarkdownByID(div_id) {
-		let s = document.getElementById(div_id).innerText;
+		let s = editorPlainText(document.getElementById(div_id));
 
 		// sometimes we get an extra return after code blocks
 		s = s.replace(/```\n\n/g, '```\n');
-
-		// clean up any zero-width spaces
-		s = replaceAllZeroWidth(s);
 
 		return s;
 	}
@@ -321,7 +665,6 @@ var MicroEditor = (function () {
 		// cancel timers
 		clearTimeout(undoTimer);
 		clearTimeout(autocompleteTimer);
-		clearTimeout(cleanupTimer);
 		clearTimeout(contentChangeTimer);
 
 		// replace with clone which clears listeners
@@ -338,43 +681,24 @@ var MicroEditor = (function () {
 		hasFinishedSetup = true;
 
 		document.getElementById(textBoxID).addEventListener('input', function (e) {
-			const should_snapshot_for_return = isLastCharEnter || (e.inputType == "insertParagraph") || (e.inputType == "insertLineBreak");
+			handleEditorInput(e);
+		});
 
-			clearTimeout(undoTimer);
-			undoTimer = setTimeout(() => {
-				saveStateForUndo();
-			}, undoDelay);
-
-			clearTimeout(autocompleteTimer);
-			autocompleteTimer = setTimeout(() => {
-				checkAutocomplete();
-			}, autocompleteDelay);
-
-			clearTimeout(cleanupTimer);
-			cleanupTimer = setTimeout(() => {
-				cleanupZeroWidthBeforeCaret();
-			}, cleanupDelay);
-
-			// don't apply styles unless new Markdown-ish characters
-			const markdown_characters = [' ', '*', '_', '[', ']', '(', ')', '<', '>', '"', '`'];
-			if (e.data && markdown_characters.some(char => e.data.includes(char))) {
-				applyStyles();
-				isLastCharEnter = false;
-			}
-			else if (isLastCharEnter) {
-				applyStyles();
-				isLastCharEnter = false;
+		document.getElementById(textBoxID).addEventListener('beforeinput', function (e) {
+			if (e.isComposing) {
+				return;
 			}
 
-			if ((e.data == ".") || should_snapshot_for_return) {
-				checkpointUndo();
+			if ((e.inputType == "insertParagraph") || (e.inputType == "insertLineBreak")) {
+				e.preventDefault();
+				insertLineBreak();
 			}
-
-			scrollIfNeeded();
-			checkButtons();
-			updateRemaining();
-			scheduleContentChanged();
-			hideSuccess();
+			else if ((e.inputType == "insertText") && e.data && markerAroundCaret()) {
+				e.preventDefault();
+				if (insertTextAtMarker(e.data)) {
+					handleEditorInput(e);
+				}
+			}
 		});
 
 		document.getElementById(textBoxID).addEventListener('compositionstart', function (e) {
@@ -386,6 +710,10 @@ var MicroEditor = (function () {
 			const is_apple = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 			const is_modifier = is_apple ? e.metaKey : e.ctrlKey;
 			const arrow_keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+			if (e.key == "Backspace") {
+				removeMarkerAroundCaret();
+			}
+
 			if (arrow_keys.includes(e.key)) {
 				checkpointUndo();
 			}
@@ -445,11 +773,9 @@ var MicroEditor = (function () {
 					return;
 				}
 
-				// keep track of enter to apply styles after next char
-				isLastCharEnter = true;
-
 				e.preventDefault();
-				document.execCommand('insertHTML', false, '<br><span class="editor_plain">&#8203;</span>');
+				insertLineBreak();
+				return;
 			}
 			else if (/^[a-z]$/i.test(e.key)) {
 				// for a-z, we don't apply styles to avoid spelling underline flicker
@@ -475,15 +801,6 @@ var MicroEditor = (function () {
 			// ignore select-all too
 			if (isSelectAll) {
 				return;
-			}
-
-			// add zero-width space to reset style if needed
-			const sel = window.getSelection();
-			if (sel.focusNode && sel.focusNode.parentNode && sel.focusOffset === sel.focusNode.length) {
-				const parentClassList = sel.focusNode.parentNode.classList;
-				if (containsFormattingClass(parentClassList)) {
-					//					document.execCommand('insertHTML', false, '<span class="editor_plain">&#8203;</span>');
-				}
 			}
 
 			// ready to apply styles again
@@ -516,6 +833,7 @@ var MicroEditor = (function () {
 
 		document.getElementById(textBoxID).addEventListener('paste', function (e) {
 			e.preventDefault();
+			removeMarkerAroundCaret();
 
 			// get just the text from the clipboard
 			const clipboard_data = e.clipboardData || window.clipboardData;
@@ -593,7 +911,7 @@ var MicroEditor = (function () {
 	function saveStateForUndo() {
 		// add latest text state
 		let editor = document.getElementById(textBoxID);
-		let s = editor.innerText;
+		let s = editorPlainText(editor);
 		let selection = saveSelection(editor);
 		let last_state = undoStack[undoStack.length - 1];
 		if (last_state && last_state.text == s) {
@@ -618,7 +936,7 @@ var MicroEditor = (function () {
 		if (s.length == 0) {
 			// if no text, get current text
 			const editor = document.getElementById(textBoxID);
-			s = editor.innerText;
+			s = editorPlainText(editor);
 		}
 
 		// for longer text, we disable the highlighting
@@ -795,9 +1113,9 @@ var MicroEditor = (function () {
 
 	function replaceUsername(partial_username, full_username) {
 		const editor = document.getElementById(textBoxID);
-		let s = editor.innerText;
+		let s = editorPlainText(editor);
 
-		const partial_regex = new RegExp(partial_username + '\u200B?$');
+		const partial_regex = new RegExp(partial_username + '$');
 		s = s.replace(partial_regex, full_username);
 
 		editor.innerText = s;
@@ -918,7 +1236,7 @@ var MicroEditor = (function () {
 		if (undoStack.length > 0) {
 			const editor = document.getElementById(textBoxID);
 			const current_state = {
-				text: editor.innerText,
+				text: editorPlainText(editor),
 				selection: saveSelection(editor)
 			};
 			const last_state = undoStack[undoStack.length - 1];
@@ -950,7 +1268,7 @@ var MicroEditor = (function () {
 		if (redoStack.length > 0) {
 			const editor = document.getElementById(textBoxID);
 			const current_state = {
-				text: editor.innerText,
+				text: editorPlainText(editor),
 				selection: saveSelection(editor)
 			};
 			const last_state = undoStack[undoStack.length - 1];
@@ -986,42 +1304,86 @@ var MicroEditor = (function () {
 		selection.addRange(range);
 	}
 
-	function traverseNodes(node, callback) {
+	function childIndex(node) {
+		let index = 0;
+		while (node && node.previousSibling) {
+			index++;
+			node = node.previousSibling;
+		}
+		return index;
+	}
+
+	function logicalLength(node) {
+		if (isEditorMarker(node)) {
+			return 0;
+		}
+		else if (node.nodeType === Node.TEXT_NODE) {
+			return node.textContent.length;
+		}
+		else if ((node.nodeType === Node.ELEMENT_NODE) && (node.nodeName == 'BR')) {
+			return 1;
+		}
+		else if (node.nodeType === Node.ELEMENT_NODE) {
+			let len = 0;
+			for (let child = node.firstChild; child; child = child.nextSibling) {
+				len += logicalLength(child);
+			}
+			return len;
+		}
+		else {
+			return 0;
+		}
+	}
+
+	function selectionPosition(containerElement, targetNode, targetOffset) {
 		let current_pos = 0;
-		let prev_char = '';
+		let found = false;
 
 		function stepThroughNode(node) {
-			if (node.nodeType === Node.TEXT_NODE) {
-				const text = node.textContent;
-				for (let i = 0; i < text.length; i++) {
-					// skip double zero-width space
-					const char = text[i];
-					if ((char == zeroWidthChar) && (prev_char == zeroWidthChar)) {
-						debugLog("hit double zero-width char");
-					}
-					else {
-						// the position is 1 after the current char
-						const next_pos = current_pos + 1;
-						const next_i = i + 1;
-						callback(node, char, next_pos, next_i);
-						current_pos++;
-					}
-					prev_char = char;
+			if (found || isEditorMarker(node)) {
+				return;
+			}
+
+			if (node == targetNode) {
+				if (node.nodeType === Node.TEXT_NODE) {
+					current_pos += Math.min(targetOffset, node.textContent.length);
 				}
+				else if (node.nodeType === Node.ELEMENT_NODE) {
+					const child_count = Math.min(targetOffset, node.childNodes.length);
+					for (let i = 0; i < child_count; i++) {
+						current_pos += logicalLength(node.childNodes[i]);
+					}
+				}
+				found = true;
+				return;
+			}
+
+			if (node.nodeType === Node.TEXT_NODE) {
+				current_pos += node.textContent.length;
+			}
+			else if ((node.nodeType === Node.ELEMENT_NODE) && (node.nodeName == 'BR')) {
+				current_pos++;
 			}
 			else if (node.nodeType === Node.ELEMENT_NODE) {
-				// debugLog("got element", node.nodeName);
 				for (let child = node.firstChild; child; child = child.nextSibling) {
-					// debugLog("got child", node.nodeName);
 					stepThroughNode(child);
-
-					// reset between elements because it's like a newline
-					prev_char = '';
 				}
 			}
 		}
 
-		stepThroughNode(node);
+		stepThroughNode(containerElement);
+
+		return current_pos;
+	}
+
+	function setSelection(containerElement, node, offset) {
+		const range = document.createRange();
+		range.setStart(node, offset);
+		range.setEnd(node, offset);
+
+		const sel = window.getSelection();
+		sel.removeAllRanges();
+		sel.addRange(range);
 	}
 
 	function saveSelection(containerElement) {
@@ -1033,47 +1395,80 @@ var MicroEditor = (function () {
 		}
 
 		const range = selection.getRangeAt(0);
-		let found_pos = 0
-		let found_char = '';
+		if (!containerElement.contains(range.startContainer) && (range.startContainer != containerElement)) {
+			return null;
+		}
 
-		debugLog("saving selection", range);
+		const position = selectionPosition(containerElement, range.startContainer, range.startOffset);
+		const text = editorPlainText(containerElement);
+		const character = position > 0 ? text[position - 1] : '';
 
-		// loop through text, looking for current selection
-		traverseNodes(containerElement, (node, char, currentPos, charPos) => {
-			if ((node == range.startContainer) && (charPos == range.startOffset)) {
-				debugLog("found selection start", currentPos, char);
-				found_pos = currentPos;
-				found_char = char;
-			}
-		});
+		debugLog("saving selection", position);
 
-		return { position: found_pos, character: found_char };
+		return { position: position, character: character };
 	}
 
 	function restoreSelection(containerElement, saved) {
-		// assume start of document
-		let range = document.createRange();
-		range.setStart(containerElement, 0);
-		range.collapse(true);
+		if (!saved) {
+			return;
+		}
 
-		debugLog("restore selection");
+		const target_pos = Math.max(0, saved.position);
+		let current_pos = 0;
+		let did_restore = false;
 
-		// loop through text, looking for saved position
-		traverseNodes(containerElement, (node, char, currentPos, charPos) => {
-			if (saved.position == currentPos) {
-				try {
-					range.setStart(node, charPos);
-					range.setEnd(node, charPos);
+		debugLog("restore selection", target_pos);
 
-					let sel = window.getSelection();
-					sel.removeAllRanges();
-					sel.addRange(range);
+		function restoreAtElementOffset(node, offset) {
+			try {
+				setSelection(containerElement, node, offset);
+				did_restore = true;
+			}
+			catch (error) {
+				debugLog("error", error);
+			}
+		}
+
+		function stepThroughNode(node) {
+			if (did_restore || isEditorMarker(node)) {
+				return;
+			}
+
+			if (node.nodeType === Node.TEXT_NODE) {
+				const len = node.textContent.length;
+				if (target_pos <= (current_pos + len)) {
+					restoreAtElementOffset(node, target_pos - current_pos);
 				}
-				catch (error) {
-					debugLog("error", error);
+				else {
+					current_pos += len;
 				}
 			}
-		});
+			else if ((node.nodeType === Node.ELEMENT_NODE) && (node.nodeName == 'BR')) {
+				const next_pos = current_pos + 1;
+				if (target_pos <= next_pos) {
+					restoreAtElementOffset(node.parentNode, childIndex(node) + 1);
+				}
+				else {
+					current_pos = next_pos;
+				}
+			}
+			else if (node.nodeType === Node.ELEMENT_NODE) {
+				for (let child = node.firstChild; child; child = child.nextSibling) {
+					stepThroughNode(child);
+				}
+			}
+		}
+
+		if (target_pos == 0) {
+			restoreAtElementOffset(containerElement, 0);
+			return;
+		}
+
+		stepThroughNode(containerElement);
+
+		if (!did_restore) {
+			restoreAtElementOffset(containerElement, containerElement.childNodes.length);
+		}
 	}
 
 	function containsFormattingClass(parentClassList) {
@@ -1084,113 +1479,6 @@ var MicroEditor = (function () {
 			parentClassList.contains('editor_quote') ||
 			parentClassList.contains('editor_attr_name') ||
 			parentClassList.contains('editor_attr_value');
-	}
-
-	function replaceDoubleZeroWidth(text) {
-		const multi_regex = /\u200B{2,}/g;
-		const single_space = '\u200B';
-		return text.replace(multi_regex, single_space);
-	}
-
-	function replaceAllZeroWidth(text) {
-		const zerowidth_regex = /\u200B/g;
-		return text.replace(zerowidth_regex, '');
-	}
-
-	function cleanupZeroWidthBeforeCaret() {
-		debugLog("cleanup zero-width: start");
-		if (isIgnoringInput) {
-			debugLog("cleanup zero-width: skipping because input is ignored");
-			return;
-		}
-
-		const editor = document.getElementById(textBoxID);
-		if (!editor) {
-			return;
-		}
-
-		const selection = window.getSelection();
-		if (!selection || (selection.rangeCount == 0) || !selection.isCollapsed) {
-			return;
-		}
-
-		const range = selection.getRangeAt(0);
-		if (!editor.contains(range.startContainer)) {
-			return;
-		}
-
-		const saved = saveSelection(editor);
-		if (!saved || (saved.position == 0)) {
-			return;
-		}
-
-		let current_pos = 0;
-		let prev_char = '';
-		let removed_for_cursor = 0;
-		const removals = new Map();
-
-		function markRemoval(node, index) {
-			if (!removals.has(node)) {
-				removals.set(node, []);
-			}
-			removals.get(node).push(index);
-		}
-
-		function stepThroughNode(node) {
-			if (node.nodeType === Node.TEXT_NODE) {
-				const text = node.textContent;
-				for (let i = 0; i < text.length; i++) {
-					const char = text[i];
-					const counts_for_position = !((char == zeroWidthChar) && (prev_char == zeroWidthChar));
-					const next_pos = counts_for_position ? (current_pos + 1) : current_pos;
-					if ((char == zeroWidthChar) && (next_pos <= saved.position)) {
-						markRemoval(node, i);
-						if (counts_for_position) {
-							removed_for_cursor++;
-						}
-					}
-					if (counts_for_position) {
-						current_pos = next_pos;
-					}
-					prev_char = char;
-				}
-			}
-			else if (node.nodeType === Node.ELEMENT_NODE) {
-				for (let child = node.firstChild; child; child = child.nextSibling) {
-					stepThroughNode(child);
-					prev_char = '';
-				}
-			}
-		}
-
-		stepThroughNode(editor);
-
-		if (removals.size == 0) {
-			debugLog("cleanup zero-width: nothing to remove");
-			return;
-		}
-
-		removals.forEach((indexes, node) => {
-			const text = node.textContent;
-			if (!text || (indexes.length == 0)) {
-				return;
-			}
-			const to_remove = new Set(indexes);
-			let out = '';
-			for (let i = 0; i < text.length; i++) {
-				if (!to_remove.has(i)) {
-					out += text[i];
-				}
-			}
-			node.textContent = out;
-		});
-
-		let adjusted_pos = saved.position - removed_for_cursor;
-		if (adjusted_pos < 0) {
-			adjusted_pos = 0;
-		}
-		debugLog("cleanup zero-width: removed", removed_for_cursor, "adjusted pos", adjusted_pos);
-		restoreSelection(editor, { position: adjusted_pos, character: saved.character });
 	}
 
 	function replaceDuplicateReturns(text) {
@@ -1217,8 +1505,7 @@ var MicroEditor = (function () {
 		const quote_regex = /^>(.*)/gm;
 		const tag_open_regex = /<([a-zA-Z\/]*)/g;
 
-		// this matches with or without the zero-width space
-		const tag_close_regex = /([_>\"a-zA-Z]*)(\u200B*)(>)/g;
+		const tag_close_regex = /([_>\"a-zA-Z]*)(>)/g;
 
 		const attr_regex = /([a-zA-Z]+)="([^"<>]*)"/g;
 		const code_block_regex = /(```.+```)/gs;
@@ -1229,9 +1516,8 @@ var MicroEditor = (function () {
 		const url_regex = /\bhttps?:\/\/[^\s<()]+(?:\([^\s<()]*\)[^\s<()]*)*/g;
 
 		// start with the plain content
-		let plain_text = editor.innerText;
+		let plain_text = editorPlainText(editor);
 		let s = plain_text;
-		s = replaceDoubleZeroWidth(s);
 		const urls = [];
 		s = s.replace(url_regex, (match) => {
 			const index = urls.length;
@@ -1244,7 +1530,7 @@ var MicroEditor = (function () {
 		// apply HTML tag formatting first because we'll be adding other span tags
 		s = s.replace(tag_open_regex, '<span class="editor_tag">&lt;$1</span>');
 
-		s = s.replace(tag_close_regex, (match, tag, space, greater_than) => {
+		s = s.replace(tag_close_regex, (match, tag, greater_than) => {
 			if ((tag == "") || (tag == "span") || (tag.includes("editor_"))) {
 				// don't try to replace our own special classes
 				return match;
@@ -1280,8 +1566,7 @@ var MicroEditor = (function () {
 
 		debugLog("replacing with:", s);
 
-		// clean up invisible chars
-		s = replaceDoubleZeroWidth(s);
+		s = preserveTrailingNewline(s);
 
 		// set the new HTML and restore cursor
 		isIgnoringInput = true;
@@ -1330,12 +1615,11 @@ var MicroEditor = (function () {
 			return;
 		}
 
-		const s = document.getElementById(textBoxID).innerText;
+		const s = editorPlainText(document.getElementById(textBoxID));
 
-		const last_username_regex = /@([a-zA-Z0-9@]+(?:\.[a-zA-Z]+)*)\u200B?$/g;
+		const last_username_regex = /@([a-zA-Z0-9@]+(?:\.[a-zA-Z]+)*)$/g;
 		const match = s.match(last_username_regex);
 		let last_username = match ? match[0] : "";
-		last_username = last_username.replace('\u200B', '');
 
 		autocompleteHandler(last_username);
 	}

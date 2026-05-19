@@ -619,9 +619,6 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	]];
 
 	post_window.contentView = content_view;
-	if (self.postButton != nil) {
-		post_window.defaultButtonCell = self.postButton.cell;
-	}
 	self.isSettingWindowFrame = YES;
 	BOOL did_restore_frame = [post_window setFrameUsingName:InkwellNewPostWindowAutosaveName];
 	if (!did_restore_frame) {
@@ -871,6 +868,15 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	}
 
 	NSEventModifierFlags flags = (event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask);
+	if ((flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) == 0) {
+		if ((self.window.firstResponder == self.titleField) || (self.window.firstResponder == self.titleField.currentEditor)) {
+			return event;
+		}
+
+		[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor && window.InkwellNewPostEditor.insertLineBreak();" completionHandler:nil];
+		return nil;
+	}
+
 	if ((flags & NSEventModifierFlagCommand) == 0) {
 		return event;
 	}

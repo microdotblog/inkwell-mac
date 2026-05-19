@@ -266,6 +266,16 @@
 	color: black;
 }
 
+.editor_marker {
+	display: inline;
+	line-height: inherit;
+	color: transparent;
+	caret-color: #222;
+	pointer-events: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
 .editor_link_text {
 	color: #337AB7;
 	text-decoration: underline;
@@ -376,6 +386,10 @@
 
 	.editor_quote {
 		color: #78b855;
+	}
+
+	.editor_marker {
+		caret-color: #FFF;
 	}
 }
 
