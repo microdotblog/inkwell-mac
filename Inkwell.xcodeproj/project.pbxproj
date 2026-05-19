@@ -9,14 +9,12 @@
 /* Begin PBXBuildFile section */
 		4B0711022F69BC8000D2B5EF /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B0711012F69BC8000D2B5EF /* AVFoundation.framework */; };
 		4B300D032F606D6A005D6703 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 4B300D022F606D6A005D6703 /* Sparkle */; };
-		4B8A2B012FCB01D1000C0123 /* JavaScriptCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B8A2B002FCB01D1000C0123 /* JavaScriptCore.framework */; };
 		4BFA465A2F57970F008BD8A3 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BFA46592F57970F008BD8A3 /* WebKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		4B0711012F69BC8000D2B5EF /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		4B5F345C2F65A9970044F906 /* Inkwell.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Inkwell.entitlements; sourceTree = "<group>"; };
-		4B8A2B002FCB01D1000C0123 /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		4BFA46232F575DBC008BD8A3 /* Inkwell.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Inkwell.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4BFA46572F578528008BD8A3 /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
 		4BFA46592F57970F008BD8A3 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
@@ -33,6 +31,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		4B8A2B022FCB01D1000C0123 /* MMMarkdown */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared/MMMarkdown;
+			sourceTree = "<group>";
+		};
 		4BFA464C2F575E33008BD8A3 /* Resources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -54,7 +57,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				4B0711022F69BC8000D2B5EF /* AVFoundation.framework in Frameworks */,
-				4B8A2B012FCB01D1000C0123 /* JavaScriptCore.framework in Frameworks */,
 				4BFA465A2F57970F008BD8A3 /* WebKit.framework in Frameworks */,
 				4B300D032F606D6A005D6703 /* Sparkle in Frameworks */,
 			);
@@ -70,6 +72,7 @@
 				4B5F345C2F65A9970044F906 /* Inkwell.entitlements */,
 				4BFA46502F575E33008BD8A3 /* Source */,
 				4BFA464C2F575E33008BD8A3 /* Resources */,
+				4B8A2B022FCB01D1000C0123 /* MMMarkdown */,
 				4BFA46582F57970E008BD8A3 /* Frameworks */,
 				4BFA46242F575DBC008BD8A3 /* Products */,
 			);
@@ -87,7 +90,6 @@
 			isa = PBXGroup;
 			children = (
 				4B0711012F69BC8000D2B5EF /* AVFoundation.framework */,
-				4B8A2B002FCB01D1000C0123 /* JavaScriptCore.framework */,
 				4BFA46592F57970F008BD8A3 /* WebKit.framework */,
 			);
 			name = Frameworks;
@@ -109,6 +111,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				4B8A2B022FCB01D1000C0123 /* MMMarkdown */,
 				4BFA464C2F575E33008BD8A3 /* Resources */,
 				4BFA46502F575E33008BD8A3 /* Source */,
 			);

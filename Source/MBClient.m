@@ -10,7 +10,7 @@
 #import "MBPathUtilities.h"
 #import "MBSessionController.h"
 #import "MBSubscription.h"
-#import <JavaScriptCore/JavaScriptCore.h>
+#import "../Shared/MMMarkdown/MMMarkdown.h"
 
 NSString * const MBClientErrorDomain = @"MBClientErrorDomain";
 NSString* const MBClientNetworkingDidStartNotification = @"MBClientNetworkingDidStartNotification";
@@ -69,7 +69,6 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 @property (assign) BOOL hasLoadedFeedIcons;
 @property (assign) BOOL isFetchingFeedIcons;
 @property (strong) NSMutableArray* pendingFeedIconsCompletions;
-@property (strong) JSContext* markdownContext;
 
 - (NSArray*) defaultEntryQueryItemsForPageNumber:(NSInteger) page_number;
 - (NSInteger) nextUnreadFetchRequestID;
@@ -83,7 +82,6 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (NSDictionary* _Nullable) draftEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString*) destination_uid;
 - (NSString*) sourceStringValueFromObject:(id) object;
 - (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown;
-- (JSContext* _Nullable) markdownConversionContext;
 - (NSString*) escapedHTMLString:(NSString*) string;
 - (BOOL) entries:(NSArray *) entries containFeedIDMissingFromSubscriptions:(NSArray *) subscriptions;
 - (NSURL * _Nullable) feedSubscriptionsCacheURL;
@@ -2712,46 +2710,15 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return @"";
 	}
 
-	JSContext* context = [self markdownConversionContext];
-	JSValue* showdown = context[@"showdown"];
-	JSValue* converter_constructor = showdown[@"Converter"];
-	if (context == nil || showdown.isUndefined || converter_constructor.isUndefined) {
+	NSError* error = nil;
+	MMMarkdownExtensions extensions = MMMarkdownExtensionsFencedCodeBlocks | MMMarkdownExtensionsTables;
+	NSString* html = [MMMarkdown HTMLStringWithMarkdown:markdown_string extensions:extensions error:&error];
+	if (html.length == 0) {
 		NSString* escaped_text = [self escapedHTMLString:markdown_string];
 		return [NSString stringWithFormat:@"<p>%@</p>", [escaped_text stringByReplacingOccurrencesOfString:@"\n\n" withString:@"</p><p>"]];
 	}
 
-	JSValue* converter = [converter_constructor constructWithArguments:@[]];
-	JSValue* result = [converter invokeMethod:@"makeHtml" withArguments:@[ markdown_string ]];
-	NSString* html = [result toString] ?: @"";
-	if (html.length == 0) {
-		return [self escapedHTMLString:markdown_string];
-	}
-
 	return html;
-}
-
-- (JSContext*) markdownConversionContext
-{
-	if (self.markdownContext != nil) {
-		return self.markdownContext;
-	}
-
-	NSURL* script_url = [[NSBundle mainBundle] URLForResource:@"showdown.min" withExtension:@"js" subdirectory:@"NewPost"];
-	if (script_url == nil) {
-		script_url = [[NSBundle mainBundle] URLForResource:@"showdown.min" withExtension:@"js"];
-	}
-	if (script_url == nil) {
-		return nil;
-	}
-	NSString* script = [NSString stringWithContentsOfURL:script_url encoding:NSUTF8StringEncoding error:nil];
-	if (script.length == 0) {
-		return nil;
-	}
-
-	JSContext* context = [[JSContext alloc] init];
-	[context evaluateScript:script];
-	self.markdownContext = context;
-	return self.markdownContext;
 }
 
 - (NSString*) escapedHTMLString:(NSString*) string
