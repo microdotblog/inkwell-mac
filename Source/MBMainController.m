@@ -107,8 +107,10 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (BOOL) canShowCurrentUserPosts;
 - (NSArray*) sharingItemsForSelectedItem;
 - (NSRect) sharingPickerRectInView:(NSView*) view;
+- (NSDictionary * _Nullable) currentMicropubDestination;
 - (MBSubscription * _Nullable) currentUserBlogSubscription;
 - (NSDictionary * _Nullable) destinationWithUID:(NSString *)destinationUID destinations:(NSArray *)destinations;
+- (MBSubscription * _Nullable) subscriptionForDestination:(NSDictionary *)destination;
 - (MBSubscription * _Nullable) subscriptionMatchingDestinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalizeHosts;
 - (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalizeHosts;
 - (NSString *) hostFromURLString:(NSString *)string;
@@ -558,8 +560,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 {
 	#pragma unused(sender)
 
-	MBSubscription* subscription = [self currentUserBlogSubscription];
-	if (subscription == nil || subscription.feedID <= 0) {
+	NSDictionary* destination = [self currentMicropubDestination];
+	if (destination == nil) {
 		return;
 	}
 
@@ -567,17 +569,14 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		self.toolbarSearchField.stringValue = @"";
 	}
 
-	NSString* site_name = [subscription.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	NSString* feed_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
-	if (feed_host.length == 0) {
-		feed_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
-	}
-	if (site_name.length == 0) {
-		site_name = feed_host;
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
 	}
 
 	self.sidebarController.searchQuery = @"";
-	[self.sidebarController showCurrentUserPostsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
+	[self.sidebarController showCurrentUserPostsForDestination:destination subscription:[self subscriptionForDestination:destination]];
 	[self updateFilterSegmentedControlEnabledState];
 }
 
@@ -585,8 +584,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 {
 	#pragma unused(sender)
 
-	MBSubscription* subscription = [self currentUserBlogSubscription];
-	if (subscription == nil || subscription.feedID <= 0) {
+	NSDictionary* destination = [self currentMicropubDestination];
+	if (destination == nil) {
 		return;
 	}
 
@@ -594,17 +593,14 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		self.toolbarSearchField.stringValue = @"";
 	}
 
-	NSString* site_name = [subscription.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	NSString* feed_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
-	if (feed_host.length == 0) {
-		feed_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
-	}
-	if (site_name.length == 0) {
-		site_name = feed_host;
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
 	}
 
 	self.sidebarController.searchQuery = @"";
-	[self.sidebarController showCurrentUserDraftsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host];
+	[self.sidebarController showCurrentUserDraftsForDestination:destination subscription:[self subscriptionForDestination:destination]];
 	[self updateFilterSegmentedControlEnabledState];
 }
 
@@ -1178,14 +1174,12 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		return [self.sidebarController canShowAllPostsForSelectedSite];
 	}
 	if (menu_item.action == @selector(showCurrentUserPosts:)) {
-		MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
 		menu_item.title = @"Posts";
-		return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
+		return ([self currentMicropubDestination] != nil);
 	}
 	if (menu_item.action == @selector(showCurrentUserDrafts:)) {
-		MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
 		menu_item.title = @"Drafts";
-		return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
+		return ([self currentMicropubDestination] != nil);
 	}
 	if (menu_item.action == @selector(highlightSelectedItem:)) {
 		return [self canHighlightSelectedItem];
@@ -1227,8 +1221,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) canShowCurrentUserPosts
 {
-	MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
-	return (current_user_blog_subscription != nil && current_user_blog_subscription.feedID > 0);
+	return ([self currentMicropubDestination] != nil);
 }
 
 - (BOOL) validateToolbarItem:(NSToolbarItem *)toolbar_item
@@ -1266,52 +1259,40 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	return [self.sidebarController canEditSelectedPost];
 }
 
-- (MBSubscription *) currentUserBlogSubscription
+- (NSDictionary *) currentMicropubDestination
 {
 	NSArray* destinations = [self.client cachedMicropubDestinations];
+	return [self defaultMicropubDestinationFromDestinations:destinations];
+}
+
+- (MBSubscription *) currentUserBlogSubscription
+{
+	NSDictionary* destination = [self currentMicropubDestination];
+	if (destination == nil) {
+		return nil;
+	}
+
+	return [self subscriptionForDestination:destination];
+}
+
+- (MBSubscription *) subscriptionForDestination:(NSDictionary *)destination
+{
 	NSArray* subscriptions = [self.client cachedFeedSubscriptions];
 	if (subscriptions.count == 0) {
 		return nil;
 	}
 
-	NSString* current_destination_uid = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
-	current_destination_uid = [current_destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (current_destination_uid.length > 0) {
-		NSDictionary* current_destination = [self destinationWithUID:current_destination_uid destinations:destinations];
-		NSString* current_destination_name = [self stringValueFromObjectOrNumber:current_destination[@"name"]];
-		MBSubscription* raw_subscription = [self subscriptionMatchingDestinationUID:current_destination_uid destinationName:current_destination_name subscriptions:subscriptions normalizeHosts:NO];
-		if (raw_subscription != nil) {
-			return raw_subscription;
-		}
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
 
-		MBSubscription* normalized_subscription = [self subscriptionMatchingDestinationUID:current_destination_uid destinationName:current_destination_name subscriptions:subscriptions normalizeHosts:YES];
-		if (normalized_subscription != nil) {
-			return normalized_subscription;
-		}
+	MBSubscription* raw_subscription = [self subscriptionMatchingDestinationUID:destination_uid destinationName:destination_name subscriptions:subscriptions normalizeHosts:NO];
+	if (raw_subscription != nil) {
+		return raw_subscription;
 	}
 
-	if (destinations.count == 0) {
-		return nil;
-	}
-
-	for (id object in destinations) {
-		if (![object isKindOfClass:[NSDictionary class]]) {
-			continue;
-		}
-
-		NSDictionary* destination = (NSDictionary*) object;
-		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
-		NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
-
-		MBSubscription* raw_subscription = [self subscriptionMatchingDestinationUID:destination_uid destinationName:destination_name subscriptions:subscriptions normalizeHosts:NO];
-		if (raw_subscription != nil) {
-			return raw_subscription;
-		}
-
-		MBSubscription* normalized_subscription = [self subscriptionMatchingDestinationUID:destination_uid destinationName:destination_name subscriptions:subscriptions normalizeHosts:YES];
-		if (normalized_subscription != nil) {
-			return normalized_subscription;
-		}
+	MBSubscription* normalized_subscription = [self subscriptionMatchingDestinationUID:destination_uid destinationName:destination_name subscriptions:subscriptions normalizeHosts:YES];
+	if (normalized_subscription != nil) {
+		return normalized_subscription;
 	}
 
 	return nil;
@@ -1785,8 +1766,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (NSDictionary *) defaultMicropubDestinationFromDestinations:(NSArray *)destinations
 {
 	NSString* current_destination_uid = [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
+	current_destination_uid = [current_destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSDictionary* first_destination = nil;
-	NSDictionary* microblog_default_destination = nil;
 	for (id object in destinations ?: @[]) {
 		if (![object isKindOfClass:[NSDictionary class]]) {
 			continue;
@@ -1798,16 +1779,13 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		}
 
 		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 		if (current_destination_uid.length > 0 && [destination_uid isEqualToString:current_destination_uid]) {
 			return destination;
 		}
-
-		if (microblog_default_destination == nil && [destination[@"microblog-default"] boolValue]) {
-			microblog_default_destination = destination;
-		}
 	}
 
-	return microblog_default_destination ?: first_destination;
+	return first_destination;
 }
 
 - (void) openNewPostURLForMarkdownText:(NSString*) markdown_text

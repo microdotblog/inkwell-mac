@@ -9,6 +9,7 @@
 
 @class MBClient;
 @class MBEntry;
+@class MBSubscription;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -46,6 +47,8 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
 - (void) showCurrentUserPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
 - (void) showCurrentUserDraftsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost;
+- (void) showCurrentUserPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription * _Nullable)subscription;
+- (void) showCurrentUserDraftsForDestination:(NSDictionary *)destination subscription:(MBSubscription * _Nullable)subscription;
 - (void) reloadCurrentPostsFromServer;
 - (void) clearSpecialMode;
 - (void) focusAndSelectFirstItem;

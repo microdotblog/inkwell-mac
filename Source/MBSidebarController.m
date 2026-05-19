@@ -208,6 +208,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
 - (NSDictionary * _Nullable) cachedDestinationWithUID:(NSString *)destinationUID;
 - (NSDictionary * _Nullable) cachedDestinationWithHost:(NSString *)host;
+- (NSDictionary * _Nullable) firstCachedDestination;
 - (NSDictionary * _Nullable) cachedDestinationForEntry:(MBEntry *)entry;
 - (BOOL) host:(NSString *)host matchesDestination:(NSDictionary *)destination normalizeHosts:(BOOL)normalize_hosts;
 - (void) fetchBookmarksIfNeeded;
@@ -262,6 +263,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) presentReplyControllerWithPostID:(NSString*) post_id prefillText:(NSString*) prefill_text;
 - (NSString*) specialModeBannerTitle;
 - (NSString *) currentDestinationDisplayName;
+- (NSString *) currentPostsDestinationUID;
 - (NSString *) hostFromURLString:(NSString *) string;
 - (NSString *) currentDestinationUID;
 - (void) showCurrentDestinationsMenuFromView:(NSView *)view event:(NSEvent *)event;
@@ -815,6 +817,18 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSDictionary* destination = [self cachedDestinationWithHost:feedHost];
 	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
 	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES destinationUID:destination_uid postStatus:InkwellPostStatusDraft];
+}
+
+- (void) showCurrentUserPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription *)subscription
+{
+	self.allPostsPostStatus = @"";
+	[self showCurrentPostsForDestination:destination subscription:subscription];
+}
+
+- (void) showCurrentUserDraftsForDestination:(NSDictionary *)destination subscription:(MBSubscription *)subscription
+{
+	self.allPostsPostStatus = InkwellPostStatusDraft;
+	[self showCurrentPostsForDestination:destination subscription:subscription];
 }
 
 - (void) showCurrentPostsForSubscription:(MBSubscription *)subscription
@@ -1440,6 +1454,17 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		NSDictionary* destination = (NSDictionary*) object;
 		if ([self host:normalized_host matchesDestination:destination normalizeHosts:NO] || [self host:normalized_host matchesDestination:destination normalizeHosts:YES]) {
 			return destination;
+		}
+	}
+
+	return nil;
+}
+
+- (NSDictionary *) firstCachedDestination
+{
+	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
+		if ([object isKindOfClass:[NSDictionary class]]) {
+			return (NSDictionary*) object;
 		}
 	}
 
@@ -2822,12 +2847,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSString *) currentDestinationDisplayName
 {
-	NSString* current_destination = [self currentDestinationUID];
-	if (current_destination.length == 0) {
-		return @"";
+	NSString* current_destination = [self currentPostsDestinationUID];
+	NSDictionary* destination = [self cachedDestinationWithUID:current_destination];
+	if (destination == nil) {
+		destination = [self firstCachedDestination];
+		current_destination = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		current_destination = [current_destination stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	}
 
-	NSDictionary* destination = [self cachedDestinationWithUID:current_destination];
 	if (destination != nil) {
 		NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
 		destination_name = [destination_name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
@@ -2837,6 +2864,20 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [self hostFromURLString:current_destination];
+}
+
+- (NSString *) currentPostsDestinationUID
+{
+	NSString* destination_uid = @"";
+	if (self.contentMode == MBSidebarContentModeAllPosts && self.allPostsUsesCurrentDestination) {
+		destination_uid = [self.allPostsDestinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
+	if (destination_uid.length == 0) {
+		destination_uid = [self currentDestinationUID];
+	}
+
+	return destination_uid;
 }
 
 - (NSString *) currentDestinationUID
@@ -2870,7 +2911,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	NSString* current_destination_uid = [self currentDestinationUID];
+	NSString* current_destination_uid = [self currentPostsDestinationUID];
+	if ([self cachedDestinationWithUID:current_destination_uid] == nil) {
+		NSDictionary* first_destination = [self firstCachedDestination];
+		current_destination_uid = [self stringValueFromObjectOrNumber:first_destination[@"uid"]];
+		current_destination_uid = [current_destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Blogs"];
 	for (id object in destinations) {
 		if (![object isKindOfClass:[NSDictionary class]]) {
@@ -3115,8 +3162,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
-	[self updateCurrentPostsHostnameButton];
 	[self showCurrentPostsForDestination:destination subscription:subscription];
+	[self updateCurrentPostsHostnameButton];
 }
 
 - (IBAction) openPlansAction:(id)sender
