@@ -59,6 +59,7 @@ typedef NS_ENUM(NSInteger, MBSidebarSortOrder) {
 - (BOOL) canShowReadingRecap;
 - (BOOL) canReplyToSelectedMention;
 - (BOOL) canEditSelectedPost;
+- (NSDictionary * _Nullable) cachedDestinationForEntry:(MBEntry *)entry;
 - (NSString*) readToggleMenuTitle;
 - (NSString*) bookmarkToggleMenuTitle;
 - (NSString*) readPostsVisibilityMenuTitle;

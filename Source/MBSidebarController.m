@@ -207,6 +207,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) setRecapFetching:(BOOL)is_fetching;
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
 - (NSDictionary * _Nullable) cachedDestinationWithUID:(NSString *)destinationUID;
+- (NSDictionary * _Nullable) cachedDestinationWithHost:(NSString *)host;
 - (NSDictionary * _Nullable) cachedDestinationForEntry:(MBEntry *)entry;
 - (BOOL) host:(NSString *)host matchesDestination:(NSDictionary *)destination normalizeHosts:(BOOL)normalize_hosts;
 - (void) fetchBookmarksIfNeeded;
@@ -215,6 +216,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) fetchAllPostsIfNeeded;
 - (void) fetchAllPosts;
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination postStatus:(NSString *)post_status;
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination destinationUID:(NSString *)destination_uid postStatus:(NSString *)post_status;
 - (void) showCurrentPostsForSubscription:(MBSubscription *)subscription;
 - (void) showCurrentPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription * _Nullable)subscription;
 - (MBSubscription * _Nullable) subscriptionMatchingDestination:(NSDictionary *)destination subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalize_hosts;
@@ -803,12 +805,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) showCurrentUserPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
 {
-	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES postStatus:@""];
+	NSDictionary* destination = [self cachedDestinationWithHost:feedHost];
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES destinationUID:destination_uid postStatus:@""];
 }
 
 - (void) showCurrentUserDraftsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost
 {
-	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES postStatus:InkwellPostStatusDraft];
+	NSDictionary* destination = [self cachedDestinationWithHost:feedHost];
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:YES destinationUID:destination_uid postStatus:InkwellPostStatusDraft];
 }
 
 - (void) showCurrentPostsForSubscription:(MBSubscription *)subscription
@@ -837,7 +843,18 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) showCurrentPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription *)subscription
 {
 	if (subscription != nil && subscription.feedID > 0) {
-		[self showCurrentPostsForSubscription:subscription];
+		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		NSString* site_name = [subscription.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		NSString* feed_host = [self normalizedHostFromURLString:subscription.siteURL ?: @""];
+		if (feed_host.length == 0) {
+			feed_host = [self normalizedHostFromURLString:subscription.feedURL ?: @""];
+		}
+		if (site_name.length == 0) {
+			site_name = feed_host;
+		}
+
+		NSString* post_status = [self.allPostsPostStatus stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		[self showAllPostsForFeedID:subscription.feedID siteName:site_name feedHost:feed_host usesCurrentDestination:YES destinationUID:destination_uid postStatus:post_status];
 		return;
 	}
 
@@ -860,10 +877,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	NSString* post_status = [self.allPostsPostStatus stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	[self showAllPostsForFeedID:0 siteName:site_name feedHost:feed_host usesCurrentDestination:YES postStatus:post_status];
+	[self showAllPostsForFeedID:0 siteName:site_name feedHost:feed_host usesCurrentDestination:YES destinationUID:destination_uid postStatus:post_status];
 }
 
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination postStatus:(NSString *)post_status
+{
+	NSString* destination_uid = uses_current_destination ? [self currentDestinationUID] : @"";
+	[self showAllPostsForFeedID:feedID siteName:siteName feedHost:feedHost usesCurrentDestination:uses_current_destination destinationUID:destination_uid postStatus:post_status];
+}
+
+- (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination destinationUID:(NSString *)destination_uid postStatus:(NSString *)post_status
 {
 	if (self.client == nil || self.token.length == 0 || (feedID <= 0 && !uses_current_destination)) {
 		return;
@@ -883,7 +906,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.allPostsSiteName = siteName ?: @"";
 	self.allPostsFeedHost = feedHost ?: @"";
 	self.allPostsUsesCurrentDestination = uses_current_destination;
-	self.allPostsDestinationUID = uses_current_destination ? [self currentDestinationUID] : @"";
+	self.allPostsDestinationUID = uses_current_destination ? ([destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"") : @"";
 	self.allPostsPostStatus = [post_status stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	self.isFetchingAllPosts = NO;
 	self.allPostsRequestIdentifier += 1;
@@ -1402,14 +1425,45 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return nil;
 }
 
+- (NSDictionary *) cachedDestinationWithHost:(NSString *)host
+{
+	NSString* normalized_host = [self normalizedHostFromURLString:host];
+	if (normalized_host.length == 0) {
+		return nil;
+	}
+
+	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		if ([self host:normalized_host matchesDestination:destination normalizeHosts:NO] || [self host:normalized_host matchesDestination:destination normalizeHosts:YES]) {
+			return destination;
+		}
+	}
+
+	return nil;
+}
+
 - (NSDictionary *) cachedDestinationForEntry:(MBEntry *)entry
 {
 	if (![entry isKindOfClass:[MBEntry class]]) {
 		return nil;
 	}
 
+	NSDictionary* destination = [self cachedDestinationWithHost:entry.url ?: @""];
+	if (destination != nil) {
+		return destination;
+	}
+
+	destination = [self cachedDestinationWithHost:[self feedHostForEntry:entry]];
+	if (destination != nil) {
+		return destination;
+	}
+
 	NSString* source_uid = [entry.source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	NSDictionary* destination = [self cachedDestinationWithUID:source_uid];
+	destination = [self cachedDestinationWithUID:source_uid];
 	if (destination != nil) {
 		return destination;
 	}
@@ -1418,30 +1472,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		destination = [self cachedDestinationWithUID:self.allPostsDestinationUID];
 		if (destination != nil) {
 			return destination;
-		}
-	}
-
-	NSMutableArray* hosts = [NSMutableArray array];
-	NSString* feed_host = [self feedHostForEntry:entry];
-	if (feed_host.length > 0) {
-		[hosts addObject:feed_host];
-	}
-
-	NSString* url_host = [self normalizedHostFromURLString:entry.url ?: @""];
-	if (url_host.length > 0 && ![hosts containsObject:url_host]) {
-		[hosts addObject:url_host];
-	}
-
-	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
-		if (![object isKindOfClass:[NSDictionary class]]) {
-			continue;
-		}
-
-		destination = (NSDictionary*) object;
-		for (NSString* host in hosts) {
-			if ([self host:host matchesDestination:destination normalizeHosts:NO] || [self host:host matchesDestination:destination normalizeHosts:YES]) {
-				return destination;
-			}
 		}
 	}
 

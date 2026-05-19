@@ -1740,13 +1740,13 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	}
 
 	NSArray* cached_destinations = [self.client cachedMicropubDestinations] ?: @[];
-	NSDictionary* default_destination = [self defaultMicropubDestinationFromDestinations:cached_destinations];
-	NSString* destination_name = [self stringValueFromObjectOrNumber:default_destination[@"name"]];
-	NSString* destination_uid = [self stringValueFromObjectOrNumber:default_destination[@"uid"]];
-	if (destination_uid.length > 0) {
-		[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
+	NSDictionary* post_destination = [self.sidebarController cachedDestinationForEntry:item];
+	if (post_destination == nil) {
+		return;
 	}
 
+	NSString* destination_name = [self stringValueFromObjectOrNumber:post_destination[@"name"]];
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:post_destination[@"uid"]];
 	MBNewPostController* post_controller = [self configuredPostWindowController];
 	[post_controller showEditingPostURL:post_url destinationName:destination_name destinationUID:destination_uid destinations:cached_destinations isDraft:item.isDraft token:self.token];
 	[self scheduleMicropubDestinationsRefreshAfterOpeningNewPost];
