@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, readonly) NSTextField* blogHostnameField;
 @property (nonatomic, copy, nullable) NSArray* _Nullable (^destinationsProvider)(void);
 @property (nonatomic, copy, nullable) void (^didCloseHandler)(MBNewPostController* controller);
+@property (nonatomic, copy, nullable) void (^didUpdatePostHandler)(void);
 
 + (void) resetPostWindowCascade;
 

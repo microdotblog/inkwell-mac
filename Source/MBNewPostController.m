@@ -969,9 +969,13 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) finishPostingWithError:(NSError *)error
 {
 	if (error == nil) {
+		BOOL did_update_post = [self isEditingExistingPost];
 		[self setPosting:NO];
 		self.isClosingAfterPost = YES;
 		self.window.documentEdited = NO;
+		if (did_update_post && self.didUpdatePostHandler != nil) {
+			self.didUpdatePostHandler();
+		}
 		[self close];
 		return;
 	}

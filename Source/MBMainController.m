@@ -1778,6 +1778,9 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	post_controller.destinationsProvider = ^NSArray* _Nullable {
 		return [weak_self.client cachedMicropubDestinations];
 	};
+	post_controller.didUpdatePostHandler = ^{
+		[weak_self.sidebarController reloadCurrentPostsFromServer];
+	};
 	post_controller.didCloseHandler = ^(MBNewPostController* closing_controller) {
 		[weak_self postWindowControllerDidClose:closing_controller];
 	};

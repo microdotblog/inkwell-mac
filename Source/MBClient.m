@@ -77,9 +77,10 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (void) fetchFeedSubscriptionsWithAuthorizationValue:(NSString *) authorization_value completion:(void (^)(NSArray * _Nullable subscriptions, NSError * _Nullable error))completion;
 - (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions existingEntryIDs:(NSSet *) existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion;
 - (void) fetchPagedEntriesForFeedID:(NSInteger) feed_id authorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion;
-- (NSArray*) draftEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString*) destination_uid;
+- (void) fetchSourceEntriesForDestinationUID:(NSString *) destination_uid postStatus:(NSString *) post_status token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion;
+- (NSArray *) sourceEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft;
 - (NSArray*) sourceItemsFromMicropubSourcePayload:(id) payload;
-- (NSDictionary* _Nullable) draftEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString*) destination_uid;
+- (NSDictionary * _Nullable) sourceEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft;
 - (NSString*) sourceStringValueFromObject:(id) object;
 - (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown;
 - (NSString*) escapedHTMLString:(NSString*) string;
@@ -395,11 +396,11 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	[unread_task resume];
 }
 
-- (void) fetchDraftEntriesForDestinationUID:(NSString*) destination_uid token:(NSString*) token completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
+- (void) fetchSourceEntriesForDestinationUID:(NSString *) destination_uid postStatus:(NSString *) post_status token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion
 {
 	NSString* normalized_destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (normalized_destination_uid.length == 0) {
-		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1059 userInfo:@{ NSLocalizedDescriptionKey: @"Missing destination for drafts request." }];
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1059 userInfo:@{ NSLocalizedDescriptionKey: @"Missing destination for posts request." }];
 		dispatch_async(dispatch_get_main_queue(), ^{
 			completion(nil, error);
 		});
@@ -407,22 +408,27 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	if (token.length == 0) {
-		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1060 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for drafts request." }];
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1060 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for posts request." }];
 		dispatch_async(dispatch_get_main_queue(), ^{
 			completion(nil, error);
 		});
 		return;
 	}
 
-	NSURLComponents* components = [NSURLComponents componentsWithString:MBMicropubEndpoint];
-	components.queryItems = @[
+	NSString* normalized_post_status = [post_status stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSMutableArray* query_items = [NSMutableArray arrayWithArray:@[
 		[NSURLQueryItem queryItemWithName:@"q" value:@"source"],
-		[NSURLQueryItem queryItemWithName:@"mp-destination" value:normalized_destination_uid],
-		[NSURLQueryItem queryItemWithName:@"post-status" value:@"draft"]
-	];
+		[NSURLQueryItem queryItemWithName:@"mp-destination" value:normalized_destination_uid]
+	]];
+	if (normalized_post_status.length > 0) {
+		[query_items addObject:[NSURLQueryItem queryItemWithName:@"post-status" value:normalized_post_status]];
+	}
+
+	NSURLComponents* components = [NSURLComponents componentsWithString:MBMicropubEndpoint];
+	components.queryItems = query_items;
 	NSURL* request_url = components.URL;
 	if (request_url == nil) {
-		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1061 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub drafts endpoint URL was invalid." }];
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1061 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub posts endpoint URL was invalid." }];
 		dispatch_async(dispatch_get_main_queue(), ^{
 			completion(nil, error);
 		});
@@ -444,7 +450,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 		NSHTTPURLResponse* http_response = (NSHTTPURLResponse*) response;
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
-			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Drafts request failed."];
+			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Posts request failed."];
 			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
 			dispatch_async(dispatch_get_main_queue(), ^{
 				completion(nil, request_error);
@@ -453,12 +459,23 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		}
 
 		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-		NSArray* entries = [self draftEntryDictionariesFromMicropubSourcePayload:payload destinationUID:normalized_destination_uid];
+		BOOL is_draft = [normalized_post_status isEqualToString:@"draft"];
+		NSArray* entries = [self sourceEntryDictionariesFromMicropubSourcePayload:payload destinationUID:normalized_destination_uid isDraft:is_draft];
 		dispatch_async(dispatch_get_main_queue(), ^{
 			completion(entries, nil);
 		});
 	}];
 	[task resume];
+}
+
+- (void) fetchPostEntriesForDestinationUID:(NSString *) destination_uid token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion
+{
+	[self fetchSourceEntriesForDestinationUID:destination_uid postStatus:@"" token:token completion:completion];
+}
+
+- (void) fetchDraftEntriesForDestinationUID:(NSString*) destination_uid token:(NSString*) token completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
+{
+	[self fetchSourceEntriesForDestinationUID:destination_uid postStatus:@"draft" token:token completion:completion];
 }
 
 - (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion
@@ -2594,12 +2611,12 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	return [normalized_destinations copy];
 }
 
-- (NSArray*) draftEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString*) destination_uid
+- (NSArray *) sourceEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft
 {
 	NSArray* items = [self sourceItemsFromMicropubSourcePayload:payload];
 	NSMutableArray* entries = [NSMutableArray array];
 	for (id item in items) {
-		NSDictionary* entry = [self draftEntryDictionaryFromMicropubSourceItem:item destinationUID:destination_uid];
+		NSDictionary* entry = [self sourceEntryDictionaryFromMicropubSourceItem:item destinationUID:destination_uid isDraft:is_draft];
 		if (entry != nil) {
 			[entries addObject:entry];
 		}
@@ -2631,7 +2648,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	return @[];
 }
 
-- (NSDictionary*) draftEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString*) destination_uid
+- (NSDictionary *) sourceEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft
 {
 	if (![item isKindOfClass:[NSDictionary class]]) {
 		return nil;
@@ -2669,7 +2686,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	entry[@"date_published"] = published ?: @"";
 	entry[@"source"] = destination_uid ?: @"";
 	entry[@"is_read"] = @YES;
-	entry[@"is_draft"] = @YES;
+	entry[@"is_draft"] = @(is_draft);
 	if (uid.length > 0) {
 		entry[@"id"] = uid;
 	}

@@ -39,6 +39,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (void) createFeedSubscriptionWithURLString:(NSString*) url_string token:(NSString*) token completion:(void (^)(NSInteger status_code, MBSubscription* _Nullable subscription, NSArray* _Nullable choices, NSError* _Nullable error))completion;
 - (void) fetchFeedEntriesWithToken:(NSString *)token existingEntryIDs:(NSSet *)existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion;
 - (void) fetchAllEntriesForFeedID:(NSInteger) feed_id token:(NSString*) token completion:(void (^)(NSArray* _Nullable entries, NSSet* _Nullable unread_entry_ids, BOOL is_finished, NSError* _Nullable error))completion;
+- (void) fetchPostEntriesForDestinationUID:(NSString *) destination_uid token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion;
 - (void) fetchDraftEntriesForDestinationUID:(NSString*) destination_uid token:(NSString*) token completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion;
 - (void) fetchFeedIconsWithToken:(NSString *)token completion:(void (^)(NSDictionary<NSString *, NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion;
 - (NSDictionary<NSString*, NSString*>*) cachedFeedIconsByHost;

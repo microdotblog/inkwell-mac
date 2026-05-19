@@ -844,13 +844,24 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.allPostsUsesCurrentDestination = uses_current_destination;
 	self.allPostsDestinationUID = uses_current_destination ? [self currentDestinationUID] : @"";
 	self.allPostsPostStatus = [post_status stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	self.allPostsItems = [self.allPostsPostStatus isEqualToString:InkwellPostStatusDraft] ? @[] : [self cachedItemsForFeedID:feedID];
+	self.allPostsItems = uses_current_destination ? @[] : [self cachedItemsForFeedID:feedID];
 	[self applyFiltersAndReload];
 	[self ensureSpecialModeSelectionIfNeeded];
 	[self fetchAllPosts];
 	if (!was_showing_special_mode && self.specialModeChangedHandler != nil) {
 		self.specialModeChangedHandler(YES);
 	}
+}
+
+- (void) reloadCurrentPostsFromServer
+{
+	if (self.contentMode != MBSidebarContentModeAllPosts || !self.allPostsUsesCurrentDestination) {
+		return;
+	}
+
+	self.isFetchingAllPosts = NO;
+	self.allPostsRequestIdentifier += 1;
+	[self fetchAllPosts];
 }
 
 - (void) clearSpecialMode
@@ -1420,8 +1431,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSString* post_status = [self.allPostsPostStatus copy];
 	NSString* destination_uid = [self.allPostsDestinationUID copy];
 	__weak typeof(self) weak_self = self;
-	if ([post_status isEqualToString:InkwellPostStatusDraft]) {
-		[self.client fetchDraftEntriesForDestinationUID:destination_uid token:self.token completion:^(NSArray* _Nullable entries, NSError* _Nullable error) {
+	if (self.allPostsUsesCurrentDestination) {
+		void (^completion)(NSArray* _Nullable entries, NSError* _Nullable error) = ^(NSArray* _Nullable entries, NSError* _Nullable error) {
 			MBSidebarController* strong_self = weak_self;
 			if (strong_self == nil) {
 				return;
@@ -1440,7 +1451,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:nil];
 			[strong_self applyFiltersAndReload];
 			[strong_self ensureSpecialModeSelectionIfNeeded];
-		}];
+		};
+
+		if ([post_status isEqualToString:InkwellPostStatusDraft]) {
+			[self.client fetchDraftEntriesForDestinationUID:destination_uid token:self.token completion:completion];
+		}
+		else {
+			[self.client fetchPostEntriesForDestinationUID:destination_uid token:self.token completion:completion];
+		}
 		return;
 	}
 
