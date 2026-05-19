@@ -2949,9 +2949,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
-	[self updateCurrentPostsHostnameButton];
-
 	NSArray* subscriptions = [self.client cachedFeedSubscriptions] ?: @[];
 	MBSubscription* subscription = [self subscriptionMatchingDestination:destination subscriptions:subscriptions normalizeHosts:NO];
 	if (subscription == nil) {
@@ -2961,6 +2958,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
+	[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
+	[self updateCurrentPostsHostnameButton];
 	[self showCurrentPostsForSubscription:subscription];
 }
 
