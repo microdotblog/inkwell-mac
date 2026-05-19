@@ -1427,6 +1427,42 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	[self performSimpleRequest:request defaultErrorMessage:@"Reply request failed." completion:completion success:nil];
 }
 
+- (void) deletePostAtURLString:(NSString *)urlString destinationUID:(NSString *)destinationUID token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion
+{
+	NSString* normalized_url = [urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_url.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1062 userInfo:@{ NSLocalizedDescriptionKey: @"Missing URL for delete request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	if (token.length == 0) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1063 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for delete request." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSURL* request_url = [NSURL URLWithString:MBMicropubEndpoint];
+	if (request_url == nil) {
+		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1064 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub delete endpoint URL was invalid." }];
+		[self finishWithSimpleError:error completion:completion];
+		return;
+	}
+
+	NSString* normalized_destination_uid = [destinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSMutableArray* body_parts = [NSMutableArray array];
+	[body_parts addObject:@"action=delete"];
+	[body_parts addObject:[NSString stringWithFormat:@"url=%@", [self urlEncodedString:normalized_url]]];
+	if (normalized_destination_uid.length > 0) {
+		[body_parts addObject:[NSString stringWithFormat:@"mp-destination=%@", [self urlEncodedString:normalized_destination_uid]]];
+	}
+
+	NSString* body_string = [body_parts componentsJoinedByString:@"&"] ?: @"";
+	NSData* body_data = [body_string dataUsingEncoding:NSUTF8StringEncoding];
+	NSMutableURLRequest* request = [self authenticatedRequestWithURL:request_url method:@"POST" token:token accept:@"application/json" contentType:@"application/x-www-form-urlencoded" body:body_data];
+	[self performSimpleRequest:request defaultErrorMessage:@"Delete post request failed." completion:completion success:nil];
+}
+
 - (void) fetchReadingRecapForEntryIDs:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion
 {
 	if (token.length == 0) {

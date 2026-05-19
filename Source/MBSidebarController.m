@@ -192,7 +192,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) moveSelectionFromRememberedRow:(NSInteger) direction;
 - (BOOL) performPrimaryActionForSelectedItem;
+- (BOOL) canEditSelectedItem;
 - (BOOL) editSelectedItemIfPossible;
+- (BOOL) canDeleteSelectedPost;
+- (NSString *) destinationUIDForSelectedPostDelete;
+- (NSString *) deletePromptTitleForItem:(MBEntry *)item;
+- (NSString *) deleteFallbackTitleForItem:(MBEntry *)item;
+- (void) showDeletePostError:(NSError *)error;
 - (BOOL) openSelectedItemInBrowser;
 - (NSString*) readToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
 - (NSString*) bookmarkToggleMenuTitleForSelectedItem:(MBEntry* _Nullable) selected_item;
@@ -200,6 +206,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) updatePremiumRequiredView;
 - (void) setRecapFetching:(BOOL)is_fetching;
 - (void) finishReadingRecapPollingForRequestIdentifier:(NSInteger) request_identifier;
+- (NSDictionary * _Nullable) cachedDestinationWithUID:(NSString *)destinationUID;
+- (NSDictionary * _Nullable) cachedDestinationForEntry:(MBEntry *)entry;
+- (BOOL) host:(NSString *)host matchesDestination:(NSDictionary *)destination normalizeHosts:(BOOL)normalize_hosts;
 - (void) fetchBookmarksIfNeeded;
 - (void) fetchBookmarks;
 - (void) fetchMentions;
@@ -207,6 +216,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) fetchAllPosts;
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination postStatus:(NSString *)post_status;
 - (void) showCurrentPostsForSubscription:(MBSubscription *)subscription;
+- (void) showCurrentPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription * _Nullable)subscription;
 - (MBSubscription * _Nullable) subscriptionMatchingDestination:(NSDictionary *)destination subscriptions:(NSArray *)subscriptions normalizeHosts:(BOOL)normalize_hosts;
 - (BOOL) destinationUID:(NSString *)destinationUID destinationName:(NSString *)destinationName matchesSubscription:(MBSubscription *)subscription normalizeHosts:(BOOL)normalize_hosts;
 - (BOOL) host:(NSString *)host matchesDestinationHosts:(NSArray *)destination_hosts;
@@ -824,9 +834,38 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 }
 
+- (void) showCurrentPostsForDestination:(NSDictionary *)destination subscription:(MBSubscription *)subscription
+{
+	if (subscription != nil && subscription.feedID > 0) {
+		[self showCurrentPostsForSubscription:subscription];
+		return;
+	}
+
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
+	destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	destination_name = [destination_name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+
+	NSString* feed_host = [self normalizedHostFromURLString:destination_uid];
+	if (feed_host.length == 0) {
+		feed_host = [self normalizedHostFromURLString:destination_name];
+	}
+
+	NSString* site_name = destination_name;
+	if (site_name.length == 0) {
+		site_name = feed_host;
+	}
+	if (site_name.length == 0) {
+		site_name = destination_uid;
+	}
+
+	NSString* post_status = [self.allPostsPostStatus stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	[self showAllPostsForFeedID:0 siteName:site_name feedHost:feed_host usesCurrentDestination:YES postStatus:post_status];
+}
+
 - (void) showAllPostsForFeedID:(NSInteger)feedID siteName:(NSString *)siteName feedHost:(NSString *)feedHost usesCurrentDestination:(BOOL)uses_current_destination postStatus:(NSString *)post_status
 {
-	if (self.client == nil || self.token.length == 0 || feedID <= 0) {
+	if (self.client == nil || self.token.length == 0 || (feedID <= 0 && !uses_current_destination)) {
 		return;
 	}
 
@@ -846,6 +885,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	self.allPostsUsesCurrentDestination = uses_current_destination;
 	self.allPostsDestinationUID = uses_current_destination ? [self currentDestinationUID] : @"";
 	self.allPostsPostStatus = [post_status stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	self.isFetchingAllPosts = NO;
+	self.allPostsRequestIdentifier += 1;
 	self.allPostsItems = uses_current_destination ? @[] : [self cachedItemsForFeedID:feedID];
 	[self applyFiltersAndReload];
 	[self ensureSpecialModeSelectionIfNeeded];
@@ -1338,6 +1379,97 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}];
 }
 
+- (NSDictionary *) cachedDestinationWithUID:(NSString *)destinationUID
+{
+	NSString* normalized_uid = [destinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (normalized_uid.length == 0) {
+		return nil;
+	}
+
+	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		NSDictionary* destination = (NSDictionary*) object;
+		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if ([destination_uid isEqualToString:normalized_uid]) {
+			return destination;
+		}
+	}
+
+	return nil;
+}
+
+- (NSDictionary *) cachedDestinationForEntry:(MBEntry *)entry
+{
+	if (![entry isKindOfClass:[MBEntry class]]) {
+		return nil;
+	}
+
+	NSString* source_uid = [entry.source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSDictionary* destination = [self cachedDestinationWithUID:source_uid];
+	if (destination != nil) {
+		return destination;
+	}
+
+	if (self.contentMode == MBSidebarContentModeAllPosts && self.allPostsUsesCurrentDestination) {
+		destination = [self cachedDestinationWithUID:self.allPostsDestinationUID];
+		if (destination != nil) {
+			return destination;
+		}
+	}
+
+	NSMutableArray* hosts = [NSMutableArray array];
+	NSString* feed_host = [self feedHostForEntry:entry];
+	if (feed_host.length > 0) {
+		[hosts addObject:feed_host];
+	}
+
+	NSString* url_host = [self normalizedHostFromURLString:entry.url ?: @""];
+	if (url_host.length > 0 && ![hosts containsObject:url_host]) {
+		[hosts addObject:url_host];
+	}
+
+	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
+		if (![object isKindOfClass:[NSDictionary class]]) {
+			continue;
+		}
+
+		destination = (NSDictionary*) object;
+		for (NSString* host in hosts) {
+			if ([self host:host matchesDestination:destination normalizeHosts:NO] || [self host:host matchesDestination:destination normalizeHosts:YES]) {
+				return destination;
+			}
+		}
+	}
+
+	return nil;
+}
+
+- (BOOL) host:(NSString *)host matchesDestination:(NSDictionary *)destination normalizeHosts:(BOOL)normalize_hosts
+{
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
+	NSArray* destination_hosts = nil;
+	if (normalize_hosts) {
+		destination_hosts = @[
+			[self normalizedHostFromURLString:destination_uid ?: @""],
+			[self normalizedHostFromURLString:destination_name ?: @""]
+		];
+	}
+	else {
+		destination_hosts = @[
+			[self hostFromURLString:destination_uid ?: @""],
+			[self hostFromURLString:destination_name ?: @""]
+		];
+	}
+
+	NSString* normalized_host = normalize_hosts ? [self normalizedHostFromURLString:host] : [self hostFromURLString:host];
+	return [self host:normalized_host matchesDestinationHosts:destination_hosts];
+}
+
 - (void) fetchBookmarksIfNeeded
 {
 	if (self.bookmarkItems.count > 0 || self.isFetchingBookmarks) {
@@ -1421,7 +1553,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) fetchAllPosts
 {
-	if (self.client == nil || self.token.length == 0 || self.isFetchingAllPosts || self.allPostsFeedID <= 0) {
+	if (self.client == nil || self.token.length == 0 || self.isFetchingAllPosts || (self.allPostsFeedID <= 0 && !self.allPostsUsesCurrentDestination)) {
 		return;
 	}
 
@@ -1446,7 +1578,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 			strong_self.isFetchingAllPosts = NO;
 
-			if (error != nil || strong_self.contentMode != MBSidebarContentModeAllPosts || strong_self.allPostsFeedID <= 0) {
+			if (error != nil || strong_self.contentMode != MBSidebarContentModeAllPosts || !strong_self.allPostsUsesCurrentDestination) {
 				return;
 			}
 
@@ -2665,18 +2797,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return @"";
 	}
 
-	for (id object in [self.client cachedMicropubDestinations] ?: @[]) {
-		if (![object isKindOfClass:[NSDictionary class]]) {
-			continue;
-		}
-
-		NSDictionary* destination = (NSDictionary*) object;
-		NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
-		destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-		if (![destination_uid isEqualToString:current_destination]) {
-			continue;
-		}
-
+	NSDictionary* destination = [self cachedDestinationWithUID:current_destination];
+	if (destination != nil) {
 		NSString* destination_name = [self stringValueFromObjectOrNumber:destination[@"name"]];
 		destination_name = [destination_name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 		if (destination_name.length > 0) {
@@ -2736,6 +2858,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		menu_item.representedObject = destination;
 
 		NSString* uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+		uid = [uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 		if (uid.length > 0 && [uid isEqualToString:current_destination_uid]) {
 			menu_item.state = NSControlStateValueOn;
 		}
@@ -2945,8 +3068,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSDictionary* destination = (NSDictionary*) represented_object;
 	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (destination_uid.length == 0) {
 		return;
+	}
+
+	NSDictionary* cached_destination = [self cachedDestinationWithUID:destination_uid];
+	if (cached_destination != nil) {
+		destination = cached_destination;
 	}
 
 	NSArray* subscriptions = [self.client cachedFeedSubscriptions] ?: @[];
@@ -2954,13 +3083,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (subscription == nil) {
 		subscription = [self subscriptionMatchingDestination:destination subscriptions:subscriptions normalizeHosts:YES];
 	}
-	if (subscription == nil) {
-		return;
-	}
 
 	[[NSUserDefaults standardUserDefaults] setObject:destination_uid forKey:InkwellCurrentDestinationDefaultsKey];
 	[self updateCurrentPostsHostnameButton];
-	[self showCurrentPostsForSubscription:subscription];
+	[self showCurrentPostsForDestination:destination subscription:subscription];
 }
 
 - (IBAction) openPlansAction:(id)sender
@@ -3523,25 +3649,154 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (BOOL) editSelectedItemIfPossible
 {
-	if ([self selectedItem] == nil) {
+	if (![self canEditSelectedItem]) {
 		return NO;
 	}
 
 	SEL edit_post_selector = NSSelectorFromString(@"editPost:");
 	id target = [NSApp targetForAction:edit_post_selector to:nil from:self];
-	if (target == nil) {
+	return [NSApp sendAction:edit_post_selector to:target from:self];
+}
+
+- (BOOL) canEditSelectedItem
+{
+	SEL edit_post_selector = NSSelectorFromString(@"editPost:");
+	id target = [NSApp targetForAction:edit_post_selector to:nil from:self];
+	return (target != nil && [self canEditSelectedPost]);
+}
+
+- (BOOL) canEditSelectedPost
+{
+	MBEntry* selected_item = [self selectedItem];
+	if (selected_item == nil || self.client == nil || self.token.length == 0) {
 		return NO;
 	}
 
-	if ([target respondsToSelector:@selector(validateMenuItem:)]) {
-		NSMenuItem* validation_item = [[NSMenuItem alloc] initWithTitle:@"" action:edit_post_selector keyEquivalent:@""];
-		validation_item.target = target;
-		if (![(id<NSMenuItemValidation>) target validateMenuItem:validation_item]) {
-			return NO;
+	NSString* post_url = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (post_url.length > 0 && [self cachedDestinationForEntry:selected_item] != nil);
+}
+
+- (BOOL) canDeleteSelectedPost
+{
+	MBEntry* selected_item = [self selectedItem];
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	return (url_string.length > 0 && [self canEditSelectedPost]);
+}
+
+- (IBAction) deleteSelectedPostAction:(id)sender
+{
+	#pragma unused(sender)
+
+	if (![self canDeleteSelectedPost]) {
+		return;
+	}
+
+	MBEntry* selected_item = [self selectedItem];
+	NSString* url_string = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* destination_uid = [self destinationUIDForSelectedPostDelete];
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.messageText = [self deletePromptTitleForItem:selected_item];
+	alert.informativeText = @"This post will be removed from your blog.";
+	alert.alertStyle = NSAlertStyleWarning;
+	[alert addButtonWithTitle:@"Cancel"];
+	[alert addButtonWithTitle:@"Delete"];
+
+	NSModalResponse response = [alert runModal];
+	if (response != NSAlertSecondButtonReturn) {
+		return;
+	}
+
+	__weak typeof(self) weak_self = self;
+	[self.client deletePostAtURLString:url_string destinationUID:destination_uid token:self.token completion:^(NSError* _Nullable error) {
+		MBSidebarController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (error != nil) {
+			[strong_self showDeletePostError:error];
+			return;
+		}
+
+		[strong_self refreshData];
+	}];
+}
+
+- (NSString *) destinationUIDForSelectedPostDelete
+{
+	MBEntry* selected_item = [self selectedItem];
+	NSDictionary* destination = [self cachedDestinationForEntry:selected_item];
+	NSString* destination_uid = [self stringValueFromObjectOrNumber:destination[@"uid"]];
+	destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		return destination_uid;
+	}
+
+	destination_uid = [selected_item.source stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		return destination_uid;
+	}
+
+	destination_uid = [self.allPostsDestinationUID stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (destination_uid.length > 0) {
+		return destination_uid;
+	}
+
+	return [[NSUserDefaults standardUserDefaults] stringForKey:InkwellCurrentDestinationDefaultsKey] ?: @"";
+}
+
+- (NSString *) deletePromptTitleForItem:(MBEntry *)item
+{
+	NSString* title = [item.title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (title.length == 0) {
+		title = [self deleteFallbackTitleForItem:item];
+	}
+	if (title.length == 0) {
+		title = @"Untitled post";
+	}
+
+	return [NSString stringWithFormat:@"Delete \"%@\"?", title];
+}
+
+- (NSString *) deleteFallbackTitleForItem:(MBEntry *)item
+{
+	NSString* text = [item.summary stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (text.length == 0) {
+		text = [self plainTextFromHTMLString:item.text ?: @""];
+	}
+	text = [self normalizedPreviewString:text];
+	if (text.length == 0) {
+		return @"";
+	}
+
+	NSArray* parts = [text componentsSeparatedByString:@" "];
+	NSMutableArray* words = [NSMutableArray array];
+	for (NSString* part in parts) {
+		if (part.length == 0) {
+			continue;
+		}
+
+		[words addObject:part];
+		if (words.count == 5) {
+			break;
 		}
 	}
 
-	return [NSApp sendAction:edit_post_selector to:target from:self];
+	if (words.count == 0) {
+		return @"";
+	}
+
+	return [[words componentsJoinedByString:@" "] stringByAppendingString:@"..."];
+}
+
+- (void) showDeletePostError:(NSError *)error
+{
+	NSAlert* alert = [[NSAlert alloc] init];
+	alert.messageText = @"Could not delete post.";
+	alert.informativeText = error.localizedDescription ?: @"The delete request failed.";
+	alert.alertStyle = NSAlertStyleWarning;
+	[alert addButtonWithTitle:@"OK"];
+	[alert runModal];
 }
 
 - (BOOL) openSelectedItemInBrowser
@@ -3594,6 +3849,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSMenuItem* edit_post_item = [[NSMenuItem alloc] initWithTitle:@"Edit" action:edit_post_selector keyEquivalent:@""];
 	edit_post_item.target = nil;
 	[menu addItem:edit_post_item];
+
+	NSMenuItem* delete_post_item = [[NSMenuItem alloc] initWithTitle:@"Delete" action:@selector(deleteSelectedPostAction:) keyEquivalent:@""];
+	delete_post_item.target = self;
+	[menu addItem:delete_post_item];
 
 	[menu addItem:[NSMenuItem separatorItem]];
 
@@ -3806,6 +4065,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 	if (menu_item.action == @selector(showReadingRecap:)) {
 		return [self canShowReadingRecap];
+	}
+	if (menu_item.action == @selector(deleteSelectedPostAction:)) {
+		BOOL can_delete = [self canDeleteSelectedPost];
+		menu_item.hidden = !can_delete;
+		return can_delete;
 	}
 
 	if (menu_item.action != @selector(openSelectedItemInBrowserAction:) && menu_item.action != @selector(copySelectedItemLinkAction:)) {

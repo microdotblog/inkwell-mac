@@ -54,6 +54,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 - (NSArray * _Nullable) cachedFeedSubscriptions;
 - (void) fetchConversationForURLString:(NSString*) url_string completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion;
 - (void) createReplyForPostID:(NSString *)postID content:(NSString *)content token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion;
+- (void) deletePostAtURLString:(NSString *)urlString destinationUID:(NSString *)destinationUID token:(NSString *)token completion:(void (^)(NSError* _Nullable error))completion;
 - (void) fetchReadingRecapForEntryIDs:(NSArray*) entry_ids token:(NSString*) token completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion;
 - (void) fetchReadingRecapEmailDayOfWeekWithToken:(NSString*) token completion:(void (^)(NSString* _Nullable day_of_week, NSError* _Nullable error))completion;
 - (void) updateReadingRecapEmailDayOfWeek:(NSString*) day_of_week token:(NSString*) token completion:(void (^)(NSError* _Nullable error))completion;

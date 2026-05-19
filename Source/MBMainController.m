@@ -1263,22 +1263,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 - (BOOL) canEditSelectedPost
 {
-	MBEntry* selected_item = [self.sidebarController selectedItem];
-	if (selected_item == nil || selected_item.feedID <= 0) {
-		return NO;
-	}
-
-	NSString* post_url = [selected_item.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-	if (post_url.length == 0) {
-		return NO;
-	}
-
-	MBSubscription* current_user_blog_subscription = [self currentUserBlogSubscription];
-	if (current_user_blog_subscription == nil || current_user_blog_subscription.feedID <= 0) {
-		return NO;
-	}
-
-	return (selected_item.feedID == current_user_blog_subscription.feedID);
+	return [self.sidebarController canEditSelectedPost];
 }
 
 - (MBSubscription *) currentUserBlogSubscription
