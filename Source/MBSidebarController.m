@@ -478,6 +478,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	table_view.translatesAutoresizingMaskIntoConstraints = NO;
 	table_view.delegate = self;
 	table_view.dataSource = self;
+	table_view.target = self;
+	table_view.doubleAction = @selector(editDoubleClickedSidebarItem:);
 	table_view.headerView = nil;
 	table_view.allowsEmptySelection = YES;
 	table_view.intercellSpacing = NSMakeSize(0.0, 5.0);
@@ -3567,6 +3569,20 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[menu addItem:copy_item];
 
 	return menu;
+}
+
+- (IBAction) editDoubleClickedSidebarItem:(id)sender
+{
+	#pragma unused(sender)
+
+	NSInteger clicked_row = self.tableView.clickedRow;
+	if (clicked_row < 0 || clicked_row >= self.items.count) {
+		return;
+	}
+
+	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) clicked_row];
+	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
+	[NSApp sendAction:NSSelectorFromString(@"editPost:") to:nil from:self];
 }
 
 - (IBAction) openSelectedItemInBrowserAction:(id)sender
