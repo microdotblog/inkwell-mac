@@ -91,6 +91,7 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 
 		dispatch_block_t did_close_handler = strong_self.didCloseHandler;
 		strong_self.didCloseHandler = nil;
+		strong_self.didPostReplyHandler = nil;
 		if (did_close_handler != nil) {
 			did_close_handler();
 		}
@@ -142,6 +143,9 @@ static CGFloat const InkwellReplyWindowHeight = 200.0;
 
 		strong_self.isPosting = NO;
 		if (error == nil) {
+			if (strong_self.didPostReplyHandler != nil) {
+				strong_self.didPostReplyHandler();
+			}
 			[strong_self closeReplyWindow];
 			return;
 		}

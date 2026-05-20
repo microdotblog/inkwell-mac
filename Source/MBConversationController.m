@@ -72,8 +72,12 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 @property (nonatomic, assign) BOOL hasReplyContext;
 @property (nonatomic, copy) NSString* replyPostID;
 @property (nonatomic, copy) NSString* replyPrefillText;
+@property (nonatomic, copy) NSString* conversationURLString;
 @property (nonatomic, strong) MBReplyController* replyController;
 @property (nonatomic, assign) BOOL didSetupContent;
+@property (nonatomic, assign) NSInteger conversationReloadRequestIdentifier;
+
+- (void) reloadConversationFromServer;
 
 @end
 
@@ -100,6 +104,7 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 		self.hasReplyContext = NO;
 		self.replyPostID = @"";
 		self.replyPrefillText = @"";
+		self.conversationURLString = @"";
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(avatarImageDidLoad:) name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	}
 	return self;
@@ -139,6 +144,8 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 - (void) updateForSelectedEntry:(MBEntry* _Nullable) entry
 {
 	if (entry == nil) {
+		self.conversationReloadRequestIdentifier += 1;
+		self.conversationURLString = @"";
 		self.headerTitle = @"Conversation";
 		self.headerFeedHost = @"";
 		self.headerAvatarImage = [self defaultHeaderAvatarImage];
@@ -155,6 +162,8 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	}
 
 	self.headerTitle = title_string;
+	self.conversationReloadRequestIdentifier += 1;
+	self.conversationURLString = [entry.url stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	self.headerFeedHost = [self normalizedHostString:entry.feedHost ?: @""];
 	self.iconURLByHost = [self.client cachedFeedIconsByHost] ?: @{};
 	self.headerAvatarImage = [self headerAvatarImageForHost:self.headerFeedHost];
@@ -483,6 +492,14 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 
 	MBReplyController* reply_controller = [[MBReplyController alloc] initWithClient:self.client token:self.token];
 	__weak typeof(self) weak_self = self;
+	reply_controller.didPostReplyHandler = ^{
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		[strong_self reloadConversationFromServer];
+	};
 	reply_controller.didCloseHandler = ^{
 		MBConversationController* strong_self = weak_self;
 		if (strong_self == nil) {
@@ -493,6 +510,45 @@ static CGFloat const InkwellConversationDefaultAvatarSize = 34.0;
 	};
 	self.replyController = reply_controller;
 	[self.replyController showForWindow:self.window postID:post_id prefillText:prefill_text];
+}
+
+- (void) reloadConversationFromServer
+{
+	if (self.client == nil) {
+		return;
+	}
+
+	NSString* conversation_url_string = [self.conversationURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (conversation_url_string.length == 0) {
+		conversation_url_string = [[self stringValueFromObject:self.conversationPayload[@"home_page_url"]] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	}
+	if (conversation_url_string.length == 0) {
+		return;
+	}
+
+	self.conversationReloadRequestIdentifier += 1;
+	NSInteger request_identifier = self.conversationReloadRequestIdentifier;
+	__weak typeof(self) weak_self = self;
+	[self.client fetchConversationForURLString:conversation_url_string completion:^(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error) {
+		MBConversationController* strong_self = weak_self;
+		if (strong_self == nil) {
+			return;
+		}
+
+		if (request_identifier != strong_self.conversationReloadRequestIdentifier) {
+			return;
+		}
+		if (error != nil || ![conversation_payload isKindOfClass:[NSDictionary class]]) {
+			return;
+		}
+
+		NSString* current_url_string = [strong_self.conversationURLString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+		if (current_url_string.length > 0 && ![current_url_string isEqualToString:conversation_url_string]) {
+			return;
+		}
+
+		[strong_self updateWithConversationPayload:conversation_payload];
+	}];
 }
 
 - (IBAction) openSelectedMentionInBrowser:(id) sender
