@@ -256,6 +256,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) shouldShowSpecialModeBanner;
 - (BOOL) isShowingAllPostsMode;
+- (BOOL) shouldUseUnreadStylingForCurrentPostsList;
 - (BOOL) shouldShowCurrentPostsBanner;
 - (MBMention* _Nullable) selectedMention;
 - (BOOL) canReplyToMention:(MBMention*) mention;
@@ -2493,13 +2494,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	row_view.customSelectionBackgroundColor = nil;
 	MBEntry* item = self.items[(NSUInteger) row];
+	BOOL should_use_unread_style = [self shouldUseUnreadStylingForCurrentPostsList];
 	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
 		return;
 	}
 
-	if ([self entryShowsReadState:item]) {
+	if (!should_use_unread_style && [self entryShowsReadState:item]) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
 	}
@@ -2766,6 +2768,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) isShowingAllPostsMode
 {
 	return (self.contentMode == MBSidebarContentModeAllPosts);
+}
+
+- (BOOL) shouldUseUnreadStylingForCurrentPostsList
+{
+	return (self.contentMode == MBSidebarContentModeAllPosts && self.allPostsUsesCurrentDestination);
 }
 
 - (BOOL) shouldShowCurrentPostsBanner
@@ -3910,6 +3917,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	MBEntry* selected_item = [self selectedItem];
 	BOOL is_draft = selected_item.isDraft;
+	BOOL is_current_posts_list = [self shouldUseUnreadStylingForCurrentPostsList];
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 	SEL new_post_selector = NSSelectorFromString(@"openPostWindow:");
 	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
@@ -3919,7 +3927,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 	SEL show_all_posts_selector = NSSelectorFromString(@"showAllPosts:");
 
-	if (!is_draft) {
+	if (!is_draft && !is_current_posts_list) {
 		NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:new_post_selector keyEquivalent:@""];
 		new_post_item.target = nil;
 		[menu addItem:new_post_item];
@@ -4451,6 +4459,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSColor* subscription_color = [NSColor secondaryLabelColor];
 	NSColor* date_color = [NSColor tertiaryLabelColor];
 	CGFloat avatar_alpha = 1.0;
+	BOOL should_use_unread_style = [self shouldUseUnreadStylingForCurrentPostsList];
 	
 	if (is_selected_row) {
 		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:tableView];
@@ -4466,7 +4475,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
 		date_color = [selected_text_color colorWithAlphaComponent:0.55];
 	}
-	else if ([self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks) {
+	else if (!should_use_unread_style && [self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks) {
 		title_color = [NSColor disabledControlTextColor];
 		subtitle_color = [NSColor disabledControlTextColor];
 		subscription_color = [NSColor disabledControlTextColor];
