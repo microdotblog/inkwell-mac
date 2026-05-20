@@ -298,10 +298,10 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
 - (NSArray*) mentionsFromItems:(NSArray*) items;
 - (NSArray<MBEntry *> *) sidebarItemsForMentions:(NSArray*) mentions;
-- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids usePostsListPreviewText:(BOOL)usePostsListPreviewText;
 - (NSArray<MBEntry *> *) sidebarItemsByMergingFetchedItems:(NSArray<MBEntry *> *) fetched_items withExistingItems:(NSArray<MBEntry *> *) existing_items unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
 - (BOOL) shouldPreserveExistingSidebarItemDuringRefresh:(MBEntry*) item oldestFetchedDate:(NSDate* _Nullable) oldest_fetched_date;
-- (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids;
+- (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids usePostsListPreviewText:(BOOL)usePostsListPreviewText;
 - (NSString*) displayDateStringForCurrentMode:(NSDate* _Nullable) date;
 - (NSString*) allPostsDisplayDateString:(NSDate* _Nullable) date;
 - (NSString*) bookmarksDisplayDateString:(NSDate* _Nullable) date;
@@ -1650,7 +1650,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 				return;
 			}
 
-			strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:nil];
+			strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:nil usePostsListPreviewText:YES];
 			[strong_self applyFiltersAndReload];
 			[strong_self ensureSpecialModeSelectionIfNeeded];
 		};
@@ -1682,7 +1682,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			return;
 		}
 
-		strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:unread_entry_ids];
+		strong_self.allPostsItems = [strong_self sidebarItemsForEntries:entries ?: @[] subscriptionTitle:site_name feedHost:feed_host unreadEntryIDs:unread_entry_ids usePostsListPreviewText:NO];
 		[strong_self applyFiltersAndReload];
 		[strong_self ensureSpecialModeSelectionIfNeeded];
 	}];
@@ -3421,7 +3421,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		NSInteger feed_id_value = [self integerValueFromObject:entry[@"feed_id"]];
 		NSString *subscription_title = subscription_titles_by_feed_id[@(feed_id_value)] ?: @"";
 		NSString *feed_host = feed_hosts_by_feed_id[@(feed_id_value)] ?: @"";
-		MBEntry* sidebar_entry = [self sidebarItemForEntryDictionary:entry subscriptionTitle:subscription_title feedHost:feed_host unreadEntryIDs:unread_entry_ids];
+		MBEntry* sidebar_entry = [self sidebarItemForEntryDictionary:entry subscriptionTitle:subscription_title feedHost:feed_host unreadEntryIDs:unread_entry_ids usePostsListPreviewText:NO];
 		if (sidebar_entry != nil) {
 			[sidebar_items addObject:sidebar_entry];
 		}
@@ -3430,7 +3430,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return [sidebar_items copy];
 }
 
-- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
+- (NSArray<MBEntry *> *) sidebarItemsForEntries:(NSArray*) entries subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids usePostsListPreviewText:(BOOL)usePostsListPreviewText
 {
 	NSMutableArray* sidebar_items = [NSMutableArray array];
 	for (id object in entries) {
@@ -3438,7 +3438,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 			continue;
 		}
 
-		MBEntry* sidebar_entry = [self sidebarItemForEntryDictionary:(NSDictionary*) object subscriptionTitle:subscription_title feedHost:feed_host unreadEntryIDs:unread_entry_ids];
+		MBEntry* sidebar_entry = [self sidebarItemForEntryDictionary:(NSDictionary*) object subscriptionTitle:subscription_title feedHost:feed_host unreadEntryIDs:unread_entry_ids usePostsListPreviewText:usePostsListPreviewText];
 		if (sidebar_entry != nil) {
 			if (sidebar_entry.feedID <= 0) {
 				sidebar_entry.feedID = self.allPostsFeedID;
@@ -3509,11 +3509,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return ([item.date compare:cutoff_date] != NSOrderedAscending);
 }
 
-- (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
+- (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids usePostsListPreviewText:(BOOL)usePostsListPreviewText
 {
 	NSString* title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
 	NSString* summary_text = [self stringValueFromObject:entry[@"summary"]];
-	NSString* summary_value = [self shouldUseUnreadStylingForCurrentPostsList] ? [self postsListPreviewTextFromSourceText:summary_text] : [self normalizedPreviewString:summary_text];
+	NSString* summary_value = usePostsListPreviewText ? [self postsListPreviewTextFromSourceText:summary_text] : [self normalizedPreviewString:summary_text];
 	NSString* author_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"author"]]];
 	NSString* content_html_value = [self stringValueFromObject:entry[@"content_html"]];
 	if (content_html_value.length == 0) {
