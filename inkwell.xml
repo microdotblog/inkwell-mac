@@ -5,6 +5,40 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.4</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Added File menu → Save Draft when writing a new blog post.</li>
+					<li>Added View menu → Drafts to show drafts for the current blog.</li>
+					<li>Added double-click to edit your own posts and drafts.</li>
+					<li>Added Delete in the right-click context menu for your own posts and drafts.</li>
+					<li>Improved View menu → Posts to load original post text, with better formatting for Markdown posts.</li>
+					<li>Improved choosing the current blog when writing, editing, and viewing posts or drafts.</li>
+					<li>Improved the new post editor to fix caret position problems.</li>
+					<li>Fixed editing posts with and without titles to better match Micro.blog.</li>
+					<li>Fixed refreshing the Conversation window after posting a reply.</li>
+					<li>Fixed several potential errors when loading and editing posts.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Wed, 20 May 2026 14:00:00 -0500</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.4.zip"
+				sparkle:shortVersionString="1.4"
+				sparkle:version="24"
+				sparkle:edSignature="z8Xd2258f00j1J93uKsLxTQo5JQGb2CouAHUiS2PWiV7lhs7uAVWMt0TFYG1uYNY7iEey8mSEbvbN7AeF6azCw=="
+				length="5694154"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.3</title>
  			<description><![CDATA[
 				<style>
