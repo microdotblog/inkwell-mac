@@ -23,6 +23,7 @@
 #import "MBSidebarTableView.h"
 #import "MBSubscription.h"
 #import "NSStrings+Extras.h"
+#import "../Shared/MMMarkdown/MMMarkdown.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSUserInterfaceItemIdentifier const InkwellSidebarMentionCellIdentifier = @"InkwellSidebarMentionCell";
@@ -307,6 +308,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSString*) mentionsDisplayDateString:(NSDate* _Nullable) date;
 - (NSDictionary*) dictionaryValueFromObject:(id) object;
 - (NSString*) stringValueFromObjectOrNumber:(id) object;
+- (NSString *) postsListPreviewTextFromSourceText:(NSString *)sourceText;
 - (NSString*) plainTextFromHTMLString:(NSString*) html_string;
 - (NSString*) normalizedTextString:(NSString*) text_string;
 - (NSImage*) avatarImageForMention:(MBMention*) mention;
@@ -3510,7 +3512,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
 {
 	NSString* title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
-	NSString* summary_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"summary"]]];
+	NSString* summary_text = [self stringValueFromObject:entry[@"summary"]];
+	NSString* summary_value = [self shouldUseUnreadStylingForCurrentPostsList] ? [self postsListPreviewTextFromSourceText:summary_text] : [self normalizedPreviewString:summary_text];
 	NSString* author_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"author"]]];
 	NSString* content_html_value = [self stringValueFromObject:entry[@"content_html"]];
 	if (content_html_value.length == 0) {
@@ -4786,6 +4789,24 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [NSDateFormatter localizedStringFromDate:date dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle] ?: @"";
+}
+
+- (NSString *) postsListPreviewTextFromSourceText:(NSString *)sourceText
+{
+	NSString* original_text = sourceText ?: @"";
+	if (original_text.length == 0) {
+		return @"";
+	}
+
+	NSError* error = nil;
+	MMMarkdownExtensions extensions = MMMarkdownExtensionsFencedCodeBlocks | MMMarkdownExtensionsTables;
+	NSString* markdown_html = [MMMarkdown HTMLStringWithMarkdown:original_text extensions:extensions error:&error] ?: @"";
+	NSString* stripped_text = [[self plainTextFromHTMLString:markdown_html] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (stripped_text.length == 0) {
+		return original_text;
+	}
+
+	return stripped_text;
 }
 
 - (NSString*) plainTextFromHTMLString:(NSString*) html_string
