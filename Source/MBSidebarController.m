@@ -23,6 +23,7 @@
 #import "MBSidebarTableView.h"
 #import "MBSubscription.h"
 #import "NSStrings+Extras.h"
+#import "../Shared/MMMarkdown/MMMarkdown.h"
 
 static NSUserInterfaceItemIdentifier const InkwellSidebarCellIdentifier = @"InkwellSidebarCell";
 static NSUserInterfaceItemIdentifier const InkwellSidebarMentionCellIdentifier = @"InkwellSidebarMentionCell";
@@ -256,6 +257,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) shouldShowPremiumRequiredView;
 - (BOOL) shouldShowSpecialModeBanner;
 - (BOOL) isShowingAllPostsMode;
+- (BOOL) shouldUseUnreadStylingForCurrentPostsList;
 - (BOOL) shouldShowCurrentPostsBanner;
 - (MBMention* _Nullable) selectedMention;
 - (BOOL) canReplyToMention:(MBMention*) mention;
@@ -306,6 +308,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (NSString*) mentionsDisplayDateString:(NSDate* _Nullable) date;
 - (NSDictionary*) dictionaryValueFromObject:(id) object;
 - (NSString*) stringValueFromObjectOrNumber:(id) object;
+- (NSString *) postsListPreviewTextFromSourceText:(NSString *)sourceText;
 - (NSString*) plainTextFromHTMLString:(NSString*) html_string;
 - (NSString*) normalizedTextString:(NSString*) text_string;
 - (NSImage*) avatarImageForMention:(MBMention*) mention;
@@ -2493,13 +2496,14 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	row_view.customSelectionBackgroundColor = nil;
 	MBEntry* item = self.items[(NSUInteger) row];
+	BOOL should_use_unread_style = [self shouldUseUnreadStylingForCurrentPostsList];
 	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
 		return;
 	}
 
-	if ([self entryShowsReadState:item]) {
+	if (!should_use_unread_style && [self entryShowsReadState:item]) {
 		row_view.customBackgroundColor = nil;
 		row_view.customBorderColor = nil;
 	}
@@ -2766,6 +2770,11 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (BOOL) isShowingAllPostsMode
 {
 	return (self.contentMode == MBSidebarContentModeAllPosts);
+}
+
+- (BOOL) shouldUseUnreadStylingForCurrentPostsList
+{
+	return (self.contentMode == MBSidebarContentModeAllPosts && self.allPostsUsesCurrentDestination);
 }
 
 - (BOOL) shouldShowCurrentPostsBanner
@@ -3503,7 +3512,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (MBEntry* _Nullable) sidebarItemForEntryDictionary:(NSDictionary*) entry subscriptionTitle:(NSString*) subscription_title feedHost:(NSString*) feed_host unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids
 {
 	NSString* title_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"title"]]];
-	NSString* summary_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"summary"]]];
+	NSString* summary_text = [self stringValueFromObject:entry[@"summary"]];
+	NSString* summary_value = [self shouldUseUnreadStylingForCurrentPostsList] ? [self postsListPreviewTextFromSourceText:summary_text] : [self normalizedPreviewString:summary_text];
 	NSString* author_value = [self normalizedPreviewString:[self stringValueFromObject:entry[@"author"]]];
 	NSString* content_html_value = [self stringValueFromObject:entry[@"content_html"]];
 	if (content_html_value.length == 0) {
@@ -3910,6 +3920,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 {
 	MBEntry* selected_item = [self selectedItem];
 	BOOL is_draft = selected_item.isDraft;
+	BOOL is_current_posts_list = [self shouldUseUnreadStylingForCurrentPostsList];
 	NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
 	SEL new_post_selector = NSSelectorFromString(@"openPostWindow:");
 	SEL toggle_read_selector = @selector(toggleSelectedItemReadStateAction:);
@@ -3919,7 +3930,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	SEL show_highlights_selector = NSSelectorFromString(@"showHighlights:");
 	SEL show_all_posts_selector = NSSelectorFromString(@"showAllPosts:");
 
-	if (!is_draft) {
+	if (!is_draft && !is_current_posts_list) {
 		NSMenuItem* new_post_item = [[NSMenuItem alloc] initWithTitle:@"New Post..." action:new_post_selector keyEquivalent:@""];
 		new_post_item.target = nil;
 		[menu addItem:new_post_item];
@@ -4451,6 +4462,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	NSColor* subscription_color = [NSColor secondaryLabelColor];
 	NSColor* date_color = [NSColor tertiaryLabelColor];
 	CGFloat avatar_alpha = 1.0;
+	BOOL should_use_unread_style = [self shouldUseUnreadStylingForCurrentPostsList];
 	
 	if (is_selected_row) {
 		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:tableView];
@@ -4466,7 +4478,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
 		date_color = [selected_text_color colorWithAlphaComponent:0.55];
 	}
-	else if ([self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks) {
+	else if (!should_use_unread_style && [self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks) {
 		title_color = [NSColor disabledControlTextColor];
 		subtitle_color = [NSColor disabledControlTextColor];
 		subscription_color = [NSColor disabledControlTextColor];
@@ -4777,6 +4789,24 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return [NSDateFormatter localizedStringFromDate:date dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle] ?: @"";
+}
+
+- (NSString *) postsListPreviewTextFromSourceText:(NSString *)sourceText
+{
+	NSString* original_text = sourceText ?: @"";
+	if (original_text.length == 0) {
+		return @"";
+	}
+
+	NSError* error = nil;
+	MMMarkdownExtensions extensions = MMMarkdownExtensionsFencedCodeBlocks | MMMarkdownExtensionsTables;
+	NSString* markdown_html = [MMMarkdown HTMLStringWithMarkdown:original_text extensions:extensions error:&error] ?: @"";
+	NSString* stripped_text = [[self plainTextFromHTMLString:markdown_html] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	if (stripped_text.length == 0) {
+		return original_text;
+	}
+
+	return stripped_text;
 }
 
 - (NSString*) plainTextFromHTMLString:(NSString*) html_string
