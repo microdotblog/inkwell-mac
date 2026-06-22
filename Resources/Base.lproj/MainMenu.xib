@@ -125,6 +125,19 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="FZc-jT-T0L"/>
+                            <menuItem title="Import OPML..." id="9Lf-OX-blZ">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="importOPML:" target="-1" id="vP0-ta-q6X"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Export OPML..." id="Xvv-2h-bIS">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="exportOPML:" target="-1" id="8PQ-BK-4x0"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Gf4-a5-QJZ"/>
                             <menuItem title="Share..." image="square.and.arrow.up" catalog="system" id="4b1-GR-28x">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

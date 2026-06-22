@@ -219,7 +219,15 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	return YES;
 }
 
-- (IBAction) signOut:(id) sender
+- (IBAction) importOPML:(id)sender
+{
+}
+
+- (IBAction) exportOPML:(id)sender
+{
+}
+
+- (IBAction) signOut:(id)sender
 {
 	#pragma unused(sender)
 
