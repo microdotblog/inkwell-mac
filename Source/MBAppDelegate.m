@@ -10,9 +10,12 @@
 #import "MBClient.h"
 #import "MBMainController.h"
 #import "MBNewPostController.h"
+#import "MBExportController.h"
+#import "MBImportController.h"
 #import "MBPodcastController.h"
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
+#import "NSMenuItem+RSCore.h"
 
 static NSString* const InkwellUnavailableMessage = @"Inkwell requires a Micro.blog subscription.";
 static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-inkwell/4302";
@@ -23,6 +26,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (strong) MBAuthController *authController;
 @property (strong) MBClient *client;
 @property (strong) MBMainController *mainController;
+@property (strong) MBExportController *exportController;
+@property (strong) MBImportController *importController;
 @property (strong) MBSessionController *sessionController;
 @property (strong) MBWelcomeController *welcomeController;
 
@@ -32,6 +37,10 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
 {
+	if (![[NSUserDefaults standardUserDefaults] boolForKey:@"ShowMenuIcons"]) {
+		[NSMenuItem rs_disableIcons];
+	}
+
 	self.client = [[MBClient alloc] init];
 	self.authController = [[MBAuthController alloc] initWithClient:self.client];
 	self.sessionController = [[MBSessionController alloc] init];
@@ -212,14 +221,78 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	if (menu_item.action == @selector(toggleTitleField:)) {
 		NSWindowController* window_controller = NSApp.keyWindow.windowController;
 		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		if (!is_new_post_window_frontmost) {
+			menu_item.state = NSControlStateValueOff;
+			return NO;
+		}
+
+		MBNewPostController* post_controller = (MBNewPostController*) window_controller;
+		if (![post_controller canToggleTitleField]) {
+			menu_item.state = NSControlStateValueOn;
+			return NO;
+		}
+
 		menu_item.state = [[NSUserDefaults standardUserDefaults] boolForKey:InkwellShowTitleFieldDefaultsKey] ? NSControlStateValueOn : NSControlStateValueOff;
-		return is_new_post_window_frontmost;
+		return YES;
+	}
+
+	if (menu_item.action == @selector(importOPML:) || menu_item.action == @selector(exportOPML:)) {
+		BOOL is_opml_busy = (self.importController.isImporting || self.exportController.isExporting);
+		return ([self.sessionController hasToken] && !is_opml_busy);
 	}
 
 	return YES;
 }
 
-- (IBAction) signOut:(id) sender
+- (IBAction) importOPML:(id) sender
+{
+	#pragma unused(sender)
+
+	if (![self.sessionController hasToken]) {
+		NSBeep();
+		return;
+	}
+
+	NSString* token_value = [self.sessionController token] ?: @"";
+	self.importController = [[MBImportController alloc] initWithClient:self.client token:token_value];
+	__weak typeof(self) weak_self = self;
+	[self.importController beginImportFromWindow:[self presentationWindow] completion:^(BOOL didChangeFeeds) {
+		MBAppDelegate* strong_self = weak_self;
+		if (strong_self == nil || !didChangeFeeds) {
+			return;
+		}
+
+		[strong_self.mainController refreshData];
+	}];
+}
+
+- (IBAction) exportOPML:(id) sender
+{
+	#pragma unused(sender)
+
+	if (![self.sessionController hasToken]) {
+		NSBeep();
+		return;
+	}
+
+	self.exportController = [[MBExportController alloc] initWithClient:self.client];
+	[self.exportController beginExportFromWindow:[self presentationWindow]];
+}
+
+- (NSWindow *) presentationWindow
+{
+	if (self.mainController.window != nil && self.mainController.window.isVisible) {
+		return self.mainController.window;
+	}
+
+	if (NSApp.keyWindow != nil) {
+		return NSApp.keyWindow;
+	}
+
+	return NSApp.mainWindow;
+}
+
+- (IBAction) signOut:(id)sender
 {
 	#pragma unused(sender)
 

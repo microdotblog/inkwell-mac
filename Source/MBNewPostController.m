@@ -217,6 +217,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 @property (nonatomic, assign) BOOL isLoadingEditingPostSource;
 @property (nonatomic, assign) BOOL isPreviewing;
 @property (nonatomic, assign) BOOL isTitleFieldVisible;
+@property (nonatomic, assign) BOOL editingPostHadTitle;
 @property (nonatomic, assign) BOOL isContentOverCharacterLimit;
 @property (nonatomic, assign) BOOL isApplyingInitialMarkdownText;
 @property (nonatomic, assign) BOOL isClosingAfterPost;
@@ -322,6 +323,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	[self setupWindowIfNeeded];
 	self.editingPostURLString = @"";
 	self.editingPostIsDraft = NO;
+	self.editingPostHadTitle = NO;
 	self.isLoadingEditingPostSource = NO;
 	[self updatePostButtonTitle];
 	self.markdownText = markdownText ?: @"";
@@ -356,6 +358,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	[self setupWindowIfNeeded];
 	self.editingPostURLString = postURLString ?: @"";
 	self.editingPostIsDraft = isDraft;
+	self.editingPostHadTitle = NO;
 	self.isLoadingEditingPostSource = YES;
 	[self updatePostButtonTitle];
 	self.markdownText = @"";
@@ -467,9 +470,18 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	return self.isPreviewing;
 }
 
+- (BOOL) canToggleTitleField
+{
+	return !(self.editingPostHadTitle && [self isEditingExistingPost]);
+}
+
 - (IBAction) toggleTitleField:(id) sender
 {
 	#pragma unused(sender)
+
+	if (![self canToggleTitleField]) {
+		return;
+	}
 
 	NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
 	BOOL should_show_title = ![defaults boolForKey:InkwellShowTitleFieldDefaultsKey];
@@ -826,6 +838,10 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (BOOL) shouldShowTitleField
 {
+	if (![self canToggleTitleField]) {
+		return YES;
+	}
+
 	if ([self hasExplicitTitleFieldVisibilityPreference]) {
 		return [[NSUserDefaults standardUserDefaults] boolForKey:InkwellShowTitleFieldDefaultsKey];
 	}
@@ -1322,6 +1338,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	self.currentMarkdownText = self.markdownText;
 	[self resetCharacterCount];
 	self.titleField.stringValue = title ?: @"";
+	NSString* trimmed_title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	self.editingPostHadTitle = (trimmed_title.length > 0);
 	self.initialTitleText = self.titleField.stringValue ?: @"";
 	NSString* normalized_post_status = [[postStatus lowercaseString] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if ([normalized_post_status isEqualToString:@"draft"]) {
