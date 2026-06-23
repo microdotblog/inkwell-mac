@@ -1960,7 +1960,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 		[progress_indicator.widthAnchor constraintEqualToConstant:16.0],
 		[progress_indicator.heightAnchor constraintEqualToConstant:16.0],
 		[cancel_button.trailingAnchor constraintEqualToAnchor:subscribe_button.leadingAnchor constant:-8.0],
-		[cancel_button.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor constant:-16.0],
+		[cancel_button.bottomAnchor constraintEqualToAnchor:content_view.bottomAnchor constant:-20.0],
 		[subscribe_button.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-20.0],
 		[subscribe_button.bottomAnchor constraintEqualToAnchor:cancel_button.bottomAnchor]
 	]];
