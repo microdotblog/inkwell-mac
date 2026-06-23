@@ -221,8 +221,19 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	if (menu_item.action == @selector(toggleTitleField:)) {
 		NSWindowController* window_controller = NSApp.keyWindow.windowController;
 		BOOL is_new_post_window_frontmost = [window_controller isKindOfClass:[MBNewPostController class]];
+		if (!is_new_post_window_frontmost) {
+			menu_item.state = NSControlStateValueOff;
+			return NO;
+		}
+
+		MBNewPostController* post_controller = (MBNewPostController*) window_controller;
+		if (![post_controller canToggleTitleField]) {
+			menu_item.state = NSControlStateValueOn;
+			return NO;
+		}
+
 		menu_item.state = [[NSUserDefaults standardUserDefaults] boolForKey:InkwellShowTitleFieldDefaultsKey] ? NSControlStateValueOn : NSControlStateValueOff;
-		return is_new_post_window_frontmost;
+		return YES;
 	}
 
 	if (menu_item.action == @selector(importOPML:) || menu_item.action == @selector(exportOPML:)) {

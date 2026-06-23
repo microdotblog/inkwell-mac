@@ -26,6 +26,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (IBAction) saveDraft:(id) sender;
 - (BOOL) isPreviewEnabled;
 - (IBAction) preview:(id) sender;
+- (BOOL) canToggleTitleField;
 - (IBAction) toggleTitleField:(id) sender;
 
 @end
