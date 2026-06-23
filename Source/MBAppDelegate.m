@@ -10,6 +10,8 @@
 #import "MBClient.h"
 #import "MBMainController.h"
 #import "MBNewPostController.h"
+#import "MBExportController.h"
+#import "MBImportController.h"
 #import "MBPodcastController.h"
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
@@ -23,6 +25,8 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (strong) MBAuthController *authController;
 @property (strong) MBClient *client;
 @property (strong) MBMainController *mainController;
+@property (strong) MBExportController *exportController;
+@property (strong) MBImportController *importController;
 @property (strong) MBSessionController *sessionController;
 @property (strong) MBWelcomeController *welcomeController;
 
@@ -216,15 +220,60 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 		return is_new_post_window_frontmost;
 	}
 
+	if (menu_item.action == @selector(importOPML:) || menu_item.action == @selector(exportOPML:)) {
+		BOOL is_opml_busy = (self.importController.isImporting || self.exportController.isExporting);
+		return ([self.sessionController hasToken] && !is_opml_busy);
+	}
+
 	return YES;
 }
 
-- (IBAction) importOPML:(id)sender
+- (IBAction) importOPML:(id) sender
 {
+	#pragma unused(sender)
+
+	if (![self.sessionController hasToken]) {
+		NSBeep();
+		return;
+	}
+
+	NSString* token_value = [self.sessionController token] ?: @"";
+	self.importController = [[MBImportController alloc] initWithClient:self.client token:token_value];
+	__weak typeof(self) weak_self = self;
+	[self.importController beginImportFromWindow:[self presentationWindow] completion:^(BOOL didChangeFeeds) {
+		MBAppDelegate* strong_self = weak_self;
+		if (strong_self == nil || !didChangeFeeds) {
+			return;
+		}
+
+		[strong_self.mainController refreshData];
+	}];
 }
 
-- (IBAction) exportOPML:(id)sender
+- (IBAction) exportOPML:(id) sender
 {
+	#pragma unused(sender)
+
+	if (![self.sessionController hasToken]) {
+		NSBeep();
+		return;
+	}
+
+	self.exportController = [[MBExportController alloc] initWithClient:self.client];
+	[self.exportController beginExportFromWindow:[self presentationWindow]];
+}
+
+- (NSWindow *) presentationWindow
+{
+	if (self.mainController.window != nil && self.mainController.window.isVisible) {
+		return self.mainController.window;
+	}
+
+	if (NSApp.keyWindow != nil) {
+		return NSApp.keyWindow;
+	}
+
+	return NSApp.mainWindow;
 }
 
 - (IBAction) signOut:(id)sender

@@ -610,6 +610,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 	[self.sidebarController refreshData];
 }
 
+- (void) refreshData
+{
+	[self.sidebarController refreshData];
+}
+
 - (IBAction) showHighlights:(id)sender
 {
 	#pragma unused(sender)
