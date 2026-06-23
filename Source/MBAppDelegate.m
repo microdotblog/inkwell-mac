@@ -15,6 +15,7 @@
 #import "MBPodcastController.h"
 #import "MBSessionController.h"
 #import "MBWelcomeController.h"
+#import "NSMenuItem+RSCore.h"
 
 static NSString* const InkwellUnavailableMessage = @"Inkwell requires a Micro.blog subscription.";
 static NSString* const InkwellHelpURLString = @"https://help.micro.blog/t/about-inkwell/4302";
@@ -36,6 +37,10 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 
 - (void) applicationDidFinishLaunching:(NSNotification *)aNotification
 {
+	if (![[NSUserDefaults standardUserDefaults] boolForKey:@"ShowMenuIcons"]) {
+		[NSMenuItem rs_disableIcons];
+	}
+
 	self.client = [[MBClient alloc] init];
 	self.authController = [[MBAuthController alloc] initWithClient:self.client];
 	self.sessionController = [[MBSessionController alloc] init];
