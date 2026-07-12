@@ -5,6 +5,34 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.5.1</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Fixed truncation in the highlights window.</li>
+					<li>Fixed syncing highlights to be more responsive to new highlights from the web or iOS apps.</li>
+					<li>Fixed footnote links scrolling within the page, not opening a browser.</li>
+					<li>Fixed caching some invalid blog avatar icons.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Sun, 12 Jul 2026 11:15:00 -0500</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.5.1.zip"
+				sparkle:shortVersionString="1.5.1"
+				sparkle:version="26"
+				sparkle:edSignature="xv7RRjpY3l2ItX9i8vvIIW+vm53uqer1twP90qtfp/GnM0oxfanlTw+QsMb2VUjuVWLlm23NkKpPmlrrhtSRAA=="
+				length="5725901"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.5</title>
  			<description><![CDATA[
 				<style>
