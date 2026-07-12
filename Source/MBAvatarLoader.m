@@ -23,6 +23,8 @@ NSString* const MBAvatarLoaderURLStringUserInfoKey = @"url_string";
 @property (nonatomic, strong) NSMutableDictionary* cacheDateByURL;
 @property (nonatomic, strong) NSMutableSet* pendingURLStrings;
 
++ (BOOL) cachedImageFileIsOnePixelAtURL:(NSURL *) fileURL;
+
 @end
 
 @implementation MBAvatarLoader
@@ -165,6 +167,49 @@ NSString* const MBAvatarLoaderURLStringUserInfoKey = @"url_string";
 {
 	NSDate* expiration_date = [NSDate dateWithTimeIntervalSinceNow:(-1.0 * InkwellAvatarCacheExpirationInterval)];
 	return ([created_date compare:expiration_date] == NSOrderedAscending);
+}
+
++ (void) cleanupCachedImageFiles
+{
+	NSURL* directory_url = [MBPathUtilities appSubdirectoryURLForSearchPathDirectory:NSCachesDirectory relativePath:InkwellAvatarCacheDirectoryName createIfNeeded:NO];
+	if (directory_url == nil) {
+		return;
+	}
+
+	NSFileManager* file_manager = [NSFileManager defaultManager];
+	NSDate* expiration_date = [NSDate dateWithTimeIntervalSinceNow:(-1.0 * InkwellAvatarCacheExpirationInterval)];
+	NSArray* cached_file_urls = [file_manager contentsOfDirectoryAtURL:directory_url includingPropertiesForKeys:@[ NSURLIsDirectoryKey, NSURLCreationDateKey ] options:NSDirectoryEnumerationSkipsHiddenFiles error:nil];
+	for (NSURL* file_url in cached_file_urls) {
+		NSNumber* is_directory = nil;
+		[file_url getResourceValue:&is_directory forKey:NSURLIsDirectoryKey error:nil];
+		if (is_directory.boolValue) {
+			continue;
+		}
+
+		NSDate* created_date = nil;
+		[file_url getResourceValue:&created_date forKey:NSURLCreationDateKey error:nil];
+		BOOL should_remove = (created_date == nil || [created_date compare:expiration_date] == NSOrderedAscending);
+		if (!should_remove && [file_url.lastPathComponent hasPrefix:@"micro.blog"]) {
+			should_remove = [self cachedImageFileIsOnePixelAtURL:file_url];
+		}
+
+		if (should_remove) {
+			[file_manager removeItemAtURL:file_url error:nil];
+		}
+	}
+}
+
++ (BOOL) cachedImageFileIsOnePixelAtURL:(NSURL *) fileURL
+{
+	NSImage* image = [[NSImage alloc] initWithContentsOfURL:fileURL];
+	NSInteger maximum_pixel_width = 0;
+	NSInteger maximum_pixel_height = 0;
+	for (NSImageRep* image_rep in image.representations) {
+		maximum_pixel_width = MAX(maximum_pixel_width, image_rep.pixelsWide);
+		maximum_pixel_height = MAX(maximum_pixel_height, image_rep.pixelsHigh);
+	}
+
+	return (maximum_pixel_width == 1 && maximum_pixel_height == 1);
 }
 
 - (NSDate* _Nullable) createdDateForCachedFileAtURL:(NSURL*) file_url
