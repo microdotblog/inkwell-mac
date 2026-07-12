@@ -42,6 +42,7 @@ static CGFloat const InkwellNewFeedSheetExpandedHeight = 350.0;
 static CGFloat const InkwellNewFeedChoicesHeight = 186.0;
 static CGFloat const InkwellNewFeedChoiceRowHeight = 46.0;
 static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
+static NSTimeInterval const InkwellHighlightsRefreshInterval = 60.0;
 
 @interface MBMainController () <NSToolbarDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSToolbarItemValidation, NSTableViewDataSource, NSTableViewDelegate>
 
@@ -61,6 +62,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 @property (copy) NSString *token;
 @property (assign) BOOL isNetworkingInProgress;
 @property (assign) BOOL isSyncingHighlights;
+@property (assign) BOOL isHighlightsWindowOpen;
 @property (assign) BOOL isRefreshingMicropubDestinations;
 @property (assign) NSInteger conversationReplyCount;
 @property (copy) NSDictionary* lastConversationPayload;
@@ -78,6 +80,7 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 @property (copy) NSString* feedSubscriptionRequestedURLString;
 @property (assign) BOOL isCreatingFeedSubscription;
 @property (strong) NSTimer* autoRefreshTimer;
+@property (strong) NSTimer* highlightsRefreshTimer;
 @property (strong) NSSharingServicePicker* sharingServicePicker;
 
 - (BOOL) focusSidebarPane;
@@ -96,6 +99,12 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) startAutoRefreshTimerIfNeeded;
 - (void) stopAutoRefreshTimer;
 - (void) autoRefreshTimerDidFire:(NSTimer*) timer;
+- (void) startHighlightsRefreshTimerIfNeeded;
+- (void) stopHighlightsRefreshTimer;
+- (void) highlightsRefreshTimerDidFire:(NSTimer *) timer;
+- (void) applicationDidBecomeActive:(NSNotification *) notification;
+- (void) applicationDidResignActive:(NSNotification *) notification;
+- (void) highlightsWindowWillClose:(NSNotification *) notification;
 - (BOOL) isFilterSelectionDisabled;
 - (void) updateFilterSegmentedControlEnabledState;
 - (BOOL) canCreateNewPost;
@@ -149,6 +158,8 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(clientNetworkingDidStart:) name:MBClientNetworkingDidStartNotification object:self.client];
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(clientNetworkingDidStop:) name:MBClientNetworkingDidStopNotification object:self.client];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applicationDidBecomeActive:) name:NSApplicationDidBecomeActiveNotification object:nil];
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applicationDidResignActive:) name:NSApplicationDidResignActiveNotification object:nil];
 	}
 	return self;
 }
@@ -156,12 +167,15 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 - (void) dealloc
 {
 	[self stopAutoRefreshTimer];
+	[self stopHighlightsRefreshTimer];
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void) close
 {
 	[self stopAutoRefreshTimer];
+	self.isHighlightsWindowOpen = NO;
+	[self stopHighlightsRefreshTimer];
 	[self.preferencesController close];
 	[self.conversationController close];
 	[self.highlightsController close];
@@ -249,6 +263,57 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 {
 	#pragma unused(timer)
 	[self.sidebarController refreshData];
+}
+
+- (void) startHighlightsRefreshTimerIfNeeded
+{
+	if (self.highlightsRefreshTimer != nil || !self.isHighlightsWindowOpen || !NSApp.isActive) {
+		return;
+	}
+
+	NSTimer* timer = [NSTimer timerWithTimeInterval:InkwellHighlightsRefreshInterval target:self selector:@selector(highlightsRefreshTimerDidFire:) userInfo:nil repeats:YES];
+	[[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+	self.highlightsRefreshTimer = timer;
+}
+
+- (void) stopHighlightsRefreshTimer
+{
+	[self.highlightsRefreshTimer invalidate];
+	self.highlightsRefreshTimer = nil;
+}
+
+- (void) highlightsRefreshTimerDidFire:(NSTimer *) timer
+{
+	#pragma unused(timer)
+	if (!self.isHighlightsWindowOpen || !NSApp.isActive) {
+		[self stopHighlightsRefreshTimer];
+		return;
+	}
+
+	[self syncHighlightsFromServer];
+}
+
+- (void) applicationDidBecomeActive:(NSNotification *) notification
+{
+	#pragma unused(notification)
+	[self syncHighlightsFromServer];
+	[self startHighlightsRefreshTimerIfNeeded];
+}
+
+- (void) applicationDidResignActive:(NSNotification *) notification
+{
+	#pragma unused(notification)
+	[self stopHighlightsRefreshTimer];
+}
+
+- (void) highlightsWindowWillClose:(NSNotification *) notification
+{
+	if (notification.object != self.highlightsController.window) {
+		return;
+	}
+
+	self.isHighlightsWindowOpen = NO;
+	[self stopHighlightsRefreshTimer];
 }
 
 - (void) buildToolbar
@@ -645,6 +710,11 @@ static NSTimeInterval const InkwellAutoRefreshInterval = 5.0 * 60.0;
 
 	MBEntry* selected_item = [self.sidebarController selectedItem];
 	[self.highlightsController showHighlightsForEntry:selected_item];
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowWillCloseNotification object:self.highlightsController.window];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(highlightsWindowWillClose:) name:NSWindowWillCloseNotification object:self.highlightsController.window];
+	self.isHighlightsWindowOpen = YES;
+	[self syncHighlightsFromServer];
+	[self startHighlightsRefreshTimerIfNeeded];
 }
 
 - (IBAction) openPostWindow:(id)sender
