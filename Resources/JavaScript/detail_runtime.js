@@ -159,6 +159,47 @@
 			}
 		},
 
+		scrollToFragment: function(payload) {
+			payload = payload || {};
+
+			var fragment = stringValue(payload.fragment).trim();
+			if (fragment.charAt(0) === '#') {
+				fragment = fragment.substring(1);
+			}
+			if (!fragment) {
+				return false;
+			}
+
+			try {
+				fragment = decodeURIComponent(fragment);
+			}
+			catch (error) {
+				// Use the original fragment if it is not valid percent-encoded text.
+			}
+
+			var target = document.getElementById(fragment);
+			if (!target) {
+				var namedTargets = document.getElementsByName(fragment);
+				if (namedTargets.length > 0) {
+					target = namedTargets[0];
+				}
+			}
+			if (!target) {
+				return false;
+			}
+
+			var scrollInset = Number(payload.scroll_inset);
+			if (!isFinite(scrollInset)) {
+				scrollInset = 0;
+			}
+
+			var rect = target.getBoundingClientRect();
+			var targetTop = currentScrollTop() + rect.top - scrollInset;
+			var clampedTop = Math.max(0, Math.min(maxScrollTop(), targetTop));
+			window.scrollTo({ top: clampedTop, behavior: 'smooth' });
+			return true;
+		},
+
 		scrollReadingRecap: function(payload) {
 			payload = payload || {};
 
