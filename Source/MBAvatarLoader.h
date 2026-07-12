@@ -8,6 +8,7 @@ FOUNDATION_EXPORT NSString* const MBAvatarLoaderURLStringUserInfoKey;
 @interface MBAvatarLoader : NSObject
 
 + (instancetype) sharedLoader;
++ (void) cleanupCachedImageFiles;
 - (NSImage* _Nullable) cachedImageForURLString:(NSString*) url_string;
 - (void) loadImageForURLString:(NSString*) url_string;
 

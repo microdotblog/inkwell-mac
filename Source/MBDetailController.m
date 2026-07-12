@@ -143,6 +143,8 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (NSURL * _Nullable) urlFromScriptMessageValue:(id) value;
 - (NSURL * _Nullable) anchorURLFromScriptMessageBody:(id) body;
 - (NSURL * _Nullable) currentPostURL;
+- (BOOL) URLTargetsCurrentDetailDocument:(NSURL *) url;
+- (BOOL) URL:(NSURL *) firstURL matchesURLIgnoringFragment:(NSURL *) secondURL;
 - (BOOL) URLLooksLikeImage:(NSURL *) url;
 - (void) promptToDeleteHoveredHighlight:(id) sender;
 - (void) deleteHighlight:(MBHighlight*) highlight;
@@ -376,12 +378,29 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 
 - (void) webView:(WKWebView *)web_view decidePolicyForNavigationAction:(WKNavigationAction *)navigation_action decisionHandler:(void (^)(WKNavigationActionPolicy))decision_handler
 {
-	#pragma unused(web_view)
 	NSURL* request_url = navigation_action.request.URL;
 	BOOL is_link_activated = (navigation_action.navigationType == WKNavigationTypeLinkActivated);
 	BOOL is_main_frame_navigation = navigation_action.targetFrame.isMainFrame;
 	if (!is_link_activated || request_url == nil || !is_main_frame_navigation) {
 		decision_handler(WKNavigationActionPolicyAllow);
+		return;
+	}
+
+	if ([self URLTargetsCurrentDetailDocument:request_url]) {
+		decision_handler(WKNavigationActionPolicyCancel);
+
+		NSDictionary* payload = @{
+			@"fragment": request_url.fragment,
+			@"scroll_inset": @(InkwellDetailTopBarHeight + InkwellDetailScrollingAdjust)
+		};
+		NSString* script = [self javaScriptForRuntimeFunction:@"scrollToFragment" payload:payload];
+		[web_view evaluateJavaScript:script completionHandler:^(id result, NSError* error) {
+			#pragma unused(error)
+			BOOL did_scroll = [result respondsToSelector:@selector(boolValue)] && [result boolValue];
+			if (!did_scroll) {
+				[[NSWorkspace sharedWorkspace] openURL:request_url];
+			}
+		}];
 		return;
 	}
 
@@ -922,6 +941,34 @@ static CGFloat const InkwellDetailLinkBubbleMaxWidth = 450.0;
 - (NSURL * _Nullable) currentPostURL
 {
 	return [self urlFromScriptMessageValue:self.currentSidebarItem.url];
+}
+
+- (BOOL) URLTargetsCurrentDetailDocument:(NSURL *) url
+{
+	if (url.fragment.length == 0 || self.currentSidebarItem == nil) {
+		return NO;
+	}
+
+	NSURL* current_post_url = [self currentPostURL];
+	if ([self URL:url matchesURLIgnoringFragment:current_post_url]) {
+		return YES;
+	}
+
+	NSURL* base_url = [self baseURLForEntry:self.currentSidebarItem];
+	return [self URL:url matchesURLIgnoringFragment:base_url];
+}
+
+- (BOOL) URL:(NSURL *) firstURL matchesURLIgnoringFragment:(NSURL *) secondURL
+{
+	if (firstURL == nil || secondURL == nil) {
+		return NO;
+	}
+
+	NSURLComponents* first_components = [NSURLComponents componentsWithURL:firstURL resolvingAgainstBaseURL:YES];
+	NSURLComponents* second_components = [NSURLComponents componentsWithURL:secondURL resolvingAgainstBaseURL:YES];
+	first_components.fragment = nil;
+	second_components.fragment = nil;
+	return [first_components.URL isEqual:second_components.URL];
 }
 
 - (BOOL) URLLooksLikeImage:(NSURL *) url

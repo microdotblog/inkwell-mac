@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface MBHighlightCellView : NSTableCellView
 
 - (void) configureWithHighlight:(MBHighlight*) highlight;
+- (void) prepareForLayoutWithWidth:(CGFloat) width;
 
 @end
 

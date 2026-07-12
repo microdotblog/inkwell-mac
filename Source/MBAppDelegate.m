@@ -6,6 +6,7 @@
 //
 
 #import "MBAppDelegate.h"
+#import "MBAvatarLoader.h"
 #import "MBAuthController.h"
 #import "MBClient.h"
 #import "MBMainController.h"
@@ -78,6 +79,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 - (void) applicationWillTerminate:(NSNotification *)notification
 {
 	#pragma unused(notification)
+	[MBAvatarLoader cleanupCachedImageFiles];
 	[MBPodcastController cleanupCachedAudioFiles];
 }
 

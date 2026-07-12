@@ -26,13 +26,7 @@ static NSColor* InkwellHighlightCellTextColor(void)
 
 static NSColor* InkwellHighlightCellSecondaryTextColor(void)
 {
-	return [NSColor colorWithName:nil dynamicProvider:^NSColor* (NSAppearance* appearance) {
-		NSAppearanceName best_match = [appearance bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-		if ([best_match isEqualToString:NSAppearanceNameDarkAqua]) {
-			return [[NSColor colorWithCalibratedRed:1.0 green:0.949 blue:0.651 alpha:1.0] colorWithAlphaComponent:0.72];
-		}
-		return NSColor.blackColor;
-	}];
+	return NSColor.secondaryLabelColor;
 }
 
 @interface MBHighlightCellView ()
@@ -95,14 +89,52 @@ static NSColor* InkwellHighlightCellSecondaryTextColor(void)
 	[self applyCellBackgroundColor];
 }
 
+- (void) prepareForLayoutWithWidth:(CGFloat) width
+{
+	CGFloat text_width = [self textWidthForCellWidth:width];
+	self.textField.preferredMaxLayoutWidth = text_width;
+	self.frame = NSMakeRect(self.frame.origin.x, self.frame.origin.y, width, self.frame.size.height);
+	[self.textField invalidateIntrinsicContentSize];
+	[self setNeedsLayout:YES];
+	[self layoutSubtreeIfNeeded];
+}
+
+- (void) layout
+{
+	CGFloat text_width = [self textWidthForCellWidth:self.bounds.size.width];
+	if (fabs(self.textField.preferredMaxLayoutWidth - text_width) > 0.5) {
+		self.textField.preferredMaxLayoutWidth = text_width;
+		[self.textField invalidateIntrinsicContentSize];
+	}
+
+	[super layout];
+}
+
+- (CGFloat) textWidthForCellWidth:(CGFloat) width
+{
+	CGFloat text_width = width - InkwellHighlightCellLeadingInset - InkwellHighlightCellTrailingInset;
+	return MAX(1.0, floor(text_width));
+}
+
 - (void) setupTextField
 {
 	NSTextField* text_field = [NSTextField labelWithString:@""];
 	text_field.translatesAutoresizingMaskIntoConstraints = NO;
 	text_field.lineBreakMode = NSLineBreakByWordWrapping;
-	text_field.maximumNumberOfLines = 3;
+	text_field.maximumNumberOfLines = 0;
 	text_field.usesSingleLineMode = NO;
 	text_field.selectable = NO;
+	[text_field setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[text_field setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+	[text_field setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationVertical];
+	if ([text_field.cell isKindOfClass:[NSTextFieldCell class]]) {
+		NSTextFieldCell* text_cell = (NSTextFieldCell*) text_field.cell;
+		text_cell.wraps = YES;
+		text_cell.scrollable = NO;
+		text_cell.usesSingleLineMode = NO;
+		text_cell.lineBreakMode = NSLineBreakByWordWrapping;
+		text_cell.truncatesLastVisibleLine = NO;
+	}
 	[self addSubview:text_field];
 
 	[NSLayoutConstraint activateConstraints:@[

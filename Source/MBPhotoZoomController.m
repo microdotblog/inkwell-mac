@@ -163,15 +163,17 @@ static CGFloat const InkwellPhotoRelatedPaneHeight = 40.0;
 {
 	NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
 	paragraph_style.lineBreakMode = NSLineBreakByTruncatingTail;
+	BOOL should_show_link_style = (self.isHovering && self.destinationURL != nil);
+	NSColor* text_color = should_show_link_style ? (self.linkColor ?: NSColor.linkColor) : NSColor.labelColor;
 
 	NSMutableDictionary* attributes = [@{
-		NSForegroundColorAttributeName: self.linkColor ?: NSColor.linkColor,
+		NSForegroundColorAttributeName: text_color,
 		NSParagraphStyleAttributeName: paragraph_style
 	} mutableCopy];
 	if (self.font != nil) {
 		attributes[NSFontAttributeName] = self.font;
 	}
-	if (self.isHovering && self.destinationURL != nil) {
+	if (should_show_link_style) {
 		attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
 	}
 
