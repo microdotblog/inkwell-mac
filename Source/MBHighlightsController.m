@@ -37,6 +37,17 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 
 @implementation MBHighlightsTableView
 
+- (void) setFrameSize:(NSSize) newSize
+{
+	CGFloat old_width = self.frame.size.width;
+	[super setFrameSize:newSize];
+
+	if (fabs(old_width - newSize.width) > 0.5 && self.numberOfRows > 0) {
+		NSIndexSet* row_indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, (NSUInteger) self.numberOfRows)];
+		[self noteHeightOfRowsWithIndexesChanged:row_indexes];
+	}
+}
+
 - (void) keyDown:(NSEvent*) event
 {
 	NSString* characters = event.charactersIgnoringModifiers ?: @"";
@@ -122,6 +133,7 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 @property (nonatomic, strong) NSTextField* titleTextField;
 @property (nonatomic, strong) NSSearchField* searchField;
 @property (nonatomic, strong) NSProgressIndicator* progressIndicator;
+@property (nonatomic, strong) MBHighlightCellView* sizingCellView;
 @property (nonatomic, strong) NSLayoutConstraint* progressIndicatorWidthConstraint;
 @property (nonatomic, strong) NSLayoutConstraint* titleLeadingToSingleAvatarConstraint;
 @property (nonatomic, strong) NSLayoutConstraint* titleLeadingToNoAvatarConstraint;
@@ -562,7 +574,6 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 
 - (NSView*) tableView:(NSTableView*) tableView viewForTableColumn:(NSTableColumn*) tableColumn row:(NSInteger)row
 {
-	#pragma unused(tableColumn)
 	if (row < 0 || row >= self.highlights.count) {
 		return nil;
 	}
@@ -575,7 +586,44 @@ static void* InkwellHighlightsAppearanceObservationContext = &InkwellHighlightsA
 
 	MBHighlight* highlight = self.highlights[row];
 	[cell_view configureWithHighlight:highlight];
+	CGFloat cell_width = (tableColumn.width > 0.0) ? tableColumn.width : tableView.bounds.size.width;
+	[cell_view prepareForLayoutWithWidth:MAX(1.0, cell_width)];
 	return cell_view;
+}
+
+- (CGFloat) tableView:(NSTableView *) tableView heightOfRow:(NSInteger) row
+{
+	if (row < 0 || row >= self.highlights.count) {
+		return tableView.rowHeight;
+	}
+
+	NSTableColumn* table_column = tableView.tableColumns.firstObject;
+	CGFloat table_width = MAX(120.0, table_column.width > 0.0 ? table_column.width : tableView.bounds.size.width);
+	MBHighlight* highlight = self.highlights[(NSUInteger) row];
+	return [self fittingHeightForHighlight:highlight width:table_width];
+}
+
+- (CGFloat) fittingHeightForHighlight:(MBHighlight *) highlight width:(CGFloat) width
+{
+	if (highlight == nil) {
+		return 62.0;
+	}
+
+	if (self.sizingCellView == nil) {
+		self.sizingCellView = [[MBHighlightCellView alloc] initWithFrame:NSZeroRect];
+		self.sizingCellView.translatesAutoresizingMaskIntoConstraints = NO;
+	}
+
+	MBHighlightCellView* cell_view = self.sizingCellView;
+	[cell_view configureWithHighlight:highlight];
+
+	NSLayoutConstraint* width_constraint = [cell_view.widthAnchor constraintEqualToConstant:width];
+	width_constraint.active = YES;
+	[cell_view prepareForLayoutWithWidth:width];
+	CGFloat row_height = ceil(cell_view.fittingSize.height);
+	width_constraint.active = NO;
+
+	return MAX(62.0, row_height);
 }
 
 - (BOOL) focusHighlightsTable
