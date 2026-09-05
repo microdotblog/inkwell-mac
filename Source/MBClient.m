@@ -140,7 +140,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	components.queryItems = @[
 		[NSURLQueryItem queryItemWithName:@"client_id" value:self.clientID],
-		[NSURLQueryItem queryItemWithName:@"scope" value:@"create"],
+		[NSURLQueryItem queryItemWithName:@"scope" value:@"read write"],
 		[NSURLQueryItem queryItemWithName:@"state" value:state],
 		[NSURLQueryItem queryItemWithName:@"response_type" value:@"code"],
 		[NSURLQueryItem queryItemWithName:@"redirect_uri" value:self.redirectURI]
