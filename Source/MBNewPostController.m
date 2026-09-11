@@ -540,7 +540,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	NSTextField* title_field = [[NSTextField alloc] initWithFrame:NSZeroRect];
 	title_field.translatesAutoresizingMaskIntoConstraints = NO;
 	title_field.placeholderString = @"Title";
-	title_field.font = [NSFont boldSystemFontOfSize:18.0];
+	title_field.font = [NSFont boldSystemFontOfSize:16.0];
 	title_field.textColor = NSColor.labelColor;
 	title_field.bordered = NO;
 	title_field.bezeled = NO;
@@ -614,7 +614,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	[NSLayoutConstraint activateConstraints:@[
 		web_view_top_constraint,
-		[title_field.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:11.0],
+		[title_field.topAnchor constraintEqualToAnchor:content_view.topAnchor constant:12.0],
 		[title_field.leadingAnchor constraintEqualToAnchor:content_view.leadingAnchor constant:18.0],
 		[title_field.trailingAnchor constraintEqualToAnchor:content_view.trailingAnchor constant:-18.0],
 		[title_field.heightAnchor constraintEqualToConstant:24.0],

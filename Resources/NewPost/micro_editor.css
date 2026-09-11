@@ -284,6 +284,7 @@
 .editor_link_url {
 	color: #808080;
 	word-break: break-all;
+	font-weight: 300;
 }
 
 .editor_quote {
@@ -294,6 +295,7 @@
 
 .editor_tag {
 	color: #96268A;
+	font-weight: 300;
 }
 
 .editor_attr_name {
@@ -302,6 +304,7 @@
 
 .editor_attr_value {
 	color: #337AB7;
+	font-weight: normal;
 }
 
 .editor_code_inline {
@@ -576,7 +579,7 @@ body.inkwell_previewing {
 	overflow-y: auto;
 	background: transparent;
 	color: inherit;
-	font-size: 18px;
+	font-size: 16px;
 	line-height: 1.4;
 	transition: none;
 }
@@ -598,7 +601,7 @@ body.inkwell_previewing {
 	overflow-y: auto;
 	background: transparent;
 	color: inherit;
-	font-size: 18px;
+	font-size: 16px;
 	line-height: 1.4;
 }
 
