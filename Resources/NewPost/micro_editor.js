@@ -486,6 +486,15 @@ var MicroEditor = (function () {
 
 	function insertLineBreak() {
 		const editor = document.getElementById(textBoxID);
+		const selection = window.getSelection();
+		if (selection && (selection.rangeCount > 0) && !selection.isCollapsed) {
+			const range = selection.getRangeAt(0);
+			if (editor.contains(range.startContainer) && editor.contains(range.endContainer)) {
+				checkpointUndo();
+				range.deleteContents();
+			}
+		}
+
 		const before = editorPlainText(editor);
 		const saved_selection = saveSelection(editor);
 		editor.focus();

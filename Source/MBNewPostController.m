@@ -1743,6 +1743,20 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	return [self stringValueFromObject:dictionary[@"location"]];
 }
 
+- (void) webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
+{
+	#pragma unused(webView)
+
+	NSURL* request_url = navigationAction.request.URL;
+	if (navigationAction.navigationType == WKNavigationTypeLinkActivated && request_url != nil) {
+		decisionHandler(WKNavigationActionPolicyCancel);
+		[[NSWorkspace sharedWorkspace] openURL:request_url];
+		return;
+	}
+
+	decisionHandler(WKNavigationActionPolicyAllow);
+}
+
 - (void) webView:(WKWebView *)web_view didFinishNavigation:(WKNavigation *)navigation
 {
 	#pragma unused(web_view)
