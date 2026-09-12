@@ -5,6 +5,34 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.5.2</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Improved new post highlighting for Markdown links, HTML tags, and usernames with underscores.</li>
+					<li>Updated post editor with slightly smaller font size, closer to Micro.blog for Mac.</li>
+					<li>Fixed links in post editor preview to open in default browser.</li>
+					<li>Fixed pressing return key to replace selected text.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Fri, 11 Sep 2026 20:00:00 -0500</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.5.2.zip"
+			   sparkle:shortVersionString="1.5.2"
+			   sparkle:version="27"
+			   sparkle:edSignature="t2v6qA/ITCqLZ2VNUfTyxpNaeVL1mtREwPRM42vxhubZopnMU08wWMHRS5H9Xo4qNq8eKf37iQZCoaTKObJdBQ=="
+			   length="5731374"
+			   type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.5.1</title>
  			<description><![CDATA[
 				<style>
