@@ -78,9 +78,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (void) fetchPagedFeedEntriesWithAuthorizationValue:(NSString *) authorization_value initialSubscriptions:(NSArray *) initial_subscriptions existingEntryIDs:(NSSet *) existing_entry_ids completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *, id> *> * _Nullable entries, BOOL is_finished, NSError * _Nullable error))completion;
 - (void) fetchPagedEntriesForFeedID:(NSInteger) feed_id authorizationValue:(NSString*) authorization_value pageNumber:(NSInteger) page_number accumulatedEntries:(NSMutableArray*) accumulated_entries seenEntryIDs:(NSMutableSet*) seen_entry_ids update:(void (^ _Nullable)(NSArray* entries))update completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion;
 - (void) fetchSourceEntriesForDestinationUID:(NSString *) destination_uid postStatus:(NSString *) post_status token:(NSString *) token completion:(void (^)(NSArray * _Nullable entries, NSError * _Nullable error))completion;
-- (NSArray *) sourceEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft;
-- (NSArray*) sourceItemsFromMicropubSourcePayload:(id) payload;
-- (NSDictionary * _Nullable) sourceEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft;
+- (NSArray * _Nullable) sourceEntryDictionariesFromMicropubSourcePayload:(id)payload destinationUID:(NSString *)destinationUID isDraft:(BOOL)isDraft;
+- (NSArray * _Nullable) sourceItemsFromMicropubSourcePayload:(id)payload;
+- (NSDictionary * _Nullable) sourceEntryDictionaryFromMicropubSourceItem:(id)item destinationUID:(NSString *)destinationUID isDraft:(BOOL)isDraft;
 - (NSString*) sourceStringValueFromObject:(id) object;
 - (NSString*) markdownHTMLStringFromSourceMarkdown:(NSString*) markdown;
 - (NSString*) escapedHTMLString:(NSString*) string;
@@ -234,7 +234,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 			return;
 		}
 
-		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		id payload = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
 		if (![payload isKindOfClass:[NSDictionary class]]) {
 			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1024 userInfo:@{ NSLocalizedDescriptionKey: @"Token verification response was invalid." }];
 			[self finishVerify:NO error:parse_error completion:completion];
@@ -242,6 +242,15 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		}
 
 		NSDictionary* dictionary = (NSDictionary*) payload;
+		if (dictionary[@"error"] != nil) {
+			NSString* error_message = [self stringValueFromObject:dictionary[@"error"]];
+			NSInteger error_code = error_message.length > 0 ? 401 : 1024;
+			NSString* description = error_message.length > 0 ? error_message : @"Token verification response was invalid.";
+			NSError* verify_error = [NSError errorWithDomain:MBClientErrorDomain code:error_code userInfo:@{ NSLocalizedDescriptionKey: description }];
+			[self finishVerify:NO error:verify_error completion:completion];
+			return;
+		}
+
 		BOOL is_premium = [self boolValueFromObject:dictionary[@"is_premium"] defaultValue:YES];
 		BOOL has_inkwell = [self boolValueFromObject:dictionary[@"has_inkwell"] defaultValue:YES];
 		NSString* username = [self stringValueFromObject:dictionary[@"username"]];
@@ -460,9 +469,17 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 			return;
 		}
 
-		id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+		id payload = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
 		BOOL is_draft = [normalized_post_status isEqualToString:@"draft"];
 		NSArray* entries = [self sourceEntryDictionariesFromMicropubSourcePayload:payload destinationUID:normalized_destination_uid isDraft:is_draft];
+		if (entries == nil) {
+			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1065 userInfo:@{ NSLocalizedDescriptionKey: @"Posts response was invalid." }];
+			dispatch_async(dispatch_get_main_queue(), ^{
+				completion(nil, parse_error);
+			});
+			return;
+		}
+
 		dispatch_async(dispatch_get_main_queue(), ^{
 			completion(entries, nil);
 		});
@@ -2481,50 +2498,59 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	return [normalized_destinations copy];
 }
 
-- (NSArray *) sourceEntryDictionariesFromMicropubSourcePayload:(id) payload destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft
+- (NSArray * _Nullable) sourceEntryDictionariesFromMicropubSourcePayload:(id)payload destinationUID:(NSString *)destinationUID isDraft:(BOOL)isDraft
 {
 	NSArray* items = [self sourceItemsFromMicropubSourcePayload:payload];
+	if (items == nil) {
+		return nil;
+	}
+
 	NSMutableArray* entries = [NSMutableArray array];
 	for (id item in items) {
-		NSDictionary* entry = [self sourceEntryDictionaryFromMicropubSourceItem:item destinationUID:destination_uid isDraft:is_draft];
-		if (entry != nil) {
-			[entries addObject:entry];
+		NSDictionary* entry = [self sourceEntryDictionaryFromMicropubSourceItem:item destinationUID:destinationUID isDraft:isDraft];
+		if (entry == nil) {
+			return nil;
 		}
+		[entries addObject:entry];
 	}
 
 	return [entries copy];
 }
 
-- (NSArray*) sourceItemsFromMicropubSourcePayload:(id) payload
+- (NSArray * _Nullable) sourceItemsFromMicropubSourcePayload:(id)payload
 {
 	if ([payload isKindOfClass:[NSArray class]]) {
 		return (NSArray*) payload;
 	}
 
 	if (![payload isKindOfClass:[NSDictionary class]]) {
-		return @[];
+		return nil;
 	}
 
 	NSDictionary* dictionary = (NSDictionary*) payload;
 	id items_object = dictionary[@"items"];
-	if ([items_object isKindOfClass:[NSArray class]]) {
-		return (NSArray*) items_object;
+	if (items_object != nil) {
+		return [items_object isKindOfClass:[NSArray class]] ? items_object : nil;
 	}
 
 	if ([dictionary[@"properties"] isKindOfClass:[NSDictionary class]] || dictionary[@"content"] != nil || dictionary[@"name"] != nil) {
 		return @[ dictionary ];
 	}
 
-	return @[];
+	return nil;
 }
 
-- (NSDictionary *) sourceEntryDictionaryFromMicropubSourceItem:(id) item destinationUID:(NSString *) destination_uid isDraft:(BOOL) is_draft
+- (NSDictionary * _Nullable) sourceEntryDictionaryFromMicropubSourceItem:(id)item destinationUID:(NSString *)destinationUID isDraft:(BOOL)isDraft
 {
 	if (![item isKindOfClass:[NSDictionary class]]) {
 		return nil;
 	}
 
 	NSDictionary* dictionary = (NSDictionary*) item;
+	if (![dictionary[@"properties"] isKindOfClass:[NSDictionary class]] && dictionary[@"content"] == nil && dictionary[@"name"] == nil) {
+		return nil;
+	}
+
 	NSDictionary* properties = [dictionary[@"properties"] isKindOfClass:[NSDictionary class]] ? dictionary[@"properties"] : dictionary;
 
 	NSString* title = [self sourceStringValueFromObject:properties[@"name"]];
@@ -2554,9 +2580,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	entry[@"content_html"] = content_html ?: @"";
 	entry[@"url"] = url ?: @"";
 	entry[@"date_published"] = published ?: @"";
-	entry[@"source"] = destination_uid ?: @"";
+	entry[@"source"] = destinationUID ?: @"";
 	entry[@"is_read"] = @YES;
-	entry[@"is_draft"] = @(is_draft);
+	entry[@"is_draft"] = @(isDraft);
 	if (uid.length > 0) {
 		entry[@"id"] = uid;
 	}
@@ -3415,32 +3441,32 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	return encoded_string ?: @"";
 }
 
-- (NSString *) responseDescriptionForData:(NSData *)data defaultMessage:(NSString *)default_message
+- (NSString *) responseDescriptionForData:(NSData *)data defaultMessage:(NSString *)defaultMessage
 {
 	if (data.length == 0) {
-		return default_message;
+		return defaultMessage;
 	}
 
 	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 	if ([payload isKindOfClass:[NSDictionary class]]) {
-		NSDictionary *dictionary = (NSDictionary *) payload;
-		NSString *error_description = dictionary[@"error_description"];
+		NSDictionary* dictionary = (NSDictionary*) payload;
+		NSString* error_description = [self stringValueFromObject:dictionary[@"error_description"]];
 		if (error_description.length > 0) {
 			return error_description;
 		}
 
-		NSString *error_message = dictionary[@"error"];
+		NSString* error_message = [self stringValueFromObject:dictionary[@"error"]];
 		if (error_message.length > 0) {
 			return error_message;
 		}
 	}
 
-	NSString *string_value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+	NSString* string_value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 	if (string_value.length > 0) {
 		return string_value;
 	}
 
-	return default_message;
+	return defaultMessage;
 }
 
 - (void) finishWithToken:(NSString * _Nullable)token error:(NSError * _Nullable)error completion:(void (^)(NSString * _Nullable token, NSError * _Nullable error))completion

@@ -104,6 +104,13 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 			return;
 		}
 
+		BOOL is_sign_in_error = [verify_error.domain isEqualToString:MBClientErrorDomain] && (verify_error.code == 401 || verify_error.code == 403 || verify_error.code == 1025);
+		if (!is_sign_in_error) {
+			[strong_self closeWelcomeWindow];
+			[strong_self showMainWindow];
+			return;
+		}
+
 		[strong_self.sessionController clearToken];
 		[strong_self showWelcomeWindow];
 		NSString* error_message = verify_error.localizedDescription ?: @"Sign in failed.";
