@@ -17,6 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype) initWithClient:(MBClient *)client token:(NSString *)token;
 - (void) beginImportFromWindow:(NSWindow * _Nullable)presentationWindow completion:(void (^)(BOOL didChangeFeeds))completion;
+- (IBAction) cancelImport:(id)sender;
 
 @end
 

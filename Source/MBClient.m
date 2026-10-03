@@ -59,6 +59,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 @interface MBClient ()
 
 @property (strong) NSURLSession *session;
+@property (assign) BOOL isInvalidated;
 @property (assign) NSInteger activeRequestCount;
 @property (copy) NSSet* cachedUnreadEntryIDs;
 @property (assign) NSInteger unreadFetchRequestIDCounter;
@@ -99,6 +100,8 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (void) logAPIRequest:(NSURLRequest *) request;
 - (void) logRefreshEntriesStopReason:(NSString *) reason pageNumber:(NSInteger) page_number pageEntryCount:(NSUInteger) page_entry_count addedCount:(NSInteger) added_count newCount:(NSInteger) new_count totalCount:(NSUInteger) total_count oldestEntryDate:(NSDate * _Nullable) oldest_entry_date cutoffDate:(NSDate * _Nullable) cutoff_date;
 - (NSISO8601DateFormatter*) iso8601Formatter;
+- (NSURLSessionDataTask *) dataTaskWithRequest:(NSURLRequest *)request tracksNetworking:(BOOL)tracksNetworking completionHandler:(void (^)(NSData* data, NSURLResponse* response, NSError* error))completionHandler;
+- (void) dispatchCompletion:(dispatch_block_t)completion;
 
 @end
 
@@ -124,6 +127,22 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 - (NSString *) clientID
 {
 	return MBClientIdentifierURL;
+}
+
+- (void) invalidate
+{
+	// Wait for any response already being processed before clearing account state.
+	@synchronized (self) {
+		self.isInvalidated = YES;
+		self.cachedUnreadEntryIDs = [NSSet set];
+		self.unreadStateOverridesByEntryID = @{};
+		self.cachedHighlights = @[];
+		self.cachedFeedIconsByHostMap = @{};
+		self.hasLoadedFeedIcons = NO;
+		self.isFetchingFeedIcons = NO;
+		[self.pendingFeedIconsCompletions removeAllObjects];
+	}
+	[self.session invalidateAndCancel];
 }
 
 - (NSString *) redirectURI
@@ -412,17 +431,17 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	NSString* normalized_destination_uid = [destination_uid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (normalized_destination_uid.length == 0) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1059 userInfo:@{ NSLocalizedDescriptionKey: @"Missing destination for posts request." }];
-		dispatch_async(dispatch_get_main_queue(), ^{
+		[self dispatchCompletion:^{
 			completion(nil, error);
-		});
+		}];
 		return;
 	}
 
 	if (token.length == 0) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1060 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for posts request." }];
-		dispatch_async(dispatch_get_main_queue(), ^{
+		[self dispatchCompletion:^{
 			completion(nil, error);
-		});
+		}];
 		return;
 	}
 
@@ -440,9 +459,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	NSURL* request_url = components.URL;
 	if (request_url == nil) {
 		NSError* error = [NSError errorWithDomain:MBClientErrorDomain code:1061 userInfo:@{ NSLocalizedDescriptionKey: @"Micropub posts endpoint URL was invalid." }];
-		dispatch_async(dispatch_get_main_queue(), ^{
+		[self dispatchCompletion:^{
 			completion(nil, error);
-		});
+		}];
 		return;
 	}
 
@@ -453,9 +472,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	NSURLSessionDataTask* task = [self trackedDataTaskWithRequest:request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
 		if (error != nil) {
-			dispatch_async(dispatch_get_main_queue(), ^{
+			[self dispatchCompletion:^{
 				completion(nil, error);
-			});
+			}];
 			return;
 		}
 
@@ -463,9 +482,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		if (http_response.statusCode < 200 || http_response.statusCode >= 300) {
 			NSString* description = [self responseDescriptionForData:data defaultMessage:@"Posts request failed."];
 			NSError* request_error = [NSError errorWithDomain:MBClientErrorDomain code:http_response.statusCode userInfo:@{ NSLocalizedDescriptionKey: description }];
-			dispatch_async(dispatch_get_main_queue(), ^{
+			[self dispatchCompletion:^{
 				completion(nil, request_error);
-			});
+			}];
 			return;
 		}
 
@@ -474,15 +493,15 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		NSArray* entries = [self sourceEntryDictionariesFromMicropubSourcePayload:payload destinationUID:normalized_destination_uid isDraft:is_draft];
 		if (entries == nil) {
 			NSError* parse_error = [NSError errorWithDomain:MBClientErrorDomain code:1065 userInfo:@{ NSLocalizedDescriptionKey: @"Posts response was invalid." }];
-			dispatch_async(dispatch_get_main_queue(), ^{
+			[self dispatchCompletion:^{
 				completion(nil, parse_error);
-			});
+			}];
 			return;
 		}
 
-		dispatch_async(dispatch_get_main_queue(), ^{
+		[self dispatchCompletion:^{
 			completion(entries, nil);
-		});
+		}];
 	}];
 	[task resume];
 }
@@ -1261,13 +1280,16 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		task = [self trackedDataTaskWithRequest:request completionHandler:completion_handler];
 	}
 	else {
-		task = [self.session dataTaskWithRequest:request completionHandler:completion_handler];
+		task = [self dataTaskWithRequest:request tracksNetworking:NO completionHandler:completion_handler];
 	}
 	[task resume];
 }
 
 - (NSArray *) cachedMicropubDestinations
 {
+	if (self.isInvalidated) {
+		return nil;
+	}
 	NSURL* cache_url = [self micropubDestinationsCacheURL];
 	if (cache_url == nil) {
 		return nil;
@@ -1288,6 +1310,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 - (BOOL) hasCachedMicropubDestinations
 {
+	if (self.isInvalidated) {
+		return NO;
+	}
 	NSURL* cache_url = [self micropubDestinationsCacheURL];
 	if (cache_url == nil) {
 		return NO;
@@ -1299,6 +1324,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 - (NSArray *) cachedFeedSubscriptions
 {
+	if (self.isInvalidated) {
+		return nil;
+	}
 	return [self loadCachedFeedSubscriptionsDeletingIfExpired];
 }
 
@@ -1383,7 +1411,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	request.HTTPMethod = @"GET";
 	[request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
 
-	NSURLSessionDataTask* task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+	NSURLSessionDataTask* task = [self dataTaskWithRequest:request tracksNetworking:NO completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
 		if (error != nil) {
 			[self finishWithConversationPayload:nil error:error completion:completion];
 			return;
@@ -1706,7 +1734,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	[highlights_request setValue:authorization_value forHTTPHeaderField:@"Authorization"];
 
 	[self logAPIRequest:highlights_request];
-	NSURLSessionDataTask* task = [self.session dataTaskWithRequest:highlights_request completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
+	NSURLSessionDataTask* task = [self dataTaskWithRequest:highlights_request tracksNetworking:NO completionHandler:^(NSData* _Nullable data, NSURLResponse* _Nullable response, NSError* _Nullable error) {
 		if (error != nil) {
 			[self finishWithHighlights:nil error:error completion:completion];
 			return;
@@ -1916,6 +1944,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	@synchronized (self) {
+		if (self.isInvalidated) {
+			return;
+		}
 		NSMutableArray* merged_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
 		for (id object in highlights) {
 			if (![object isKindOfClass:[MBHighlight class]]) {
@@ -1964,6 +1995,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	local_highlight.updatedDate = [NSDate date];
 
 	@synchronized (self) {
+		if (self.isInvalidated) {
+			return nil;
+		}
 		NSMutableArray* merged_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
 		[merged_highlights addObject:local_highlight];
 		NSArray* normalized_highlights = [self normalizedHighlightsFromHighlights:merged_highlights];
@@ -1983,6 +2017,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	@synchronized (self) {
+		if (self.isInvalidated) {
+			return;
+		}
 		NSMutableArray* updated_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
 		for (NSInteger i = 0; i < updated_highlights.count; i++) {
 			id object = updated_highlights[i];
@@ -2022,6 +2059,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	}
 
 	@synchronized (self) {
+		if (self.isInvalidated) {
+			return;
+		}
 		NSMutableArray* updated_highlights = [NSMutableArray arrayWithArray:self.cachedHighlights ?: @[]];
 		for (NSInteger i = ((NSInteger) updated_highlights.count - 1); i >= 0; i--) {
 			id object = updated_highlights[i];
@@ -3304,22 +3344,43 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 - (NSURLSessionDataTask *) trackedDataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error))completion_handler
 {
-	[self beginNetworkingActivity];
-	[self logAPIRequest:request];
+	return [self dataTaskWithRequest:request tracksNetworking:YES completionHandler:completion_handler];
+}
 
-	MBClient *strong_self = self;
-	NSURLSessionDataTask *task = [self.session dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
-		@try {
-			if (completion_handler != nil) {
-				completion_handler(data, response, error);
+- (NSURLSessionDataTask *) dataTaskWithRequest:(NSURLRequest *)request tracksNetworking:(BOOL)tracksNetworking completionHandler:(void (^)(NSData* data, NSURLResponse* response, NSError* error))completionHandler
+{
+	@synchronized (self) {
+		if (self.isInvalidated) {
+			return nil;
+		}
+		if (tracksNetworking) {
+			[self beginNetworkingActivity];
+			[self logAPIRequest:request];
+		}
+		return [self.session dataTaskWithRequest:request completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+			@synchronized (self) {
+				@try {
+					if (!self.isInvalidated && completionHandler != nil) {
+						completionHandler(data, response, error);
+					}
+				}
+				@finally {
+					if (tracksNetworking) {
+						[self endNetworkingActivity];
+					}
+				}
 			}
-		}
-		@finally {
-			[strong_self endNetworkingActivity];
-		}
-	}];
+		}];
+	}
+}
 
-	return task;
+- (void) dispatchCompletion:(dispatch_block_t)completion
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		if (!self.isInvalidated) {
+			completion();
+		}
+	});
 }
 
 - (NSMutableURLRequest *) authenticatedRequestWithURL:(NSURL *)url method:(NSString *)method token:(NSString *)token accept:(NSString *)accept contentType:(NSString *)contentType body:(NSData *)body
@@ -3408,9 +3469,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		[[NSNotificationCenter defaultCenter] postNotificationName:MBClientNetworkingDidStartNotification object:self];
-	});
+	}];
 }
 
 - (void) endNetworkingActivity
@@ -3428,9 +3489,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		[[NSNotificationCenter defaultCenter] postNotificationName:MBClientNetworkingDidStopNotification object:self];
-	});
+	}];
 }
 
 - (NSString *) urlEncodedString:(NSString *)string
@@ -3475,9 +3536,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(token, error);
-	});
+	}];
 }
 
 - (void) finishVerify:(BOOL)is_valid error:(NSError * _Nullable)error completion:(void (^)(BOOL is_valid, NSError * _Nullable error))completion
@@ -3486,9 +3547,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(is_valid, error);
-	});
+	}];
 }
 
 - (void) finishWithSubscriptions:(NSArray<MBSubscription *> * _Nullable)subscriptions entries:(NSArray<NSDictionary<NSString *, id> *> * _Nullable)entries unreadEntryIDs:(NSSet * _Nullable)unread_entry_ids isFinished:(BOOL)is_finished error:(NSError * _Nullable)error completion:(void (^)(NSArray<MBSubscription *> * _Nullable subscriptions, NSArray<NSDictionary<NSString *,id> *> * _Nullable entries, NSSet * _Nullable unread_entry_ids, BOOL is_finished, NSError * _Nullable error))completion
@@ -3497,9 +3558,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(subscriptions, entries, unread_entry_ids, is_finished, error);
-	});
+	}];
 }
 
 - (void) finishWithAllEntries:(NSArray* _Nullable) entries unreadEntryIDs:(NSSet* _Nullable) unread_entry_ids isFinished:(BOOL) is_finished error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable entries, NSSet* _Nullable unread_entry_ids, BOOL is_finished, NSError* _Nullable error))completion
@@ -3508,9 +3569,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(entries, unread_entry_ids, is_finished, error);
-	});
+	}];
 }
 
 - (void) finishWithFeedSubscriptions:(NSArray* _Nullable) subscriptions error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion
@@ -3519,9 +3580,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(subscriptions, error);
-	});
+	}];
 }
 
 - (void) finishCreateFeedSubscriptionWithStatusCode:(NSInteger) status_code subscription:(MBSubscription* _Nullable) subscription choices:(NSArray* _Nullable) choices error:(NSError* _Nullable) error completion:(void (^)(NSInteger status_code, MBSubscription* _Nullable subscription, NSArray* _Nullable choices, NSError* _Nullable error))completion
@@ -3530,9 +3591,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(status_code, subscription, choices, error);
-	});
+	}];
 }
 
 - (void) finishWithIconsByHost:(NSDictionary<NSString *, NSString *> * _Nullable)icons_by_host error:(NSError * _Nullable)error completion:(void (^)(NSDictionary<NSString *, NSString *> * _Nullable icons_by_host, NSError * _Nullable error))completion
@@ -3541,9 +3602,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(icons_by_host, error);
-	});
+	}];
 }
 
 - (void) finishWithBookmarks:(NSArray* _Nullable) items error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion
@@ -3552,9 +3613,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(items, error);
-	});
+	}];
 }
 
 - (void) finishWithMicropubDestinations:(NSArray * _Nullable)destinations error:(NSError * _Nullable)error completion:(void (^)(NSArray * _Nullable destinations, NSError * _Nullable error))completion
@@ -3563,9 +3624,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(destinations, error);
-	});
+	}];
 }
 
 - (void) finishWithMentions:(NSArray* _Nullable) items error:(NSError* _Nullable) error completion:(void (^)(NSArray* _Nullable items, NSError* _Nullable error))completion
@@ -3574,9 +3635,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(items, error);
-	});
+	}];
 }
 
 - (void) finishWithPagedEntries:(NSArray* _Nullable)entries error:(NSError* _Nullable)error completion:(void (^)(NSArray* _Nullable entries, NSError* _Nullable error))completion
@@ -3585,9 +3646,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(entries, error);
-	});
+	}];
 }
 
 - (void) finishWithPagedEntriesUpdate:(NSArray*) entries update:(void (^ _Nullable)(NSArray* entries))update
@@ -3596,9 +3657,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		update(entries ?: @[]);
-	});
+	}];
 }
 
 - (void) finishWithRecapStatusCode:(NSInteger)status_code html:(NSString* _Nullable)html error:(NSError* _Nullable)error completion:(void (^)(NSInteger status_code, NSString* _Nullable html, NSError* _Nullable error))completion
@@ -3607,9 +3668,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(status_code, html, error);
-	});
+	}];
 }
 
 - (void) finishWithReadingRecapDayOfWeek:(NSString* _Nullable)day_of_week error:(NSError* _Nullable)error completion:(void (^)(NSString* _Nullable day_of_week, NSError* _Nullable error))completion
@@ -3618,9 +3679,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(day_of_week, error);
-	});
+	}];
 }
 
 - (void) finishWithHighlights:(NSArray* _Nullable)highlights error:(NSError* _Nullable)error completion:(void (^)(NSArray* _Nullable highlights, NSError* _Nullable error))completion
@@ -3629,9 +3690,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(highlights, error);
-	});
+	}];
 }
 
 - (void) finishWithHighlightID:(NSString* _Nullable)highlight_id error:(NSError* _Nullable)error completion:(void (^)(NSString* _Nullable highlight_id, NSError* _Nullable error))completion
@@ -3640,9 +3701,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(highlight_id, error);
-	});
+	}];
 }
 
 - (void) finishWithSimpleError:(NSError * _Nullable)error completion:(void (^)(NSError * _Nullable error))completion
@@ -3651,9 +3712,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(error);
-	});
+	}];
 }
 
 - (void) finishWithConversationPayload:(NSDictionary* _Nullable)conversation_payload error:(NSError* _Nullable)error completion:(void (^)(NSDictionary* _Nullable conversation_payload, NSError* _Nullable error))completion
@@ -3662,9 +3723,9 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 		return;
 	}
 
-	dispatch_async(dispatch_get_main_queue(), ^{
+	[self dispatchCompletion:^{
 		completion(conversation_payload, error);
-	});
+	}];
 }
 
 @end

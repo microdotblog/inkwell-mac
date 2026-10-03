@@ -207,6 +207,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 @property (nonatomic, copy) NSString* initialMarkdownText;
 @property (nonatomic, copy) NSString* currentMarkdownText;
 @property (nonatomic, copy) NSString* initialTitleText;
+@property (nonatomic, copy) NSString* submittedMarkdownText;
+@property (nonatomic, copy) NSString* submittedTitleText;
+@property (nonatomic, copy) void (^closeCompletionHandler)(BOOL didClose);
 @property (nonatomic, copy) NSString* editingPostURLString;
 @property (nonatomic, copy) NSString* destinationName;
 @property (nonatomic, copy) NSString* destinationUID;
@@ -254,7 +257,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 - (void) updatePostContent:(NSString *)content asDraft:(BOOL)is_draft postURL:(NSString *)postURL;
 - (void) saveDraftClosingWindow:(BOOL)should_close_window;
 - (void) saveDraftAndClose;
-- (void) markCurrentContentAsSavedWithMarkdownText:(NSString *)markdownText;
+- (void) continueClosingIfNeeded;
+- (void) finishCloseRequest:(BOOL)didClose;
 - (NSString * _Nullable) createdPostURLStringFromData:(NSData * _Nullable)data response:(NSURLResponse * _Nullable)response;
 - (void) fetchEditingPostSource;
 - (void) finishEditingPostSourceWithMarkdown:(NSString *)markdown title:(NSString *)title postStatus:(NSString *)postStatus error:(NSError * _Nullable)error;
@@ -391,6 +395,9 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		return;
 	}
 
+	[self setPosting:YES];
+	self.shouldCloseAfterSuccessfulPost = YES;
+	self.currentPostOperationIsDraftSave = NO;
 	__weak typeof(self) weak_self = self;
 	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:^(id _Nullable result, NSError* _Nullable error) {
 		MBNewPostController* strong_self = weak_self;
@@ -406,12 +413,11 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		NSString* content = [result isKindOfClass:[NSString class]] ? (NSString*) result : @"";
 		NSString* trimmed_content = [content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 		if (trimmed_content.length == 0) {
+			[strong_self setPosting:NO];
+			[strong_self continueClosingIfNeeded];
 			return;
 		}
 
-		[strong_self setPosting:YES];
-		strong_self.shouldCloseAfterSuccessfulPost = YES;
-		strong_self.currentPostOperationIsDraftSave = NO;
 		[strong_self postContent:content asDraft:NO];
 	}];
 }
@@ -1002,32 +1008,35 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) finishPostingWithError:(NSError *)error createdPostURLString:(NSString *)createdPostURLString
 {
+	[self setPosting:NO];
 	if (error == nil) {
 		BOOL did_update_post = [self isEditingExistingPost];
 		BOOL did_save_draft = self.currentPostOperationIsDraftSave;
-		[self setPosting:NO];
 		if (createdPostURLString.length > 0) {
 			self.editingPostURLString = createdPostURLString;
 		}
-		if (did_save_draft) {
-			self.editingPostIsDraft = YES;
-		}
+		self.editingPostIsDraft = did_save_draft;
 		[self updatePostButtonTitle];
-		if (did_save_draft && !self.shouldCloseAfterSuccessfulPost) {
-			[self markCurrentContentAsSavedWithMarkdownText:self.currentMarkdownText];
-		}
-		self.window.documentEdited = NO;
+		self.initialMarkdownText = self.submittedMarkdownText ?: @"";
+		self.initialTitleText = self.submittedTitleText ?: @"";
+		[self updateDocumentEditedState];
 		if ((did_update_post || did_save_draft) && self.didUpdatePostHandler != nil) {
 			self.didUpdatePostHandler();
 		}
-		if (self.shouldCloseAfterSuccessfulPost) {
+		if (self.shouldCloseAfterSuccessfulPost && !self.window.documentEdited) {
 			self.isClosingAfterPost = YES;
 			[self close];
+		}
+		else if (self.shouldCloseAfterSuccessfulPost) {
+			[self finishCloseRequest:NO];
+		}
+		else {
+			[self continueClosingIfNeeded];
 		}
 		return;
 	}
 
-	[self setPosting:NO];
+	[self finishCloseRequest:NO];
 	NSBeep();
 }
 
@@ -1038,6 +1047,10 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 - (void) postContent:(NSString *)content asDraft:(BOOL)is_draft
 {
+	// Keep the submitted snapshot separate from edits made while the request runs.
+	self.submittedMarkdownText = content ?: @"";
+	self.submittedTitleText = self.titleField.stringValue ?: @"";
+	self.currentPostOperationIsDraftSave = is_draft;
 	if (self.token.length == 0) {
 		NSError* error = [NSError errorWithDomain:InkwellNewPostErrorDomain code:1001 userInfo:@{ NSLocalizedDescriptionKey: @"Missing token for posting." }];
 		[self finishPostingWithError:error];
@@ -1063,7 +1076,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	if (is_draft) {
 		[body_parts addObject:@"post-status=draft"];
 	}
-	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* title = [self.submittedTitleText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	if (title.length > 0) {
 		[body_parts addObject:[NSString stringWithFormat:@"name=%@", [self urlEncodedString:title]]];
 	}
@@ -1109,7 +1122,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	NSMutableDictionary* replace = [NSMutableDictionary dictionary];
 	replace[@"content"] = @[ content ?: @"" ];
 
-	NSString* title = [self.titleField.stringValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
+	NSString* title = [self.submittedTitleText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 	NSString* initial_title = self.initialTitleText ?: @"";
 	if (title.length > 0 || initial_title.length > 0) {
 		replace[@"name"] = @[ title ];
@@ -1194,6 +1207,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		return;
 	}
 
+	[self setPosting:YES];
+	self.shouldCloseAfterSuccessfulPost = should_close_window;
 	__weak typeof(self) weak_self = self;
 	[self.webView evaluateJavaScript:@"window.InkwellNewPostEditor ? window.InkwellNewPostEditor.markdown() : ''" completionHandler:^(id _Nullable result, NSError* _Nullable error) {
 		MBNewPostController* strong_self = weak_self;
@@ -1207,11 +1222,8 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 		}
 
 		NSString* content = [result isKindOfClass:[NSString class]] ? (NSString*) result : @"";
-		strong_self.currentMarkdownText = content;
-		[strong_self setPosting:YES];
-		strong_self.shouldCloseAfterSuccessfulPost = should_close_window;
-		strong_self.currentPostOperationIsDraftSave = YES;
-		[strong_self postContent:content asDraft:YES];
+		BOOL is_draft = ![strong_self isEditingExistingPost] || strong_self.editingPostIsDraft;
+		[strong_self postContent:content asDraft:is_draft];
 	}];
 }
 
@@ -1330,6 +1342,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			[self.window makeFirstResponder:self.webView];
 		}
 		[self showEditingPostSourceErrorAlert:error];
+		[self finishCloseRequest:NO];
 		return;
 	}
 
@@ -1364,6 +1377,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 			[strong_self.window makeFirstResponder:strong_self.webView];
 		}];
 	}
+	[self continueClosingIfNeeded];
 }
 
 - (void) showEditingPostSourceErrorAlert:(NSError *)error
@@ -1694,12 +1708,12 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	id payload = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
 	if ([payload isKindOfClass:[NSDictionary class]]) {
 		NSDictionary* dictionary = (NSDictionary*) payload;
-		NSString* error_description = dictionary[@"error_description"];
+		NSString* error_description = [self stringValueFromObject:dictionary[@"error_description"]];
 		if (error_description.length > 0) {
 			return error_description;
 		}
 
-		NSString* error_value = dictionary[@"error"];
+		NSString* error_value = [self stringValueFromObject:dictionary[@"error"]];
 		if (error_value.length > 0) {
 			return error_value;
 		}
@@ -1707,14 +1721,6 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 
 	NSString* string_value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 	return (string_value.length > 0) ? string_value : default_message;
-}
-
-- (void) markCurrentContentAsSavedWithMarkdownText:(NSString *)markdownText
-{
-	self.currentMarkdownText = markdownText ?: @"";
-	self.initialMarkdownText = self.currentMarkdownText ?: @"";
-	self.initialTitleText = self.titleField.stringValue ?: @"";
-	[self updateDocumentEditedState];
 }
 
 - (NSString *) createdPostURLStringFromData:(NSData *)data response:(NSURLResponse *)response
@@ -1809,17 +1815,18 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 {
 	#pragma unused(sender)
 
-	if (self.isClosingAfterPost || !self.window.documentEdited) {
-		return YES;
-	}
 	if (self.isPosting) {
 		return NO;
+	}
+	if (self.isClosingAfterPost || !self.window.documentEdited) {
+		return YES;
 	}
 
 	NSAlert* alert = [[NSAlert alloc] init];
 	alert.alertStyle = NSAlertStyleWarning;
 	alert.messageText = @"Save changes to blog post before closing?";
-	alert.informativeText = @"Saving will store the draft on Micro.blog. You can use Micro.blog to edit and publish the post.";
+	BOOL is_published_post = [self isEditingExistingPost] && !self.editingPostIsDraft;
+	alert.informativeText = is_published_post ? @"Saving will update the published post on Micro.blog." : @"Saving will store the draft on Micro.blog. You can use Micro.blog to edit and publish the post.";
 	[alert addButtonWithTitle:@"Save"];
 	[alert addButtonWithTitle:@"Don't Save"];
 	[alert addButtonWithTitle:@"Cancel"];
@@ -1837,6 +1844,37 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	return NO;
 }
 
+- (void) requestCloseWithCompletion:(void (^)(BOOL didClose))completion
+{
+	if (self.closeCompletionHandler != nil) {
+		completion(NO);
+		return;
+	}
+	self.closeCompletionHandler = completion;
+	[self continueClosingIfNeeded];
+}
+
+- (void) continueClosingIfNeeded
+{
+	if (self.closeCompletionHandler == nil || self.isPosting) {
+		return;
+	}
+	[self.window makeKeyAndOrderFront:nil];
+	[self.window performClose:nil];
+	if (self.closeCompletionHandler != nil && !self.isPosting) {
+		[self finishCloseRequest:NO];
+	}
+}
+
+- (void) finishCloseRequest:(BOOL)didClose
+{
+	void (^completion)(BOOL) = self.closeCompletionHandler;
+	self.closeCompletionHandler = nil;
+	if (completion != nil) {
+		completion(didClose);
+	}
+}
+
 - (void) windowWillClose:(NSNotification *)notification
 {
 	#pragma unused(notification)
@@ -1852,6 +1890,7 @@ static NSPoint InkwellNewPostWindowCascadePoint = { 0.0, 0.0 };
 	if (did_close_handler != nil) {
 		did_close_handler(self);
 	}
+	[self finishCloseRequest:YES];
 }
 
 - (void) windowDidMove:(NSNotification *)notification

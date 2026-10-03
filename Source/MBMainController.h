@@ -18,6 +18,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (IBAction) showPreferences:(id) sender;
 - (IBAction) openPostWindow:(id) sender;
 - (void) refreshData;
+- (BOOL) hasOpenPostWindows;
+- (void) closePostWindowsWithCompletion:(void (^)(BOOL didClose))completion;
+- (void) invalidate;
 
 @end
 

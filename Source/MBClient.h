@@ -33,6 +33,7 @@ extern NSString* const InkwellSidebarSelectedEntryIDDefaultsKey;
 @property (copy, readonly) NSString *redirectURI;
 
 - (NSURL *) authorizationURLWithState:(NSString *)state;
+- (void) invalidate;
 - (void) exchangeAuthorizationCode:(NSString *)code completion:(void (^)(NSString * _Nullable token, NSError * _Nullable error))completion;
 - (void) verifyToken:(NSString *)token completion:(void (^)(BOOL is_valid, NSError * _Nullable error))completion;
 - (void) fetchFeedSubscriptionsWithToken:(NSString*) token completion:(void (^)(NSArray* _Nullable subscriptions, NSError* _Nullable error))completion;

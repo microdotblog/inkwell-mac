@@ -185,6 +185,35 @@ static NSTimeInterval const InkwellHighlightsRefreshInterval = 60.0;
 	[super close];
 }
 
+- (BOOL) hasOpenPostWindows
+{
+	return self.postControllers.count > 0;
+}
+
+- (void) closePostWindowsWithCompletion:(void (^)(BOOL didClose))completion
+{
+	MBNewPostController* controller = self.postControllers.firstObject;
+	if (controller == nil) {
+		completion(YES);
+		return;
+	}
+	[controller requestCloseWithCompletion:^(BOOL did_close) {
+		if (!did_close) {
+			completion(NO);
+			return;
+		}
+		[self closePostWindowsWithCompletion:completion];
+	}];
+}
+
+- (void) invalidate
+{
+	[self.sidebarController invalidate];
+	[self close];
+	self.token = @"";
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
 - (void) showWindow:(id)sender
 {
 	[self buildInterfaceIfNeeded];

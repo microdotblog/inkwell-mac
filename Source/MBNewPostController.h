@@ -23,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void) showWithMarkdownText:(NSString *)markdownText destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations token:(NSString *)token;
 - (void) showEditingPostURL:(NSString *)postURLString destinationName:(NSString *)destinationName destinationUID:(NSString *)destinationUID destinations:(NSArray *)destinations isDraft:(BOOL)isDraft token:(NSString *)token;
 - (BOOL) canSaveDraft;
+- (void) requestCloseWithCompletion:(void (^)(BOOL didClose))completion;
 - (IBAction) saveDraft:(id) sender;
 - (BOOL) isPreviewEnabled;
 - (IBAction) preview:(id) sender;

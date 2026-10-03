@@ -31,6 +31,10 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 @property (strong) MBImportController *importController;
 @property (strong) MBSessionController *sessionController;
 @property (strong) MBWelcomeController *welcomeController;
+@property (assign) BOOL isPreparingToClose;
+@property (assign) BOOL isTerminating;
+
+- (void) resetSession;
 
 @end
 
@@ -58,8 +62,12 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	#pragma unused(application)
 
+	MBAuthController* auth_controller = self.authController;
 	for (NSURL *url in urls) {
-		BOOL was_handled = [self.authController handleCallbackURL:url completion:^(NSString * _Nullable token, NSError * _Nullable error) {
+		BOOL was_handled = [auth_controller handleCallbackURL:url completion:^(NSString * _Nullable token, NSError * _Nullable error) {
+			if (self.authController != auth_controller) {
+				return;
+			}
 			if (error != nil || token.length == 0) {
 				NSString *error_message = error.localizedDescription ?: @"Sign in failed.";
 				[self presentSignInError:error_message];
@@ -81,6 +89,27 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 	#pragma unused(notification)
 	[MBAvatarLoader cleanupCachedImageFiles];
 	[MBPodcastController cleanupCachedAudioFiles];
+}
+
+- (NSApplicationTerminateReply) applicationShouldTerminate:(NSApplication *)application
+{
+	if (self.isPreparingToClose) {
+		return self.isTerminating ? NSTerminateLater : NSTerminateCancel;
+	}
+	if (![self.mainController hasOpenPostWindows]) {
+		return NSTerminateNow;
+	}
+	self.isPreparingToClose = YES;
+	self.isTerminating = YES;
+	[self.mainController closePostWindowsWithCompletion:^(BOOL did_close) {
+		// AppKit must receive the reply after this method returns NSTerminateLater.
+		dispatch_async(dispatch_get_main_queue(), ^{
+			self.isPreparingToClose = NO;
+			self.isTerminating = NO;
+			[application replyToApplicationShouldTerminate:did_close];
+		});
+	}];
+	return NSTerminateLater;
 }
 
 - (BOOL) applicationSupportsSecureRestorableState:(NSApplication *)app
@@ -111,7 +140,7 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 			return;
 		}
 
-		[strong_self.sessionController clearToken];
+		[strong_self resetSession];
 		[strong_self showWelcomeWindow];
 		NSString* error_message = verify_error.localizedDescription ?: @"Sign in failed.";
 		[strong_self presentSignInError:error_message];
@@ -305,10 +334,35 @@ static NSString* const InkwellShowTitleFieldDefaultsKey = @"ShowTitleField";
 {
 	#pragma unused(sender)
 
-	[self.sessionController clearToken];
-	[self.mainController close];
+	if (self.isPreparingToClose) {
+		return;
+	}
+	if (self.mainController == nil) {
+		[self resetSession];
+		[self showWelcomeWindow];
+		return;
+	}
+	self.isPreparingToClose = YES;
+	[self.mainController closePostWindowsWithCompletion:^(BOOL did_close) {
+		self.isPreparingToClose = NO;
+		if (did_close) {
+			[self resetSession];
+			[self showWelcomeWindow];
+		}
+	}];
+}
+
+- (void) resetSession
+{
+	[self.client invalidate];
+	[self.mainController invalidate];
 	self.mainController = nil;
-	[self showWelcomeWindow];
+	[self.importController cancelImport:self];
+	self.importController = nil;
+	self.exportController = nil;
+	[self.sessionController clearToken];
+	self.client = [[MBClient alloc] init];
+	self.authController = [[MBAuthController alloc] initWithClient:self.client];
 }
 
 - (void) beginSignIn

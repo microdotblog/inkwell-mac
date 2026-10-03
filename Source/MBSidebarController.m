@@ -348,6 +348,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 }
 
+- (void) invalidate
+{
+	self.token = @"";
+	[self.podcastController invalidate];
+}
+
 - (void) loadView
 {
 	NSView *container_view = [[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 260.0, 600.0)];

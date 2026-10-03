@@ -7,7 +7,15 @@
 
 // Link the real app delegate without opening windows or loading its other controllers.
 #define STUB_CONTROLLER(name) @interface name : NSObject @end @implementation name @end
-STUB_CONTROLLER(MBAuthController)
+@interface MBAuthController : NSObject
+- (instancetype) initWithClient:(MBClient *)client;
+@end
+@implementation MBAuthController
+- (instancetype) initWithClient:(MBClient *)client
+{
+	return [super init];
+}
+@end
 STUB_CONTROLLER(MBAvatarLoader)
 STUB_CONTROLLER(MBExportController)
 STUB_CONTROLLER(MBImportController)
@@ -74,6 +82,9 @@ static NSUInteger test_count;
 @end
 
 @implementation APITestSession
+- (void) invalidateAndCancel
+{
+}
 - (NSURLSessionDataTask *) dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler
 {
 	NSHTTPURLResponse* response = [[NSHTTPURLResponse alloc] initWithURL:request.URL statusCode:self.statusCode HTTPVersion:@"HTTP/1.1" headerFields:nil];

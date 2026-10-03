@@ -80,6 +80,7 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 @property (nonatomic, assign) NSUInteger currentChapterIndex;
 @property (nonatomic, assign, readwrite) BOOL isPlaying;
 @property (nonatomic, assign) NSUInteger pendingDownloadToken;
+@property (nonatomic, assign) BOOL isInvalidated;
 
 - (void) addPlayerStatusObserverIfNeeded;
 - (void) applyPreferredPlaybackRateIfNeeded;
@@ -246,6 +247,15 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
 	[self removeTimeObserverIfNeeded];
+}
+
+- (void) invalidate
+{
+	self.isInvalidated = YES;
+	[self.player pause];
+	[self setPlayingState:NO notify:NO];
+	[self.downloadSession invalidateAndCancel];
+	[self.playbackRecords removeAllObjects];
 }
 
 - (CGFloat) preferredPaneHeight
@@ -1244,6 +1254,9 @@ static uint32_t MBPodcastReadSyncsafeUInt32(const unsigned char* bytes)
 
 - (void) persistPlaybackRecordsToDisk
 {
+	if (self.isInvalidated) {
+		return;
+	}
 	[self sortAndTrimPlaybackRecords];
 
 	NSURL* file_url = [self playbackRecordsFileURLCreateIfNeeded:YES];
