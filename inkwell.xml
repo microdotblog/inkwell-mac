@@ -5,6 +5,35 @@
 		<description>Most recent changes with links to updates.</description>
 		<language>en</language>
 		<item>
+			<title>Version 1.5.3</title>
+ 			<description><![CDATA[
+				<style>
+					ul {
+						margin-left: 0px; padding-left: 20px;
+					}
+					li {
+						padding: 2px;
+					}
+				</style>
+ 				<p>Changes in this version:</p>
+ 				<ul>
+					<li>Added draft status in your own blog posts list.</li>
+					<li>Fixed sidebar selection flicker and display glitches when refreshing.</li>
+					<li>Fixed handling of server errors and temporary outages.</li>
+					<li>Fixed saving posts to preserve published status and protect edits made while saving.</li>
+					<li>Fixed quitting and signing out to protect unsaved posts and clear account data when signing out.</li>
+				</ul>
+ 			]]></description>
+			<pubDate>Sat, 03 Oct 2026 13:00:00 -0500</pubDate>
+			<enclosure url="https://s3.amazonaws.com/micro.blog/mac/Inkwell_1.5.3.zip"
+				sparkle:shortVersionString="1.5.3"
+				sparkle:version="28"
+				sparkle:edSignature="5CJ8/AL9NVmuNd8JilB+j8rRVlbIOGVmfE94B2vTFznEPduoSEXR6OYdVIrUfqzq8UsaSPQEnUNdYL6LAGQWBg=="
+				length="5734067"
+				type="application/octet-stream" />
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+		</item>
+		<item>
 			<title>Version 1.5.2</title>
  			<description><![CDATA[
 				<style>
