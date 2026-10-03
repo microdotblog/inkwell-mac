@@ -13,6 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MBSidebarCell : NSTableCellView
 
+@property (nonatomic, assign) BOOL showsReadState;
 @property (nonatomic, strong, readonly) MBRoundedImageView* avatarView;
 @property (nonatomic, strong, readonly) NSTextField* titleTextField;
 @property (nonatomic, strong, readonly) NSTextField* subtitleTextField;
@@ -26,6 +27,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, readonly) NSLayoutConstraint* dateTopWithoutSecondaryTextConstraint;
 
 - (void) prepareForLayoutWithWidth:(CGFloat) width;
+- (void) updateAppearance;
 
 @end
 

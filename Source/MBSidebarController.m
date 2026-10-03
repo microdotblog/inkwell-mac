@@ -41,7 +41,6 @@ static NSString* const InkwellFadingEntryIDsCacheFilename = @"FadingEntryIDs.jso
 static NSString* const InkwellSidebarSelectedEntryCacheFilename = @"SidebarSelectedEntry.json";
 static NSString* const InkwellHideReadPostsDefaultsKey = @"HideReadPosts";
 static NSString* const InkwellSidebarSortOrderDefaultsKey = @"SidebarSortOrder";
-static NSString* const InkwellSelectedUnfocusedColorName = @"color_selected_unfocused_text";
 static NSString* const InkwellUnreadBackgroundColorName = @"color_unread_background";
 static NSString* const InkwellUnreadBorderColorName = @"color_unread_border";
 static NSString* const InkwellPostStatusDraft = @"draft";
@@ -108,8 +107,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 @property (assign) BOOL hasLoadedRemoteItems;
 @property (assign) BOOL isFetching;
-@property (assign) NSInteger selectedRowForStyling;
-@property (strong) NSTableView *tableView;
+@property (strong) MBSidebarTableView* tableView;
 @property (strong) NSScrollView* tableScrollView;
 @property (strong) MBPodcastController* podcastController;
 @property (strong) NSView* podcastContainerView;
@@ -144,14 +142,12 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 @property (assign) NSInteger bookmarksRequestIdentifier;
 @property (assign) NSInteger mentionsRequestIdentifier;
 @property (assign) NSInteger allPostsRequestIdentifier;
-@property (weak) NSWindow* observedWindowForSelectionStyling;
 @property (strong) NSView* premiumRequiredView;
 @property (assign) BOOL hideReadPosts;
-@property (assign) BOOL isPreservingSelectionDuringReload;
-@property (assign) BOOL suppressSelectionChangedHandler;
+@property (assign) BOOL isUpdatingTable;
 @property (assign) MBSidebarContentMode contentMode;
 @property (assign) NSInteger allPostsFeedID;
-@property (assign) NSInteger rememberedDeselectedRow;
+@property (assign) NSInteger rememberedDeselectedEntryID;
 @property (copy) NSString* allPostsSiteName;
 @property (copy) NSString* allPostsFeedHost;
 @property (assign) BOOL allPostsUsesCurrentDestination;
@@ -170,15 +166,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) updateCachedBookmarkedState:(BOOL)is_bookmarked forEntryID:(NSInteger)entry_id;
 - (void) updatePodcastPaneHeightAnimated:(BOOL) animated;
 - (void) reloadRowForEntryID:(NSInteger)entry_id preferredRow:(NSInteger)preferred_row;
-- (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
 - (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id;
+- (void) updateTablePreservingSelectionForEntryID:(NSInteger)entryID;
+- (NSString *) rowIdentifierForEntry:(MBEntry *)entry;
+- (NSArray *) selectedItemContent;
+- (void) refreshVisibleRows;
+- (void) configureCellView:(NSView *)cellView forRow:(NSInteger)row;
+- (void) configureRowView:(MBSidebarRowView *)rowView forRow:(NSInteger)row;
 - (NSInteger) preferredSelectionEntryIDForReload;
 - (NSInteger) currentSelectedEntryID;
-- (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged;
-- (void) restoreSelectionForEntryIDOnNextRunLoop:(NSInteger) entry_id;
 - (NSInteger) rowForEntryID:(NSInteger)entry_id;
-- (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view;
-- (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view;
 - (NSInteger) savedSelectedEntryID;
 - (void) clearSavedSelectedEntryID;
 - (void) saveSelectedEntryIDForCurrentSelection;
@@ -186,11 +183,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) clearRememberedDeselectedRow;
 - (void) clearPreservedHiddenReadState;
 - (void) scrollTableToTop;
-- (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row;
-- (void) startObservingWindowKeyState;
-- (void) stopObservingWindowKeyState;
-- (void) windowKeyStateDidChange:(NSNotification*) notification;
-- (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view;
 - (BOOL) moveSelectionFromRememberedRow:(NSInteger) direction;
 - (BOOL) performPrimaryActionForSelectedItem;
 - (BOOL) canEditSelectedItem;
@@ -293,8 +285,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (IBAction) openPlansAction:(id)sender;
 - (void) pollReadingRecapForEntryIDs:(NSArray*) entry_ids attempt:(NSInteger)attempt requestIdentifier:(NSInteger)request_identifier;
 - (void) avatarImageDidLoad:(NSNotification*) notification;
-- (void) reloadRowsForAvatarURLString:(NSString*) url_string;
-- (void) reloadRowsForIconURLString:(NSString*) url_string;
 - (NSArray<MBEntry *> *) sidebarItemsForBookmarks:(NSArray*) items;
 - (NSArray*) mentionsFromItems:(NSArray*) items;
 - (NSArray<MBEntry *> *) sidebarItemsForMentions:(NSArray*) mentions;
@@ -326,8 +316,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		self.hideReadPosts = [self savedHideReadPosts];
 		_sortOrder = [self savedSortOrder];
 		self.searchQuery = @"";
-		self.selectedRowForStyling = -1;
-		self.rememberedDeselectedRow = -1;
+		self.rememberedDeselectedEntryID = 0;
 		self.allItems = @[];
 		self.bookmarkItems = @[];
 		self.allPostsItems = @[];
@@ -356,21 +345,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) dealloc
 {
-	[self stopObservingWindowKeyState];
 	[[NSNotificationCenter defaultCenter] removeObserver:self name:MBAvatarLoaderDidLoadImageNotification object:self.avatarLoader];
-}
-
-- (void) viewDidAppear
-{
-	[super viewDidAppear];
-	[self startObservingWindowKeyState];
-	[self refreshSelectionStylingForSelectedRow:self.tableView.selectedRow];
-}
-
-- (void) viewWillDisappear
-{
-	[self stopObservingWindowKeyState];
-	[super viewWillDisappear];
 }
 
 - (void) loadView
@@ -525,17 +500,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		}
 
 		return [strong_self moveSelectionFromRememberedRow:direction];
-	};
-	table_view.focusChangedHandler = ^{
-		dispatch_async(dispatch_get_main_queue(), ^{
-			MBSidebarController* strong_self = weak_self;
-			if (strong_self == nil || strong_self.tableView == nil) {
-				return;
-			}
-
-			NSInteger selected_row = strong_self.tableView.selectedRow;
-			[strong_self refreshSelectionStylingForSelectedRow:selected_row];
-		});
 	};
 
 	NSTableColumn *source_column = [[NSTableColumn alloc] initWithIdentifier:@"SourceColumn"];
@@ -985,25 +949,18 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) focusAndSelectFirstItem
 {
-	if (self.tableView == nil) {
-		return;
-	}
-
-	if ([self shouldShowPremiumRequiredView]) {
+	if (self.tableView == nil || [self shouldShowPremiumRequiredView]) {
 		return;
 	}
 
 	if (self.items.count > 0) {
-		NSIndexSet *index_set = [NSIndexSet indexSetWithIndex:0];
-		[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-		self.selectedRowForStyling = 0;
+		BOOL was_selected = self.tableView.selectedRow == 0;
+		[self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
 		[self.tableView scrollRowToVisible:0];
-		[self notifySelectionChanged];
+		if (was_selected) {
+			[self notifySelectionChanged];
+		}
 	}
-	else {
-		self.selectedRowForStyling = -1;
-	}
-
 	[self focusSidebar];
 }
 
@@ -1315,56 +1272,74 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self setPodcastPaneVisible:NO];
 }
 
-- (void) reloadTablePreservingSelectionForEntryID:(NSInteger) entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged
+- (void) updateTablePreservingSelectionForEntryID:(NSInteger)entryID
 {
 	if (self.tableView == nil) {
-		self.selectedRowForStyling = -1;
 		return;
 	}
 
-	NSInteger previous_selected_row = self.tableView.selectedRow;
-	NSInteger target_row = [self rowForEntryID:entry_id];
-	if (target_row < 0 || target_row >= (NSInteger) self.items.count) {
-		target_row = -1;
+	BOOL had_selection = (self.tableView.selectedRow >= 0);
+	NSMutableArray* row_identifiers = [NSMutableArray array];
+	NSMutableDictionary* occurrence_counts = [NSMutableDictionary dictionary];
+	for (MBEntry* item in self.items) {
+		NSString* identifier = [self rowIdentifierForEntry:item];
+		NSInteger occurrence = [occurrence_counts[identifier] integerValue];
+		[row_identifiers addObject:[identifier stringByAppendingFormat:@":%ld", (long) occurrence]];
+		occurrence_counts[identifier] = @(occurrence + 1);
 	}
 
-	if (target_row >= 0) {
-		self.selectedRowForStyling = target_row;
+	self.isUpdatingTable = YES;
+	[self.tableView updateRowIdentifiers:row_identifiers];
+	NSInteger target_row = [self rowForEntryID:entryID];
+	if (target_row >= 0 && self.tableView.selectedRow < 0) {
+		[self.tableView selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger) target_row] byExtendingSelection:NO];
 	}
-	else {
-		self.selectedRowForStyling = -1;
+	[self refreshVisibleRows];
+	self.isUpdatingTable = NO;
+
+	if (!had_selection && self.tableView.selectedRow >= 0) {
+		[self.tableView scrollRowToVisible:self.tableView.selectedRow];
+	}
+}
+
+- (NSArray *) selectedItemContent
+{
+	MBEntry* item = [self selectedItem];
+	NSInteger row = self.tableView.selectedRow;
+	if (item == nil || row < 0 || row >= self.tableView.rowIdentifiers.count) {
+		return @[];
 	}
 
-	self.isPreservingSelectionDuringReload = YES;
-	[self.tableView reloadData];
+	// Selection callbacks reload the detail and podcast panes. Read/bookmark changes
+	// only affect the row, so an unchanged article should not reset those panes.
+	return @[
+		self.tableView.rowIdentifiers[(NSUInteger) row],
+		item.title ?: @"", item.text ?: @"", item.summary ?: @"", item.url ?: @"",
+		item.author ?: @"", item.subscriptionTitle ?: @"", item.source ?: @"",
+		item.enclosureURL ?: @"", item.enclosureType ?: @"", item.itunesDuration ?: @"",
+		item.avatarURL ?: @"", @(item.isDraft)
+	];
+}
 
-	BOOL did_restore_selection = [self restoreSelectionForEntryID:entry_id notifySelectionIfUnchanged:notify_if_unchanged];
-	if (!did_restore_selection && self.tableView.selectedRow >= 0) {
-		[self.tableView deselectAll:nil];
-		self.selectedRowForStyling = -1;
+- (NSString *) rowIdentifierForEntry:(MBEntry *)entry
+{
+	NSString* item_identifier = entry.entryID > 0 ? [NSString stringWithFormat:@"id:%ld", (long) entry.entryID] : entry.url;
+	if (item_identifier.length == 0) {
+		item_identifier = [NSString stringWithFormat:@"object:%p", entry];
 	}
-	else {
-		NSInteger selected_row = self.tableView.selectedRow;
-		if (selected_row >= 0 && selected_row < self.items.count) {
-			self.selectedRowForStyling = selected_row;
+	NSString* destination = self.allPostsUsesCurrentDestination ? self.allPostsDestinationUID : @"";
+	return [NSString stringWithFormat:@"%ld:%@:%@:%@", (long) self.contentMode, destination ?: @"", self.allPostsPostStatus ?: @"", item_identifier];
+}
+
+- (void) refreshVisibleRows
+{
+	[self.tableView enumerateAvailableRowViewsUsingBlock:^(NSTableRowView* rowView, NSInteger row) {
+		if (row < 0 || row >= self.items.count) {
+			return;
 		}
-		else if (!did_restore_selection) {
-			self.selectedRowForStyling = -1;
-		}
-	}
-
-	self.isPreservingSelectionDuringReload = NO;
-	NSInteger current_selected_row = self.tableView.selectedRow;
-	if (did_restore_selection && current_selected_row < 0) {
-		current_selected_row = [self rowForEntryID:entry_id];
-	}
-	[self refreshSelectionStylingForSelectedRow:current_selected_row];
-	if (did_restore_selection) {
-		[self restoreSelectionForEntryIDOnNextRunLoop:entry_id];
-	}
-	if (!did_restore_selection && previous_selected_row >= 0 && current_selected_row < 0) {
-		[self notifySelectionChanged];
-	}
+		[self configureRowView:(MBSidebarRowView*) rowView forRow:row];
+		[self configureCellView:[rowView viewAtColumn:0] forRow:row];
+	}];
 }
 
 - (void) fetchEntriesIfNeeded
@@ -1700,9 +1675,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:0];
 	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-	self.selectedRowForStyling = 0;
 	[self.tableView scrollRowToVisible:0];
-	[self notifySelectionChanged];
 }
 
 - (void) resetBookmarksModeState
@@ -1743,7 +1716,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 		self.iconURLByHost = [self normalizedIconURLByHostFromMap:icons_by_host ?: @{}];
 		[self cacheRecentEntries];
-		[self.tableView reloadData];
+		[self refreshVisibleRows];
 	}];
 }
 
@@ -2163,32 +2136,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	[self reloadRowsForAvatarURLString:url_string];
-	[self reloadRowsForIconURLString:url_string];
-}
-
-- (void) reloadRowsForAvatarURLString:(NSString*) url_string
-{
-	if (url_string.length == 0 || self.items.count == 0) {
-		return;
-	}
-
-	NSMutableIndexSet* row_indexes = [NSMutableIndexSet indexSet];
-	NSUInteger item_count = self.items.count;
-	for (NSUInteger i = 0; i < item_count; i++) {
-		MBEntry* entry = self.items[i];
-		NSString* entry_avatar_url = [entry.avatarURL stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
-		if ([entry_avatar_url isEqualToString:url_string]) {
-			[row_indexes addIndex:i];
-		}
-	}
-
-	if (row_indexes.count == 0) {
-		return;
-	}
-
-	NSIndexSet* column_indexes = [NSIndexSet indexSetWithIndex:0];
-	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
+	[self refreshVisibleRows];
 }
 
 - (NSImage*) avatarImageForMention:(MBMention*) mention
@@ -2224,31 +2172,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return fallback_image;
 }
 
-- (void) reloadRowsForIconURLString:(NSString*) url_string
-{
-	if (url_string.length == 0 || self.items.count == 0) {
-		return;
-	}
-
-	NSMutableIndexSet* row_indexes = [NSMutableIndexSet indexSet];
-	NSUInteger item_count = self.items.count;
-	for (NSUInteger i = 0; i < item_count; i++) {
-		MBEntry* entry = self.items[i];
-		NSString* entry_host = [self normalizedHostString:entry.feedHost ?: @""];
-		NSString* icon_url_string = self.iconURLByHost[entry_host] ?: @"";
-		if ([icon_url_string isEqualToString:url_string]) {
-			[row_indexes addIndex:i];
-		}
-	}
-
-	if (row_indexes.count == 0) {
-		return;
-	}
-
-	NSIndexSet* column_indexes = [NSIndexSet indexSetWithIndex:0];
-	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
-}
-
 - (void) setDateFilter:(MBSidebarDateFilter)date_filter
 {
 	if (_dateFilter == date_filter) {
@@ -2279,6 +2202,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	[self clearPreservedHiddenReadState];
 	_searchQuery = [normalized_query copy];
 	[self applyFiltersAndReload];
+	[self scrollTableToTop];
 }
 
 - (void) setSortOrder:(MBSidebarSortOrder) sort_order
@@ -2299,10 +2223,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) applyFiltersAndReloadPreservingSelectionEntryID:(NSInteger) preferred_entry_id
 {
-	NSInteger selected_entry_id = [self currentSelectedEntryID];
-	if (selected_entry_id <= 0 && preferred_entry_id > 0) {
-		selected_entry_id = preferred_entry_id;
-	}
+	NSArray* previous_selection_content = [self selectedItemContent];
+	NSInteger selected_entry_id = preferred_entry_id;
 
 	BOOL is_searching = (self.contentMode == MBSidebarContentModeFeeds && self.searchQuery.length > 0);
 	NSArray* filtered_items = nil;
@@ -2338,9 +2260,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		}
 	}
 
-	[self reloadTablePreservingSelectionForEntryID:preferred_entry_id notifySelectionIfUnchanged:YES];
-	if (is_searching || [self isShowingSpecialMode]) {
-		[self scrollTableToTop];
+	[self updateTablePreservingSelectionForEntryID:preferred_entry_id];
+	if (![previous_selection_content isEqual:[self selectedItemContent]]) {
+		[self notifySelectionChanged];
 	}
 	[self updateRecapUI];
 	[self updatePremiumRequiredView];
@@ -2348,16 +2270,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (NSInteger) preferredSelectionEntryIDForReload
 {
-	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
-		return 0;
-	}
-
 	MBEntry* selected_item = [self selectedItem];
-	if (selected_item != nil && selected_item.entryID > 0 && !selected_item.isBookmarkEntry) {
-		return selected_item.entryID;
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_item != nil && selected_item.entryID > 0 && selected_row < self.tableView.rowIdentifiers.count) {
+		NSString* identifier_prefix = [[self rowIdentifierForEntry:selected_item] stringByAppendingString:@":"];
+		if ([self.tableView.rowIdentifiers[(NSUInteger) selected_row] hasPrefix:identifier_prefix]) {
+			return selected_item.entryID;
+		}
 	}
 
-	return [self savedSelectedEntryID];
+	return self.contentMode == MBSidebarContentModeFeeds ? [self savedSelectedEntryID] : 0;
 }
 
 - (NSInteger) currentSelectedEntryID
@@ -2371,77 +2293,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	return 0;
-}
-
-- (BOOL) restoreSelectionForEntryID:(NSInteger)entry_id notifySelectionIfUnchanged:(BOOL) notify_if_unchanged
-{
-	if (entry_id <= 0 || self.tableView == nil || self.items.count == 0) {
-		return NO;
-	}
-
-	NSInteger row = [self rowForEntryID:entry_id];
-	if (row < 0 || row >= self.items.count) {
-		return NO;
-	}
-
-	NSInteger previous_selected_row = self.tableView.selectedRow;
-	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
-	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-
-	self.selectedRowForStyling = row;
-	BOOL is_restoring_saved_selection = (previous_selected_row < 0 && entry_id == [self savedSelectedEntryID]);
-	if (is_restoring_saved_selection) {
-		[self.tableView layoutSubtreeIfNeeded];
-
-		CGFloat visible_height = 0.0;
-		if (self.tableScrollView != nil) {
-			visible_height = NSHeight(self.tableScrollView.contentView.bounds);
-		}
-		if (visible_height <= 0.0) {
-			visible_height = NSHeight(self.tableView.bounds);
-		}
-
-		NSRect row_rect = [self.tableView rectOfRow:row];
-		if (visible_height > 0.0 && NSMaxY(row_rect) <= visible_height) {
-			[self scrollTableToTop];
-		}
-		else {
-			[self.tableView scrollRowToVisible:row];
-		}
-	}
-	else {
-		[self.tableView scrollRowToVisible:row];
-	}
-
-	if (notify_if_unchanged && previous_selected_row == row) {
-		[self notifySelectionChanged];
-	}
-
-	return YES;
-}
-
-- (void) restoreSelectionForEntryIDOnNextRunLoop:(NSInteger) entry_id
-{
-	if (entry_id <= 0 || self.tableView == nil) {
-		return;
-	}
-
-	dispatch_async(dispatch_get_main_queue(), ^{
-		NSInteger row = [self rowForEntryID:entry_id];
-		if (row < 0 || row >= self.items.count) {
-			return;
-		}
-
-		NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) row];
-		if (![self.tableView isRowSelected:row]) {
-			self.isPreservingSelectionDuringReload = YES;
-			[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-			self.isPreservingSelectionDuringReload = NO;
-		}
-
-		self.selectedRowForStyling = row;
-		[self refreshSelectionStylingForSelectedRow:row];
-	});
 }
 
 - (NSInteger) rowForEntryID:(NSInteger)entry_id
@@ -2461,57 +2312,16 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return -1;
 }
 
-- (BOOL) isRowSelectedForStyling:(NSInteger) row tableView:(NSTableView*) table_view
+- (void) configureRowView:(MBSidebarRowView *)rowView forRow:(NSInteger)row
 {
-	BOOL is_selected_row = (row == self.selectedRowForStyling);
-	if (!is_selected_row) {
-		is_selected_row = (table_view.selectedRow == row);
-	}
-	if (!is_selected_row) {
-		is_selected_row = [table_view isRowSelected:row];
-	}
-
-	return is_selected_row;
-}
-
-- (void) configureRowView:(MBSidebarRowView*) row_view forRow:(NSInteger) row tableView:(NSTableView*) table_view
-{
-	if (row_view == nil) {
+	if (rowView == nil || row < 0 || row >= self.items.count) {
 		return;
 	}
 
-	BOOL is_selected_row = [self isRowSelectedForStyling:row tableView:table_view];
-	if (is_selected_row || row < 0 || row >= self.items.count) {
-		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:table_view];
-		if (is_selected_row) {
-			row_view.customSelectionBackgroundColor = has_emphasized_selection ? [NSColor selectedContentBackgroundColor] : [NSColor unemphasizedSelectedContentBackgroundColor];
-		}
-		else {
-			row_view.customSelectionBackgroundColor = nil;
-		}
-		row_view.customBackgroundColor = nil;
-		row_view.customBorderColor = nil;
-		return;
-	}
-
-	row_view.customSelectionBackgroundColor = nil;
 	MBEntry* item = self.items[(NSUInteger) row];
-	BOOL should_use_unread_style = [self shouldUseUnreadStylingForCurrentPostsList];
-	if (self.contentMode == MBSidebarContentModeBookmarks || self.contentMode == MBSidebarContentModeMentions) {
-		row_view.customBackgroundColor = nil;
-		row_view.customBorderColor = nil;
-		return;
-	}
-
-	if (!should_use_unread_style && [self entryShowsReadState:item]) {
-		row_view.customBackgroundColor = nil;
-		row_view.customBorderColor = nil;
-	}
-	else {
-		row_view.customBackgroundColor = [NSColor colorNamed:InkwellUnreadBackgroundColorName];
-		row_view.customBorderColor = [NSColor colorNamed:InkwellUnreadBorderColorName];
-//		row_view.customBorderColor = [NSColor colorWithRed:0.80 green:0.84 blue:0.91 alpha:0.58];
-	}
+	BOOL shows_unread_background = self.contentMode != MBSidebarContentModeBookmarks && self.contentMode != MBSidebarContentModeMentions && ([self shouldUseUnreadStylingForCurrentPostsList] || ![self entryShowsReadState:item]);
+	rowView.customBackgroundColor = shows_unread_background ? [NSColor colorNamed:InkwellUnreadBackgroundColorName] : nil;
+	rowView.customBorderColor = shows_unread_background ? [NSColor colorNamed:InkwellUnreadBorderColorName] : nil;
 }
 
 - (NSInteger) savedSelectedEntryID
@@ -2533,13 +2343,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 - (void) saveSelectedEntryIDForCurrentSelection
 {
-	NSInteger selected_row = self.tableView.selectedRow;
-	if (selected_row < 0 || selected_row >= self.items.count) {
-		[self clearSavedSelectedEntryID];
+	if ([self isShowingSpecialMode]) {
 		return;
 	}
 
-	if ([self isShowingSpecialMode]) {
+	NSInteger selected_row = self.tableView.selectedRow;
+	if (selected_row < 0 || selected_row >= self.items.count) {
+		[self clearSavedSelectedEntryID];
 		return;
 	}
 
@@ -2559,14 +2369,15 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	self.suppressSelectionChangedHandler = YES;
+	self.isUpdatingTable = YES;
 	[self.tableView deselectAll:nil];
+	self.isUpdatingTable = NO;
 	[self updatePodcastPaneForSelectedItem:nil];
 }
 
 - (void) clearRememberedDeselectedRow
 {
-	self.rememberedDeselectedRow = -1;
+	self.rememberedDeselectedEntryID = 0;
 }
 
 - (void) scrollTableToTop
@@ -4038,7 +3849,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 				if (should_clear_selection) {
 					[strong_self clearSavedSelectedEntryID];
 					[strong_self deselectSidebarSelectionPreservingDetail];
-					strong_self.rememberedDeselectedRow = selected_row;
+					strong_self.rememberedDeselectedEntryID = entry_id;
 				}
 			}
 			else {
@@ -4224,6 +4035,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	}
 
 	self.pendingReadStateOverridesByEntryID[entry_id_value] = @YES;
+	[self reloadRowForEntryID:entry_id preferredRow:row];
 	[self.client markAsRead:entry_id token:self.token completion:^(NSError * _Nullable error) {
 		dispatch_async(dispatch_get_main_queue(), ^{
 			[self.pendingReadStateOverridesByEntryID removeObjectForKey:entry_id_value];
@@ -4375,16 +4187,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return;
 	}
 
-	BOOL should_restore_selection = [self.tableView isRowSelected:row_to_reload] || (self.selectedRowForStyling == row_to_reload);
-	NSIndexSet *row_indexes = [NSIndexSet indexSetWithIndex:(NSUInteger) row_to_reload];
-	NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
-	[self.tableView reloadDataForRowIndexes:row_indexes columnIndexes:column_indexes];
-	if (should_restore_selection && ![self.tableView isRowSelected:row_to_reload]) {
-		[self.tableView selectRowIndexes:row_indexes byExtendingSelection:NO];
-		self.selectedRowForStyling = row_to_reload;
-		[self refreshSelectionStylingForSelectedRow:row_to_reload];
-		[self restoreSelectionForEntryIDOnNextRunLoop:entry_id];
-	}
+	MBSidebarRowView* row_view = (MBSidebarRowView*) [self.tableView rowViewAtRow:row_to_reload makeIfNecessary:NO];
+	[self configureRowView:row_view forRow:row_to_reload];
+	[self configureCellView:[row_view viewAtColumn:0] forRow:row_to_reload];
 }
 
 #pragma mark - Table View
@@ -4407,93 +4212,40 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		row_view.selectionHighlightStyle = NSTableViewSelectionHighlightStyleRegular;
 	}
 
-	[self configureRowView:row_view forRow:row tableView:tableView];
+	[self configureRowView:row_view forRow:row];
 	return row_view;
 }
 
 - (NSView *) tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row
 {
-	CGFloat cell_width = MAX(120.0, tableColumn.width);
-	if (self.contentMode == MBSidebarContentModeMentions) {
-		MBConversationCellView* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarMentionCellIdentifier owner:self];
-		if (cell_view == nil) {
-			cell_view = [[MBConversationCellView alloc] initWithFrame:NSZeroRect];
-			cell_view.identifier = InkwellSidebarMentionCellIdentifier;
-		}
-
-		if (row >= 0 && row < self.mentions.count) {
-			MBMention* mention = self.mentions[(NSUInteger) row];
-			NSImage* avatar_image = [self avatarImageForMention:mention];
-			NSString* date_text = [self mentionsDisplayDateString:mention.date];
-			[cell_view configureWithMention:mention dateText:date_text avatarImage:avatar_image];
-		}
-		[cell_view prepareForLayoutWithWidth:cell_width];
-
-		return cell_view;
-	}
-
-	MBSidebarCell* cell_view = [tableView makeViewWithIdentifier:InkwellSidebarCellIdentifier owner:self];
-
+	BOOL is_mention = self.contentMode == MBSidebarContentModeMentions;
+	NSUserInterfaceItemIdentifier identifier = is_mention ? InkwellSidebarMentionCellIdentifier : InkwellSidebarCellIdentifier;
+	NSView* cell_view = [tableView makeViewWithIdentifier:identifier owner:self];
 	if (cell_view == nil) {
-		cell_view = [[MBSidebarCell alloc] initWithFrame:NSZeroRect];
-		cell_view.identifier = InkwellSidebarCellIdentifier;
+		cell_view = is_mention ? [[MBConversationCellView alloc] initWithFrame:NSZeroRect] : [[MBSidebarCell alloc] initWithFrame:NSZeroRect];
+		cell_view.identifier = identifier;
 	}
-
-	MBEntry* item = self.items[(NSUInteger) row];
-	[self configureSidebarCellContent:cell_view entry:item];
-	[cell_view prepareForLayoutWithWidth:cell_width];
-
-	MBRoundedImageView* avatar_view = cell_view.avatarView;
-	NSTextField* title_field = cell_view.titleTextField;
-	NSTextField* subtitle_field = cell_view.subtitleTextField;
-	NSTextField* subscription_field = cell_view.subscriptionTextField;
-	NSTextField* date_field = cell_view.dateTextField;
-	NSTextField* bookmark_field = cell_view.bookmarkTextField;
-
-	BOOL is_selected_row = (row == self.selectedRowForStyling);
-	if (!is_selected_row) {
-		is_selected_row = (tableView.selectedRow == row);
-	}
-	if (!is_selected_row) {
-		is_selected_row = [tableView isRowSelected:row];
-	}
-	NSColor* title_color = [NSColor labelColor];
-	NSColor* subtitle_color = [NSColor secondaryLabelColor];
-	NSColor* subscription_color = [NSColor secondaryLabelColor];
-	NSColor* date_color = [NSColor tertiaryLabelColor];
-	CGFloat avatar_alpha = 1.0;
-	BOOL should_use_unread_style = [self shouldUseUnreadStylingForCurrentPostsList];
-	
-	if (is_selected_row) {
-		BOOL has_emphasized_selection = [self hasEmphasizedSelectionForTableView:tableView];
-		NSColor* selected_text_color = [NSColor alternateSelectedControlTextColor];
-		if (!has_emphasized_selection) {
-			selected_text_color = [NSColor colorNamed:InkwellSelectedUnfocusedColorName];
-			if (selected_text_color == nil) {
-				selected_text_color = [NSColor darkGrayColor];
-			}
-		}
-		title_color = selected_text_color;
-		subtitle_color = [selected_text_color colorWithAlphaComponent:0.78];
-		subscription_color = [selected_text_color colorWithAlphaComponent:0.78];
-		date_color = [selected_text_color colorWithAlphaComponent:0.55];
-	}
-	else if (!should_use_unread_style && [self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks) {
-		title_color = [NSColor disabledControlTextColor];
-		subtitle_color = [NSColor disabledControlTextColor];
-		subscription_color = [NSColor disabledControlTextColor];
-		date_color = [NSColor disabledControlTextColor];
-		avatar_alpha = 0.35;
-	}
-
-	title_field.textColor = title_color;
-	subtitle_field.textColor = subtitle_color;
-	subscription_field.textColor = subscription_color;
-	date_field.textColor = date_color;
-	bookmark_field.textColor = date_color;
-	avatar_view.alphaValue = avatar_alpha;
-
+	[self configureCellView:cell_view forRow:row];
 	return cell_view;
+}
+
+- (void) configureCellView:(NSView *)cellView forRow:(NSInteger)row
+{
+	if (cellView == nil || row < 0 || row >= self.items.count) {
+		return;
+	}
+	CGFloat cell_width = MAX(120.0, self.tableView.tableColumns.firstObject.width);
+	if (self.contentMode == MBSidebarContentModeMentions && [cellView isKindOfClass:[MBConversationCellView class]] && row < self.mentions.count) {
+		MBMention* mention = self.mentions[(NSUInteger) row];
+		MBConversationCellView* mention_cell = (MBConversationCellView*) cellView;
+		[mention_cell configureWithMention:mention dateText:[self mentionsDisplayDateString:mention.date] avatarImage:[self avatarImageForMention:mention]];
+		[mention_cell prepareForLayoutWithWidth:cell_width];
+	}
+	else if ([cellView isKindOfClass:[MBSidebarCell class]]) {
+		MBSidebarCell* sidebar_cell = (MBSidebarCell*) cellView;
+		[self configureSidebarCellContent:sidebar_cell entry:self.items[(NSUInteger) row]];
+		[sidebar_cell prepareForLayoutWithWidth:cell_width];
+	}
 }
 
 - (CGFloat) tableView:(NSTableView *)tableView heightOfRow:(NSInteger)row
@@ -4533,6 +4285,8 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	if (cell_view == nil || item == nil) {
 		return;
 	}
+
+	cell_view.showsReadState = ![self shouldUseUnreadStylingForCurrentPostsList] && [self entryShowsReadState:item] && self.contentMode != MBSidebarContentModeBookmarks;
 
 	NSString* subtitle_value = item.summary ?: @"";
 	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
@@ -4868,69 +4622,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 	return trimmed_string;
 }
 
-- (void) startObservingWindowKeyState
-{
-	NSWindow* window = self.view.window;
-	if (window == nil) {
-		return;
-	}
-
-	if (self.observedWindowForSelectionStyling == window) {
-		return;
-	}
-
-	[self stopObservingWindowKeyState];
-	self.observedWindowForSelectionStyling = window;
-
-	NSNotificationCenter* notification_center = [NSNotificationCenter defaultCenter];
-	[notification_center addObserver:self selector:@selector(windowKeyStateDidChange:) name:NSWindowDidBecomeKeyNotification object:window];
-	[notification_center addObserver:self selector:@selector(windowKeyStateDidChange:) name:NSWindowDidResignKeyNotification object:window];
-}
-
-- (void) stopObservingWindowKeyState
-{
-	NSWindow* observed_window = self.observedWindowForSelectionStyling;
-	if (observed_window == nil) {
-		return;
-	}
-
-	NSNotificationCenter* notification_center = [NSNotificationCenter defaultCenter];
-	[notification_center removeObserver:self name:NSWindowDidBecomeKeyNotification object:observed_window];
-	[notification_center removeObserver:self name:NSWindowDidResignKeyNotification object:observed_window];
-	self.observedWindowForSelectionStyling = nil;
-}
-
-- (void) windowKeyStateDidChange:(NSNotification*) notification
-{
-	#pragma unused(notification)
-	NSInteger selected_row = self.tableView.selectedRow;
-	[self refreshSelectionStylingForSelectedRow:selected_row];
-}
-
-- (BOOL) hasEmphasizedSelectionForTableView:(NSTableView*) table_view
-{
-	NSWindow* window = table_view.window;
-	if (window == nil || !window.isKeyWindow) {
-		return NO;
-	}
-
-	NSResponder* first_responder = window.firstResponder;
-	if (first_responder == table_view) {
-		return YES;
-	}
-
-	if (![first_responder isKindOfClass:[NSView class]]) {
-		return NO;
-	}
-
-	NSView* first_responder_view = (NSView*) first_responder;
-	if ([first_responder_view isDescendantOf:table_view]) {
-		return YES;
-	}
-
-	return NO;
-}
-
 - (BOOL) moveSelectionFromRememberedRow:(NSInteger) direction
 {
 	if (self.tableView == nil || self.items.count == 0) {
@@ -4938,7 +4629,7 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 		return NO;
 	}
 
-	NSInteger remembered_row = self.rememberedDeselectedRow;
+	NSInteger remembered_row = [self rowForEntryID:self.rememberedDeselectedEntryID];
 	if (remembered_row < 0 || remembered_row >= self.items.count) {
 		[self clearRememberedDeselectedRow];
 		return NO;
@@ -4956,7 +4647,6 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSIndexSet* index_set = [NSIndexSet indexSetWithIndex:(NSUInteger) target_row];
 	[self.tableView selectRowIndexes:index_set byExtendingSelection:NO];
-	self.selectedRowForStyling = target_row;
 	[self.tableView scrollRowToVisible:target_row];
 	return YES;
 }
@@ -4964,57 +4654,13 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 - (void) tableViewSelectionDidChange:(NSNotification *)notification
 {
 	#pragma unused(notification)
-	NSInteger current_selected_row = self.tableView.selectedRow;
-	if (self.isPreservingSelectionDuringReload) {
-		self.selectedRowForStyling = current_selected_row;
-		return;
-	}
-
-	[self refreshSelectionStylingForSelectedRow:current_selected_row];
-	if (self.suppressSelectionChangedHandler) {
-		self.suppressSelectionChangedHandler = NO;
+	if (self.isUpdatingTable) {
 		return;
 	}
 
 	[self clearRememberedDeselectedRow];
 	[self saveSelectedEntryIDForCurrentSelection];
 	[self notifySelectionChanged];
-}
-
-- (void) tableViewSelectionIsChanging:(NSNotification *)notification
-{
-	#pragma unused(notification)
-	NSInteger current_selected_row = self.tableView.selectedRow;
-	if (self.isPreservingSelectionDuringReload) {
-		self.selectedRowForStyling = current_selected_row;
-		return;
-	}
-
-	[self refreshSelectionStylingForSelectedRow:current_selected_row];
-}
-
-- (void) refreshSelectionStylingForSelectedRow:(NSInteger) selected_row
-{
-	NSMutableIndexSet *rows_to_reload = [NSMutableIndexSet indexSet];
-	if (self.selectedRowForStyling >= 0 && self.selectedRowForStyling < self.items.count) {
-		[rows_to_reload addIndex:(NSUInteger) self.selectedRowForStyling];
-	}
-	if (selected_row >= 0 && selected_row < self.items.count) {
-		[rows_to_reload addIndex:(NSUInteger) selected_row];
-	}
-
-	self.selectedRowForStyling = selected_row;
-
-	if (rows_to_reload.count > 0) {
-		[rows_to_reload enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
-			#pragma unused(stop)
-			MBSidebarRowView* row_view = (MBSidebarRowView*) [self.tableView rowViewAtRow:(NSInteger) idx makeIfNecessary:NO];
-			[self configureRowView:row_view forRow:(NSInteger) idx tableView:self.tableView];
-		}];
-
-		NSIndexSet *column_indexes = [NSIndexSet indexSetWithIndex:0];
-		[self.tableView reloadDataForRowIndexes:rows_to_reload columnIndexes:column_indexes];
-	}
 }
 
 @end

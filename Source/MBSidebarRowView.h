@@ -13,7 +13,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, strong, nullable) NSColor* customBackgroundColor;
 @property (nonatomic, strong, nullable) NSColor* customBorderColor;
-@property (nonatomic, strong, nullable) NSColor* customSelectionBackgroundColor;
 
 @end
 

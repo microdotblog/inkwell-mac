@@ -56,6 +56,57 @@ static CGFloat const InkwellSidebarCellDateFontSize = 13.0;
 	[self layoutSubtreeIfNeeded];
 }
 
+- (void) setShowsReadState:(BOOL)showsReadState
+{
+	_showsReadState = showsReadState;
+	[self updateAppearance];
+}
+
+- (void) setBackgroundStyle:(NSBackgroundStyle)backgroundStyle
+{
+	[super setBackgroundStyle:backgroundStyle];
+	[self updateAppearance];
+}
+
+- (void) viewDidChangeEffectiveAppearance
+{
+	[super viewDidChangeEffectiveAppearance];
+	[self updateAppearance];
+}
+
+- (void) updateAppearance
+{
+	[self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+		NSView* ancestor = self.superview;
+		while (ancestor != nil && ![ancestor isKindOfClass:[NSTableRowView class]]) {
+			ancestor = ancestor.superview;
+		}
+		NSTableRowView* row_view = (NSTableRowView*) ancestor;
+		NSColor* title_color = [NSColor labelColor];
+		NSColor* secondary_color = [NSColor secondaryLabelColor];
+		NSColor* date_color = [NSColor tertiaryLabelColor];
+		CGFloat avatar_alpha = 1.0;
+		if (row_view.isSelected) {
+			NSColor* selected_color = row_view.isEmphasized ? [NSColor alternateSelectedControlTextColor] : ([NSColor colorNamed:@"color_selected_unfocused_text"] ?: [NSColor unemphasizedSelectedTextColor]);
+			title_color = selected_color;
+			secondary_color = [selected_color colorWithAlphaComponent:0.78];
+			date_color = [selected_color colorWithAlphaComponent:0.55];
+		}
+		else if (self.showsReadState) {
+			title_color = [NSColor disabledControlTextColor];
+			secondary_color = title_color;
+			date_color = title_color;
+			avatar_alpha = 0.35;
+		}
+		self.titleTextField.textColor = title_color;
+		self.subtitleTextField.textColor = secondary_color;
+		self.subscriptionTextField.textColor = secondary_color;
+		self.dateTextField.textColor = date_color;
+		self.bookmarkTextField.textColor = date_color;
+		self.avatarView.alphaValue = avatar_alpha;
+	}];
+}
+
 - (void) layout
 {
 	CGFloat text_width = [self textColumnWidthForCellWidth:self.bounds.size.width];

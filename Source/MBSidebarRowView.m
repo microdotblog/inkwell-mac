@@ -6,6 +6,7 @@
 //
 
 #import "MBSidebarRowView.h"
+#import "MBSidebarCell.h"
 
 static CGFloat const InkwellSidebarRowBackgroundHorizontalInset = 10.0;
 static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
@@ -22,14 +23,32 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 	[self setNeedsDisplay:YES];
 }
 
-- (void) setCustomSelectionBackgroundColor:(NSColor*) custom_selection_background_color
+- (void) setSelected:(BOOL)selected
 {
-	if ((_customSelectionBackgroundColor == custom_selection_background_color) || [_customSelectionBackgroundColor isEqual:custom_selection_background_color]) {
-		return;
-	}
-
-	_customSelectionBackgroundColor = custom_selection_background_color;
+	[super setSelected:selected];
+	[self updateCellAppearance];
 	[self setNeedsDisplay:YES];
+}
+
+- (void) setEmphasized:(BOOL)emphasized
+{
+	[super setEmphasized:emphasized];
+	[self updateCellAppearance];
+}
+
+- (void) didAddSubview:(NSView *)subview
+{
+	[super didAddSubview:subview];
+	[self updateCellAppearance];
+}
+
+- (void) updateCellAppearance
+{
+	for (NSView* view in self.subviews) {
+		if ([view isKindOfClass:[MBSidebarCell class]]) {
+			[(MBSidebarCell*) view updateAppearance];
+		}
+	}
 }
 
 - (void) setCustomBorderColor:(NSColor*) custom_border_color
@@ -45,35 +64,19 @@ static CGFloat const InkwellSidebarRowBackgroundVerticalInset = 2.5;
 - (void) drawBackgroundInRect:(NSRect)dirty_rect
 {
 	[super drawBackgroundInRect:dirty_rect];
-	#pragma unused(dirty_rect)
-	NSColor* fill_color = self.customSelectionBackgroundColor;
-	if (fill_color == nil) {
-		fill_color = self.customBackgroundColor;
-	}
-
-	if (fill_color == nil) {
+	if (self.isSelected || self.customBackgroundColor == nil) {
 		return;
 	}
 
 	NSRect fill_rect = NSInsetRect(self.bounds, InkwellSidebarRowBackgroundHorizontalInset, InkwellSidebarRowBackgroundVerticalInset);
 	NSBezierPath* background_path = [NSBezierPath bezierPathWithRoundedRect:fill_rect xRadius:10.0 yRadius:10.0];
-	[fill_color setFill];
+	[self.customBackgroundColor setFill];
 	[background_path fill];
 	if (self.customBorderColor != nil) {
 		[self.customBorderColor setStroke];
 		background_path.lineWidth = 1.0;
 		[background_path stroke];
 	}
-}
-
-- (void) drawSelectionInRect:(NSRect)dirty_rect
-{
-	if (self.customSelectionBackgroundColor != nil) {
-		#pragma unused(dirty_rect)
-		return;
-	}
-
-	[super drawSelectionInRect:dirty_rect];
 }
 
 @end

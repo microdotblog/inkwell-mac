@@ -7,7 +7,70 @@
 
 #import "MBSidebarTableView.h"
 
+@interface MBSidebarTableView ()
+@property (copy) NSArray* rowIdentifiers;
+@end
+
 @implementation MBSidebarTableView
+
+- (void) updateRowIdentifiers:(NSArray *)rowIdentifiers
+{
+	if (self.rowIdentifiers == nil) {
+		self.rowIdentifiers = rowIdentifiers;
+		[self reloadData];
+		return;
+	}
+
+	NSMutableArray* current_identifiers = [self.rowIdentifiers mutableCopy];
+	NSSet* new_identifiers = [NSSet setWithArray:rowIdentifiers];
+	NSClipView* clip_view = self.enclosingScrollView.contentView;
+	NSRange visible_rows = [self rowsInRect:clip_view.bounds];
+	NSInteger top_row = visible_rows.length > 0 ? (NSInteger) visible_rows.location : -1;
+	id top_identifier = (top_row >= 0 && top_row < current_identifiers.count) ? current_identifiers[(NSUInteger) top_row] : nil;
+	CGFloat top_offset = (top_row >= 0) ? NSMinY(clip_view.bounds) - NSMinY([self rectOfRow:top_row]) : 0.0;
+	self.rowIdentifiers = rowIdentifiers;
+
+	// Keep surviving row views, their selection, and their highlight throughout refresh.
+	[NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+		context.duration = 0.0;
+		context.allowsImplicitAnimation = NO;
+		[self beginUpdates];
+		NSMutableIndexSet* removed_indexes = [NSMutableIndexSet indexSet];
+		[current_identifiers enumerateObjectsUsingBlock:^(id identifier, NSUInteger index, BOOL* stop) {
+			if (![new_identifiers containsObject:identifier]) {
+				[removed_indexes addIndex:index];
+			}
+		}];
+		[current_identifiers removeObjectsAtIndexes:removed_indexes];
+		[self removeRowsAtIndexes:removed_indexes withAnimation:NSTableViewAnimationEffectNone];
+		for (NSUInteger index = 0; index < rowIdentifiers.count; index++) {
+			id identifier = rowIdentifiers[index];
+			if (index < current_identifiers.count && [current_identifiers[index] isEqual:identifier]) {
+				continue;
+			}
+			NSUInteger old_index = [current_identifiers indexOfObject:identifier];
+			if (old_index == NSNotFound) {
+				[current_identifiers insertObject:identifier atIndex:index];
+				[self insertRowsAtIndexes:[NSIndexSet indexSetWithIndex:index] withAnimation:NSTableViewAnimationEffectNone];
+			}
+			else {
+				[current_identifiers removeObjectAtIndex:old_index];
+				[current_identifiers insertObject:identifier atIndex:index];
+				[self moveRowAtIndex:(NSInteger) old_index toIndex:(NSInteger) index];
+			}
+		}
+		[self endUpdates];
+		[self noteHeightOfRowsWithIndexesChanged:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, rowIdentifiers.count)]];
+		[self layoutSubtreeIfNeeded];
+		NSUInteger new_top_row = top_identifier != nil ? [rowIdentifiers indexOfObject:top_identifier] : NSNotFound;
+		if (clip_view != nil && new_top_row != NSNotFound) {
+			NSPoint origin = clip_view.bounds.origin;
+			origin.y = NSMinY([self rectOfRow:(NSInteger) new_top_row]) + top_offset;
+			[clip_view scrollToPoint:[clip_view constrainBoundsRect:NSMakeRect(origin.x, origin.y, NSWidth(clip_view.bounds), NSHeight(clip_view.bounds))].origin];
+			[self.enclosingScrollView reflectScrolledClipView:clip_view];
+		}
+	} completionHandler:nil];
+}
 
 - (void) keyDown:(NSEvent*) event
 {
@@ -37,26 +100,6 @@
 	}
 
 	[super keyDown:event];
-}
-
-- (BOOL) becomeFirstResponder
-{
-	BOOL did_become_first_responder = [super becomeFirstResponder];
-	if (did_become_first_responder && self.focusChangedHandler != nil) {
-		self.focusChangedHandler();
-	}
-
-	return did_become_first_responder;
-}
-
-- (BOOL) resignFirstResponder
-{
-	BOOL did_resign_first_responder = [super resignFirstResponder];
-	if (did_resign_first_responder && self.focusChangedHandler != nil) {
-		self.focusChangedHandler();
-	}
-
-	return did_resign_first_responder;
 }
 
 - (NSMenu*) menuForEvent:(NSEvent*) event
