@@ -235,6 +235,42 @@ static void TestSourceResponses(void)
 	}
 }
 
+static void TestSourcePostStatus(void)
+{
+	NSArray* statuses = @[ @[ @"draft" ], @[ @"published" ], @"draft", @"published", NSNull.null, @[], @503, @{}, @[ NSNull.null ], @"unknown" ];
+	for (NSNumber* draft_flag in @[ @NO, @YES ]) {
+		for (NSNumber* uses_properties in @[ @NO, @YES ]) {
+			NSMutableArray* items = [NSMutableArray array];
+			for (id status in statuses) {
+				NSDictionary* properties = @{ @"content": @[ @"Body" ], @"post-status": status };
+				[items addObject:uses_properties.boolValue ? @{ @"properties": properties } : properties];
+			}
+			NSDictionary* missing_status = @{ @"content": @[ @"Body" ] };
+			[items addObject:uses_properties.boolValue ? @{ @"properties": missing_status } : missing_status];
+			NSData* data = [NSJSONSerialization dataWithJSONObject:@{ @"items": items } options:0 error:nil];
+			NSString* body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+			MBClient* client = ClientForResponse(200, body, nil);
+			__block BOOL is_finished = NO;
+			void (^completion)(NSArray*, NSError*) = ^(NSArray* entries, NSError* error) {
+				Check(error == nil && entries.count == items.count, @"Mixed post statuses must preserve every source item.");
+				for (NSUInteger index = 0; index < entries.count; index++) {
+					BOOL expected_draft = index < 4 ? index % 2 == 0 : draft_flag.boolValue;
+					Check([entries[index][@"is_draft"] boolValue] == expected_draft, @"Use each post's status, with the requested list as fallback for missing or invalid status.");
+				}
+				is_finished = YES;
+			};
+			if (draft_flag.boolValue) {
+				[client fetchDraftEntriesForDestinationUID:@"example.micro.blog" token:@"test-token" completion:completion];
+			}
+			else {
+				[client fetchPostEntriesForDestinationUID:@"example.micro.blog" token:@"test-token" completion:completion];
+			}
+			WaitForCompletion(^BOOL { return is_finished; });
+			test_count += 1;
+		}
+	}
+}
+
 static void TestStartup(NSInteger statusCode, id body, NSError* error, BOOL shouldSignOut)
 {
 	[test_defaults setObject:@"saved-token" forKey:InkwellTokenDefaultsKey];
@@ -271,6 +307,7 @@ int main(void)
 		@try {
 			TestServerErrors();
 			TestSourceResponses();
+			TestSourcePostStatus();
 			TestStartup(503, @"<html>Unavailable</html>", nil, NO);
 			TestStartup(502, @"{\"error\":null}", nil, NO);
 			TestStartup(504, @"{\"error\":504}", nil, NO);

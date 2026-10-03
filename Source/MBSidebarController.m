@@ -4296,6 +4296,9 @@ typedef NS_ENUM(NSInteger, MBSidebarContentMode) {
 
 	NSString* subtitle_value = item.summary ?: @"";
 	NSString* date_value = [self displayDateStringForCurrentMode:item.date];
+	if (item.isDraft) {
+		date_value = date_value.length > 0 ? [date_value stringByAppendingString:@" • draft"] : @"draft";
+	}
 	NSString* raw_title_value = item.title ?: @"";
 	BOOL has_post_title = (raw_title_value.length > 0);
 	NSString* title_value = raw_title_value;

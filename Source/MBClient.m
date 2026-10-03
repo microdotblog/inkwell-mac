@@ -2593,6 +2593,15 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 
 	NSDictionary* properties = [dictionary[@"properties"] isKindOfClass:[NSDictionary class]] ? dictionary[@"properties"] : dictionary;
 
+	NSString* post_status = [self sourceStringValueFromObject:properties[@"post-status"]];
+	BOOL is_draft = isDraft;
+	if ([post_status isEqualToString:@"draft"]) {
+		is_draft = YES;
+	}
+	else if ([post_status isEqualToString:@"published"]) {
+		is_draft = NO;
+	}
+
 	NSString* title = [self sourceStringValueFromObject:properties[@"name"]];
 	NSString* content = [self sourceStringValueFromObject:properties[@"content"]];
 	NSString* content_html = [self markdownHTMLStringFromSourceMarkdown:content];
@@ -2622,7 +2631,7 @@ static NSString* const MBMicropubDestinationsCacheFilename = @"Destinations.json
 	entry[@"date_published"] = published ?: @"";
 	entry[@"source"] = destinationUID ?: @"";
 	entry[@"is_read"] = @YES;
-	entry[@"is_draft"] = @(isDraft);
+	entry[@"is_draft"] = @(is_draft);
 	if (uid.length > 0) {
 		entry[@"id"] = uid;
 	}
